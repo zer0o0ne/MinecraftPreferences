@@ -1,6 +1,6 @@
 # specs/vlm-client.md: VLMConfig (client) and ServerConfig (server).
 client:
-  base_url: "http://localhost:8000"
+  base_url: "http://localhost:8100"
   model: "qwen3vl-instruct-fp8"
   temperature: 0.7
   top_p: 0.8
@@ -23,8 +23,8 @@ server:
   hf_cli: "1.33.0"
   hf_home: "data/hf"
   container: "qwen3vl"
-  port: 8000
-  gpu_memory_utilization: 0.70
+  port: 8100
+  gpu_memory_utilization: 0.5
   max_images: 32
   max_prompt_tokens: 8192
   seed: 0

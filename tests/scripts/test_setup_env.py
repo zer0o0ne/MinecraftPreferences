@@ -1,4 +1,5 @@
-"""scripts/setup_env.sh and the project files against specs/spark-env.md."""
+"""scripts/setup_env.sh and the project files against specs/spark-env.md; step (7) against
+specs/vpt-gui-frames.md (Interface: `scripts/setup_env.sh` step (7))."""
 
 import importlib
 import os
@@ -12,13 +13,19 @@ import tomli
 
 DEV = {"pytest==9.1.1", "ruff==0.16.9", "pytest-timeout==2.4.0", "pytest-xdist==3.8.0"}
 ADDOPTS = "-m 'not gpu and not slow' -n auto --timeout=10 --durations=10"
-# CFG differs from the starting values (Notation) so that hard-coded values fail.
-CFG = {"driver_min": "575.64.05", "python_version": "3.10.18", "uv_version": "0.13.2"}
-NO_NVIDIA = [  # `docker info` runtimes without the quoted key "nvidia"
-    '{"io.containerd.runc.v2":{"path":"runc"},"runc":{"path":"runc"}}',
-    '{"runc":{"path":"/usr/bin/nvidia-container-runtime"}}',
-    '{"nvidia-cdi":{"path":"nvidia-container-runtime.cdi"}}',
-]
+# CFG differs from the starting values (Notation) so that hard-coded values fail; the deb
+# version has an epoch, a tilde and a plus, as Debian versions may.
+CFG = {"driver_min": "575.64.05", "python_version": "3.10.18", "uv_version": "0.13.2",
+       "ffmpeg_deb_version": "9:8.0.1-1~test2+b1"}  # fmt: skip
+V, UV = CFG["ffmpeg_deb_version"], CFG["uv_version"]
+# Step (7): database changes after which dpkg-query does not print six lines `installed V`.
+NOT_PINNED = {
+    "one package unknown": {"libswresample4": None},
+    "one at another version": {"libavutil58": ("installed", "9:8.0.2-1")},
+    "one at a longer version": {"libavformat60": ("installed", V + "build1")},
+    "one removed, version kept": {"libswscale7": ("config-files", V)},
+    "second architecture's copy": {"libavcodec60:armhf": ("installed", V)},
+}
 
 
 @pytest.fixture
@@ -46,15 +53,15 @@ def read_config(path: Path) -> dict:
 
 def test_steps_in_order_with_spec_arguments(spark):
     result = spark.run()
-    assert result.returncode == 0
-    assert result.events == spark.expected(spark.uv_check(CFG["uv_version"]))
+    assert result.returncode == 0, result.stderr
+    assert result.events == spark.expected(spark.uv_check(UV))
 
 
 def test_committed_config_drives_the_steps(make_spark, repo):
     spark = make_spark(read_config(repo / "configs/spark-env.yaml"))
     shutil.copy(repo / "configs/spark-env.yaml", spark.repo / "configs")
     result = spark.run()
-    assert result.returncode == 0
+    assert result.returncode == 0, result.stderr
     assert result.events == spark.expected(spark.uv_check(spark.cfg["uv_version"]))
 
 
@@ -62,15 +69,16 @@ def test_committed_config_drives_the_steps(make_spark, repo):
     "where, argv", [("cwd", None), ("repo/scripts", ["./setup_env.sh"])]
 )
 def test_runs_in_repository_root(spark, where, argv):
+    spark.set_debs({})  # step (7) installs: sudo and the apt tools run too
     result = spark.run(cwd=spark.tmp / where, argv=argv)
-    assert result.returncode == 0
+    assert result.returncode == 0, result.stderr
     assert {os.path.realpath(c) for c in result.cwds} == {os.path.realpath(spark.repo)}
 
 
 def test_absent_uv_is_installed(spark):
     spark.set_uv(None)
     result = spark.run()
-    assert result.returncode == 0
+    assert result.returncode == 0, result.stderr
     assert result.events == spark.expected(spark.uv_install())
 
 
@@ -78,17 +86,20 @@ def test_absent_uv_is_installed(spark):
 def test_other_uv_version_is_replaced(spark, old):
     spark.set_uv(old)
     result = spark.run()
-    assert result.returncode == 0
+    assert result.returncode == 0, result.stderr
     assert result.events == spark.expected(spark.uv_check(old) + spark.uv_install())
 
 
 def test_second_run_installs_nothing(spark):
     spark.set_uv(None)
+    spark.set_debs({})
     first = spark.run()
     home = spark.home_files()
     second = spark.run()
-    assert (first.returncode, second.returncode) == (0, 0)
-    assert second.events == spark.expected(spark.uv_check(CFG["uv_version"]))
+    assert (first.returncode, second.returncode) == (0, 0), second.stderr
+    install = spark.expected(spark.uv_install(), ffmpeg=spark.ffmpeg_install())
+    assert first.events == install
+    assert second.events == spark.expected(spark.uv_check(UV))
     assert spark.home_files() == home
 
 
@@ -116,27 +127,27 @@ def test_arch_other_than_aarch64_fails(spark, arch):
 def test_driver_at_least_driver_min_passes(spark, driver):
     spark.driver = driver
     result = spark.run()
-    assert result.returncode == 0
-    assert result.events == spark.expected(spark.uv_check(CFG["uv_version"]))
+    assert result.returncode == 0, result.stderr
+    assert result.events == spark.expected(spark.uv_check(UV))
 
 
 @pytest.mark.parametrize("driver", ["575.64.04", "575.9.99", "99.99.99"])
 def test_driver_below_driver_min_fails(spark, driver):
     spark.driver = driver
-    assert_failed(spark.run(), spark.expected([], "driver"), "driver")
+    message = f"driver {driver} is older than driver_min {CFG['driver_min']}"
+    assert_failed(spark.run(), spark.expected([], "driver"), "driver", message)
+
+
+def test_docker_info_output_is_discarded(spark):
+    result = spark.run()
+    assert result.returncode == 0, result.stderr
+    assert spark.docker_info not in result.log
 
 
 def test_docker_inaccessible_asks_to_join_group(spark):
     spark.docker = "denied"
     messages = ("sudo usermod -aG docker $USER", "log in again")
     assert_failed(spark.run(), spark.expected([], "docker"), "docker", *messages)
-
-
-@pytest.mark.parametrize("runtimes", NO_NVIDIA)
-def test_docker_without_quoted_nvidia_runtime_fails(spark, runtimes):
-    spark.runtimes = runtimes
-    message = "NVIDIA container runtime not found"
-    assert_failed(spark.run(), spark.expected([], "docker"), "docker", message)
 
 
 def test_failed_download_fails_uv_step(spark):
@@ -150,15 +161,37 @@ def test_failed_download_fails_uv_step(spark):
 )
 def test_failed_uv_command_fails_its_step(spark, step, command):
     spark.fail = command
-    events = spark.expected(spark.uv_check(CFG["uv_version"]), step)
+    events = spark.expected(spark.uv_check(UV), step)
     assert_failed(spark.run(), events, step)
+
+
+@pytest.mark.parametrize("state", ["no package known", *NOT_PINNED])
+def test_ffmpeg_not_pinned_is_installed_and_held_with_sudo(spark, state):
+    spark.set_debs(spark.pinned(**NOT_PINNED[state]) if state in NOT_PINNED else {})
+    result = spark.run()
+    assert result.returncode == 0, result.stderr
+    install = spark.ffmpeg_install()
+    assert result.events == spark.expected(spark.uv_check(UV), ffmpeg=install)
+
+
+@pytest.mark.parametrize(  # `calls`: the failing call is the last; sudo, then the apt tool
+    "command, calls",
+    [("sudo", 2), ("apt-get update", 3), ("apt-get install", 5), ("apt-mark hold", 7)],
+)
+def test_failed_ffmpeg_command_fails_its_step(spark, command, calls):
+    spark.set_debs({})
+    spark.fail = command
+    ffmpeg = spark.ffmpeg_install()[:calls]
+    events = spark.expected(spark.uv_check(UV), "ffmpeg", ffmpeg)
+    assert_failed(spark.run(), events, "ffmpeg")
 
 
 def test_committed_config_starting_values(repo):
     assert read_config(repo / "configs/spark-env.yaml") == {
         "uv_version": "0.12.19",
         "python_version": "3.10.20",
-        "driver_min": "580.159.03",
+        "driver_min": "580.95.05",
+        "ffmpeg_deb_version": "7:6.1.1-3ubuntu5",  # vpt-gui-frames: Library mapping
     }
 
 

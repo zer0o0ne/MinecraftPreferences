@@ -1,4 +1,5 @@
-"""src/mcpref/vlm/server.py against specs/vlm-client.md: Interface (entry), Server steps 2 and 4."""
+"""src/mcpref/vlm/server.py against specs/vlm-client.md: Interface (entry, `prepare`), Server steps 2
+and 4."""
 
 import dataclasses
 import json
@@ -77,14 +78,33 @@ def test_serve_command_with_starting_values(repo, docker):
     assert not any("API_KEY" in a or a == "--api-key" for a in argv)  # Server step 3
 
 
-def test_prepare_runs_step_2_in_order_passing_output_through(
+def gpu_check(s: dict) -> list:
+    """Interface, `prepare`: GPU access inside containers, with the vLLM image."""
+    return ["docker", "run", "--rm", "--gpus", "all", "--entrypoint", "nvidia-smi", s["image"], "-L"]  # fmt: skip
+
+
+def test_prepare_runs_step_2_then_gpu_check_passing_output_through(
     docker, fields, write_config, repo, as_executed
 ):
     assert main(["prepare", str(write_config(fields))]) == 0
     expected = expected_prepare(fields["server"], repo)
-    assert [as_executed(c.argv)[1] for c in docker.calls] == [c for _, c in expected]
+    commands = [c for _, c in expected] + [gpu_check(fields["server"])]
+    assert [as_executed(c.argv)[1] for c in docker.calls] == commands
     assert docker.calls[1].env["HF_HOME"] == expected[1][0]["HF_HOME"]
     assert all(c.passthrough for c in docker.calls)
+
+
+@pytest.mark.parametrize("no_gpu", ["daemon error", "nvidia-smi fails"])
+def test_prepare_without_gpu_in_containers_names_the_toolkit(
+    docker, fields, write_config, failed, no_gpu
+):
+    if no_gpu == "daemon error":
+        docker.gpus = False
+    else:
+        docker.fail[tuple(gpu_check(fields["server"]))] = 9
+    code = main(["prepare", str(write_config(fields))])
+    assert "NVIDIA Container Toolkit" in failed(code, docker)
+    assert len(docker.calls) == 3
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,17 @@
+# specs/gui-masks.md: GuiMasksConfig. Paths relative to the repository root.
+frames_dir: "data/gui_frames"
+labels_dir: "data/gui_labels"
+screens: "configs/gui-screens.yaml"
+split: ["0.6", "0.2", "0.2"]
+seed: 0
+min_episodes: 10
+spread_quantile: 0.9
+spread_max: 24
+patch: 8
+patches_per_class: 64
+eps: 1
+tau_grid: [8, 16, 24, 32, 48]
+theta_grid: ["0.5", "0.6", "0.7", "0.8", "0.9", "0.95"]
+mu_grid: ["0", "0.05", "0.1", "0.2"]
+chunk_rows: 40
+out_dir: "data/gui_masks"

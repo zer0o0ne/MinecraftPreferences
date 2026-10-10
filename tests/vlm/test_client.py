@@ -221,7 +221,7 @@ def test_load_config_reads_both_sections(fields, write_config):
 def test_committed_config_starting_values(repo):
     cfg, srv = load_config(repo / "configs/vlm.yaml")
     assert cfg == VLMConfig(
-        base_url="http://localhost:8000", model="qwen3vl-instruct-fp8", temperature=0.7, top_p=0.8,
+        base_url="http://localhost:8100", model="qwen3vl-instruct-fp8", temperature=0.7, top_p=0.8,
         top_k=20, min_p=0.0, presence_penalty=1.5, frequency_penalty=0.0, repetition_penalty=1.0,
         max_tokens=300, min_pixels=65536, max_pixels=230400, max_in_flight=16, attempt_timeout=300,
         max_resends=3, resend_delay=10,
@@ -230,7 +230,7 @@ def test_committed_config_starting_values(repo):
         image="vllm/vllm-openai:v0.31.0-aarch64@sha256:"
         "3f7dd5b777d34d1724456ce71f87385dca288c3bb23029ab27dee358f5d2b971",
         model_repo="Qwen/Qwen3-VL-30B-A3B-Instruct-FP8", revision="d9748a51ae66354c4dad665aab2c71f26cf2c8cd",
-        hf_cli="1.33.0", hf_home="data/hf", container="qwen3vl", port=8000, gpu_memory_utilization=0.70,
+        hf_cli="1.33.0", hf_home="data/hf", container="qwen3vl", port=8100, gpu_memory_utilization=0.5,
         max_images=32, max_prompt_tokens=8192, seed=0, stack_ulimit=67108864, ready_timeout=1800,
         poll_interval=5, poll_request_timeout=5, log_tail=200, transformers_version="5.17.0",
     )  # fmt: skip

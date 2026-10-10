@@ -15,6 +15,9 @@ import yaml
 
 RUNNING, NAMES = "{{.State.Running}}", "{{.Names}}"
 TRANSFORMERS = "import transformers; print(transformers.__version__)"
+GPU_CHECK = {"--rm": True, "--gpus": "all", "--entrypoint": "nvidia-smi", "-L": True}
+NO_GPU = "fake-docker: Error response from daemon: could not select device driver"
+NO_GPU += ' "" with capabilities: [[gpu]].\n'
 
 
 @pytest.fixture
@@ -114,12 +117,12 @@ class FakeDocker:
     """`subprocess.run` for the Docker CLI calls of the Server section; other programs succeed.
 
     `containers` maps a name to whether it runs; `fail` maps a command prefix to an exit
-    status, or to None for a missing executable.
+    status, or to None for a missing executable; `gpus`: containers get GPU access.
     """
 
     def __init__(self, http, version: str, log: list):
         self.http, self.version, self.log = http, version, list(log)
-        self.containers, self.calls, self.fail = {}, [], {}
+        self.containers, self.calls, self.fail, self.gpus = {}, [], {}, True
         self.stops = self.inspect_fails = False
         self.listen_delay, self.run_returned = 0.0, None
 
@@ -177,6 +180,8 @@ class FakeDocker:
         return 0, [("out", a[1] + "\n")]
 
     def run(self, a: list) -> tuple:
+        if "--name" not in a:
+            return self.gpu_check(a)
         name = a[a.index("--name") + 1]
         if name in self.containers:
             return 125, [
@@ -188,6 +193,16 @@ class FakeDocker:
             timer.daemon = True
             timer.start()
         return 0, [("out", "fake-docker: c0ffee\n")]
+
+    def gpu_check(self, a: list) -> tuple:
+        """`docker run --rm --gpus all --entrypoint nvidia-smi IMAGE -L`; without `gpus`, the
+        daemon's error when the NVIDIA Container Toolkit does not serve `--gpus`."""
+        opts, rest = options(a, ("--gpus", "--entrypoint"))
+        if opts != GPU_CHECK or len(rest) != 1:
+            return unknown(a)
+        if not self.gpus:
+            return 125, [("err", NO_GPU)]
+        return 0, [("out", "fake-docker: GPU 0: NVIDIA GB10 (UUID: GPU-fake)\n")]
 
     def exec(self, a: list) -> tuple:
         if a[1:] != ["python3", "-c", TRANSFORMERS] or not self.containers.get(a[0]):

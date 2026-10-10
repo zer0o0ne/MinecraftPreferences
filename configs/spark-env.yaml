@@ -1,3 +1,4 @@
 uv_version: 0.12.19
 python_version: 3.10.20
-driver_min: 580.159.03
+driver_min: 580.95.05
+ffmpeg_deb_version: 7:6.1.1-3ubuntu5

@@ -1,5 +1,5 @@
 # Spark environment
-Status: approved (2026-10-10, amended and re-approved the same day; test tiers added with the user's approval the same day)
+Status: approved (2026-10-10, amended and re-approved the same day; test tiers added; driver minimum and docker check corrected after the first run on the Spark, with the user)
 Stage: infrastructure for every stage run on the NVIDIA DGX Spark (`specs/00-overview.md`); implemented first: it creates the project files every other block builds on.
 
 ## Sources
@@ -8,15 +8,15 @@ Stage: infrastructure for every stage run on the NVIDIA DGX Spark (`specs/00-ove
 - [NV] NVIDIA DGX Spark vLLM playbook: the user must be in the `docker` group (`sudo usermod -aG docker $USER`, then log in again).
 
 ## Notation
-- `configs/spark-env.yaml`, read by bash: one `key: value` per line, `key` matching `[a-z_]+`, `value` without spaces, quotes or comments; a missing key is an error. Keys: `uv_version`, `python_version`, `driver_min` (minimum NVIDIA driver version).
-- Starting values: `uv_version` = `0.12.19`, `python_version` = `3.10.20` (cpython linux-aarch64-gnu build listed by uv), `driver_min` = `580.159.03`.
+- `configs/spark-env.yaml`, read by bash: one `key: value` per line, `key` matching `[a-z_]+`, `value` without spaces, quotes or comments; a missing key is an error. Keys: `uv_version`, `python_version`, `driver_min` (minimum NVIDIA driver version); `ffmpeg_deb_version` (added by block vpt-gui-frames, step (7)).
+- Starting values: `uv_version` = `0.12.19`, `python_version` = `3.10.20` (cpython linux-aarch64-gnu build listed by uv), `driver_min` = `580.95.05` (the minimum for CUDA 13.0 Update 2, the image's CUDA; the user's Spark runs 580.142).
 
 ## Behaviour
 `scripts/setup_env.sh`, bash with `set -euo pipefail`. It first changes to the repository root (`cd "$(dirname "$0")/.."`). Each step prints `== <name>` on stdout before it runs; an `ERR` trap prints `setup_env.sh: step <name> failed` to stderr. Idempotent: a second run installs nothing new and succeeds. Step names in parentheses below.
 (0) `config`: read `configs/spark-env.yaml`; a missing file or key prints `setup_env.sh: missing <key> in configs/spark-env.yaml` (or `missing configs/spark-env.yaml`) to stderr and fails.
 (1) `arch`: `uname -m` is `aarch64`.
-(2) `driver`: `nvidia-smi --query-gpu=driver_version --format=csv,noheader` ≥ `driver_min` (compared with `sort -V`).
-(3) `docker`: `docker info --format '{{json .Runtimes}}'` succeeds — else stderr contains `sudo usermod -aG docker $USER` and `log in again`; its output contains `"nvidia"` — else stderr contains `NVIDIA container runtime not found`.
+(2) `driver`: `nvidia-smi --query-gpu=driver_version --format=csv,noheader` ≥ `driver_min` (compared with `sort -V`); else stderr contains `driver <found> is older than driver_min <driver_min>`.
+(3) `docker`: `docker info >/dev/null` succeeds — else stderr contains `sudo usermod -aG docker $USER` and `log in again`. GPU access inside containers is checked by step (8) (block vlm-client), with the vLLM image itself: on DGX OS the NVIDIA Container Toolkit serves `--gpus all` without registering a `nvidia` runtime (found on the user's Spark, 2026-10-10).
 (4) `uv`: `PATH="$HOME/.local/bin:$PATH"`. If the second field of `uv --version` is not `uv_version` (or uv is absent): `curl -LsSf https://astral.sh/uv/<uv_version>/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" UV_NO_MODIFY_PATH=1 sh`.
 (5) `python`: `uv python install <python_version>`.
 (6) `sync`: `uv sync --locked --python <python_version>`.
@@ -42,7 +42,7 @@ Every other script in `scripts/` starts the same way: `set -euo pipefail`, `cd "
 | (5), (6) | `uv python install`, `uv sync --locked` | `uv_version` | `--locked`, `--python` | [UV] CLI help, tested on 0.12.19 |
 
 ## Out of scope
-- Installing Docker, the NVIDIA driver or the container toolkit; joining the `docker` group (a precondition, see (3)); any `sudo`.
+- Installing Docker, the NVIDIA driver or the container toolkit; joining the `docker` group (a precondition, see (3)); any `sudo` except step (7) of block vpt-gui-frames.
 - Java and MineStudio's simulator (block env, later).
 - Running `setup_env.sh` on other machines (this machine runs `uv sync --locked` directly).
 

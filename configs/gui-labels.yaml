@@ -1,0 +1,11 @@
+# specs/gui-labels.md: GuiLabelsConfig.
+frames_dir: "data/gui_frames"
+screens: "configs/gui-screens.yaml"
+vlm: "configs/vlm.yaml"
+instruction: "This is a screenshot of Minecraft 1.16 with a GUI screen open."
+question: "Which of these screens is open? Answer with the name only, exactly as written.\n{classes}"
+class_line: "{name}: {description}"
+other_description: "any other screen, or no screen"
+seed: 0
+batch: 256
+out_dir: "data/gui_labels"

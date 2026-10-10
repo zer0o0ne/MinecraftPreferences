@@ -46,6 +46,18 @@ def serve_command(cfg: VLMConfig, srv: ServerConfig) -> list[str]:
     )
 
 
+def prepare(srv: ServerConfig) -> None:
+    """Interface `prepare`: Server step 2, then GPU access inside containers."""
+    for cmd in prepare_commands(srv):
+        check(cmd)
+    gpu = ["docker", "run", "--rm", "--gpus", "all", "--entrypoint", "nvidia-smi"]
+    try:
+        check([*gpu, srv.image, "-L"])
+    except RuntimeError as error:
+        toolkit = "no GPU access inside containers; check the NVIDIA Container Toolkit"
+        raise RuntimeError(f"{toolkit}: {error}") from error
+
+
 def serve(cfg: VLMConfig, srv: ServerConfig) -> None:
     """Interface `serve`: replace the container, start it, wait and check (step 5)."""
     remove(srv)
@@ -78,8 +90,7 @@ def main(argv: Sequence[str]) -> int:
         with readable(f"config {args.config}"):
             cfg, srv = load_config(args.config)
         if args.command == "prepare":
-            for cmd in prepare_commands(srv):
-                check(cmd)
+            prepare(srv)
         elif args.command == "serve":
             serve(cfg, srv)
         else:

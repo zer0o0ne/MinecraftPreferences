@@ -12,7 +12,7 @@ import numpy as np
 import yaml
 from PIL import Image
 
-Outcome = httpx.Response | httpx.TransportError
+from mcpref.http.retry import Outcome, retryable
 
 
 @dataclass(frozen=True)
@@ -114,11 +114,6 @@ async def attempt(client: httpx.AsyncClient, body: dict, cfg: VLMConfig) -> Outc
         return error
 
 
-def resendable(outcome: Outcome) -> bool:
-    """(6): connection error or HTTP 5xx."""
-    return isinstance(outcome, httpx.TransportError) or outcome.is_server_error
-
-
 def failure(outcome: Outcome) -> RuntimeError:
     """(6): the error with the HTTP status and body, or with the transport error."""
     if isinstance(outcome, httpx.TransportError):
@@ -139,13 +134,13 @@ async def ask_one(
         try:
             outcome = await attempt(client, body, cfg)
             for _ in range(cfg.max_resends):
-                if not resendable(outcome):
+                if not retryable(outcome):
                     break
                 await asyncio.sleep(cfg.resend_delay)
                 outcome = await attempt(client, body, cfg)
         except asyncio.TimeoutError:
             return None
-        if resendable(outcome) or outcome.is_client_error:
+        if retryable(outcome) or outcome.is_client_error:
             raise failure(outcome)
         return answer(outcome.json())
 

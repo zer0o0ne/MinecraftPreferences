@@ -26,7 +26,7 @@ Open questions: `specs/00-questions.md`, section VLMC.
 (5) At most $K$ requests in flight. An attempt longer than $T_{out}$ from its start (waiting for a slot excluded) is cancelled → `None`, not resent (Q VLMC-6).
 (6) Transport error (any `httpx.TransportError`) or HTTP 5xx → resend after $\delta$, keeping its slot, at most $R$ times. Then, or at once on HTTP 4xx: cancel all requests in flight and raise `RuntimeError` with the HTTP status and body, or with the transport error.
 
-Starting values of the other client fields: `base_url` = `http://localhost:8000`, `model` = `qwen3vl-instruct-fp8`, `max_in_flight` = 16, `attempt_timeout` = 300, `max_resends` = 3, `resend_delay` = 10.
+Starting values of the other client fields: `base_url` = `http://localhost:8100`, `model` = `qwen3vl-instruct-fp8`, `max_in_flight` = 16, `attempt_timeout` = 300, `max_resends` = 3, `resend_delay` = 10.
 
 Table 1 — sampling and preprocessing fields; all are config fields with the same names.
 | Field | Starting value | Source / note |
@@ -45,14 +45,14 @@ Table 1 — sampling and preprocessing fields; all are config fields with the sa
 ## Interface
 - Module: `src/mcpref/vlm/client.py`.
 - `@dataclass(frozen=True) class VLMConfig`, `@dataclass(frozen=True) class ServerConfig` — the config fields of Notation; `def load_config(path: Path) -> tuple[VLMConfig, ServerConfig]` reads `configs/vlm.yaml`.
-- `def ask_many(prompts: Sequence[Sequence[str | np.ndarray]], seeds: Sequence[int], cfg: VLMConfig) -> list[str | None]` — synchronous, runs its own event loop; result $i$ is the answer to `prompts[i]` with seed `seeds[i]`; (1)–(6). Request: `POST {cfg.base_url}/v1/chat/completions`; `base_url` has no trailing slash and no `/v1`, e.g. `http://localhost:8000`. No authentication ([U] 2026-10-10: the server is reachable only from the Spark itself, and any local process may use it).
+- `def ask_many(prompts: Sequence[Sequence[str | np.ndarray]], seeds: Sequence[int], cfg: VLMConfig) -> list[str | None]` — synchronous, runs its own event loop; result $i$ is the answer to `prompts[i]` with seed `seeds[i]`; (1)–(6). Request: `POST {cfg.base_url}/v1/chat/completions`; `base_url` has no trailing slash and no `/v1`, e.g. `http://localhost:8100`. No authentication ([U] 2026-10-10: the server is reachable only from the Spark itself, and any local process may use it).
 - Domain: `len(seeds) == len(prompts) ≥ 1`; every prompt has ≥ 1 part, ≤ $N_{img}$ images and ≤ $P_{max}$ tokens; text parts contain no special-token strings (`<|…|>`); seeds as in Notation. Nothing outside it is checked.
 - `max_in_flight` = server `--max-num-seqs`.
 - Consumes: the server of section Server at `base_url`.
 - Produces: nothing on disk; the caller (block gui-labels, later vlm-labels) stores answers.
 - Module: `src/mcpref/vlm/server.py` (entry, Server steps 2 and 4), with `src/mcpref/vlm/container.py` (container existence, Server step 5); `def main(argv: Sequence[str]) -> int`, run as `python -m mcpref.vlm.server {prepare|serve|stop} <config path>` (argparse: one positional subcommand, one positional path).
   - `def prepare_commands(srv: ServerConfig) -> list[list[str]]` — the argument lists of Server step 2; `def serve_command(cfg: VLMConfig, srv: ServerConfig) -> list[str]` — the argument list of Server step 4. Pure functions; commands run without a shell; paths made absolute from the repository root.
-  - `prepare`: runs `prepare_commands` in order. Called by `scripts/setup_env.sh` step (8) (block spark-env), which this block adds.
+  - `prepare`: runs `prepare_commands` in order, then checks GPU access inside containers: `docker run --rm --gpus all --entrypoint nvidia-smi {server.image} -L` must exit 0 (else the one-line message names the NVIDIA Container Toolkit). Called by `scripts/setup_env.sh` step (8) (block spark-env), which this block adds.
   - `serve`: `docker rm -f {server.container}` if the container exists; runs `serve_command`; then Server step 5.
   - Container existence (used by `serve` and `stop`): `docker ps -a --filter name=^/{server.container}$ --format {{.Names}}` prints exactly `{server.container}` (an anchored name match; `docker container inspect` would also match an ID prefix); its output is captured.
   - `stop`: if the container exists, `docker rm -f {server.container}` and print `stopped {server.container}`; else print `{server.container} is not running`; both exit 0.
@@ -65,7 +65,7 @@ Table 1 — sampling and preprocessing fields; all are config fields with the sa
 ## Server
 The steps below are what `prepare`, `scripts/serve_vlm.sh` and `serve` do; listed for the record.
 DGX Spark: GB10, aarch64, 128 GB unified memory. Checked against DGX OS 7.5.0 (driver 580.159.03, CUDA 13.0.2).
-1. `nvidia-smi` shows driver ≥ 580.159.03 (checked by `scripts/setup_env.sh`). Avoid NGC `nvcr.io/nvidia/vllm` ≥ 26.04: it needs driver ≥ 595.58, and forward compatibility fails on Spark.
+1. `nvidia-smi` shows driver ≥ `driver_min` of `configs/spark-env.yaml` (580.95.05; checked by `scripts/setup_env.sh`; the user's Spark runs 580.142). Avoid NGC `nvcr.io/nvidia/vllm` ≥ 26.04: it needs driver ≥ 595.58, and forward compatibility fails on Spark.
 2. `prepare`: `docker pull {server.image}`; `HF_HOME={server.hf_home} uvx --from huggingface_hub=={server.hf_cli} hf download {server.model_repo} --revision {server.revision}` (32.3 GB). `serve_vlm.sh` frees the page cache before `serve`, since it shares the unified memory.
 3. No API key: vLLM runs without `--api-key` / `VLLM_API_KEY`, so it installs no authentication; the port is bound to 127.0.0.1 ([U] 2026-10-10).
 4. `serve` runs (`{…}` = config field; `{client.max_tokens + server.max_prompt_tokens}` computed):
@@ -84,7 +84,7 @@ docker run -d --name {server.container} --gpus all --ipc=host --ulimit memlock=-
   --generation-config vllm --seed {server.seed}
 ```
    The two JSON arguments are single argv items built with `json.dumps`. Switches, not tunables: `memlock=-1` (unlimited), `"video": 0` (no video input), `VLLM_USE_DEEP_GEMM=0` (off), `HF_HUB_OFFLINE=1` (no downloads in the container).
-   Starting values: `image` = `vllm/vllm-openai:v0.31.0-aarch64@sha256:3f7dd5b777d34d1724456ce71f87385dca288c3bb23029ab27dee358f5d2b971`, `model_repo` = `Qwen/Qwen3-VL-30B-A3B-Instruct-FP8`, `revision` = `d9748a51ae66354c4dad665aab2c71f26cf2c8cd`, `hf_cli` = `1.33.0`, `hf_home` = `data/hf`, `container` = `qwen3vl`, `port` = 8000, `gpu_memory_utilization` = 0.70, `max_images` = 32, `max_prompt_tokens` = 8192, `seed` = 0, `stack_ulimit` = 67108864, `ready_timeout` = 1800, `poll_interval` = 5, `poll_request_timeout` = 5, `log_tail` = 200, `transformers_version` = `5.17.0`, `model` = `qwen3vl-instruct-fp8`, `max_in_flight` = 16.
+   Starting values: `image` = `vllm/vllm-openai:v0.31.0-aarch64@sha256:3f7dd5b777d34d1724456ce71f87385dca288c3bb23029ab27dee358f5d2b971`, `model_repo` = `Qwen/Qwen3-VL-30B-A3B-Instruct-FP8`, `revision` = `d9748a51ae66354c4dad665aab2c71f26cf2c8cd`, `hf_cli` = `1.33.0`, `hf_home` = `data/hf`, `container` = `qwen3vl`, `port` = 8100 (8000 is taken on the user's Spark), `gpu_memory_utilization` = 0.5 ([U] 2026-10-10: half the memory stays for other work on the Spark), `max_images` = 32, `max_prompt_tokens` = 8192, `seed` = 0, `stack_ulimit` = 67108864, `ready_timeout` = 1800, `poll_interval` = 5, `poll_request_timeout` = 5, `log_tail` = 200, `transformers_version` = `5.17.0`, `model` = `qwen3vl-instruct-fp8`, `max_in_flight` = 16.
    - `--moe-backend triton`, `VLLM_USE_DEEP_GEMM=0`: otherwise vLLM picks DeepGEMM on GB10, which rounds the checkpoint's FP32 block scales to powers of two (vllm#50332).
    - `--generation-config vllm`: otherwise `generation_config.json` silently fills every sampling field a request omits.
    - `--chat-template-content-format openai`: pins the layout of (1) instead of auto-detection.

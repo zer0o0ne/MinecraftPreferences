@@ -1,0 +1,33 @@
+# specs/vpt-gui-frames.md: GuiFramesConfig.
+index_urls:
+  "6xx": "https://openaipublic.blob.core.windows.net/minecraft-rl/snapshots/all_6xx_Jun_29.json"
+  "7xx": "https://openaipublic.blob.core.windows.net/minecraft-rl/snapshots/all_7xx_Apr_6.json"
+  "8xx": "https://openaipublic.blob.core.windows.net/minecraft-rl/snapshots/all_8xx_Jun_29.json"
+  "9xx": "https://openaipublic.blob.core.windows.net/minecraft-rl/snapshots/all_9xx_Jun_29.json"
+  "10xx": "https://openaipublic.blob.core.windows.net/minecraft-rl/snapshots/all_10xx_Jun_29.json"
+x_ms_version: "2019-12-12"
+min_version: "6.12"
+required_options:
+  guiScale: 2
+  fullscreen: false
+  framebufferWidth: 1280
+  framebufferHeight: 720
+  lang: "en_us"
+  forceUnicodeFont: false
+  resourcePacks: "[]"
+width: 640
+height: 360
+fps: 20
+n_frames: 5000
+per_episode: 5
+seed: 0
+workers: 8
+http_timeout: 60
+http_retries: 3
+retry_delay: 10
+ffmpeg: "/usr/bin/ffmpeg"
+ffmpeg_rw_timeout: 60
+ffmpeg_timeout: 300
+verify_relpath: "data/10.0/cheeky-cornflower-setter-02e496ce4abb-20220421-092639.mp4"
+verify_frames: [0, 127, 128, 129, 1271, 5999, 6000]
+out_dir: "data/gui_frames"

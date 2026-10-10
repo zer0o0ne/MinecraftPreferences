@@ -3,32 +3,20 @@
 import argparse
 import hashlib
 import sys
-import time
 import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
-import yaml
 
 from mcpref import REPO
+from mcpref.cli.failure import FAILURES, failed
 from mcpref.gui.screens import ScreenClass, fields, keys, load_screens, read_catalogue
+from mcpref.http.retry import get
 
 PREFIX = "assets/minecraft/textures/"
 FONT = "font/ascii.png"
-
-Outcome = httpx.Response | httpx.TransportError
-FAILURES = (
-    OSError,
-    ValueError,
-    KeyError,
-    TypeError,
-    RuntimeError,
-    yaml.YAMLError,
-    httpx.HTTPError,
-    zipfile.BadZipFile,
-)
 
 
 @dataclass(frozen=True)
@@ -55,32 +43,13 @@ def needed(classes: dict[str, ScreenClass]) -> set[str]:
     return {b.texture for b in blits} | {FONT}
 
 
-def attempt(client: httpx.Client, cfg: TexturesConfig) -> Outcome:
-    """One GET of `url`: `http_timeout` per phase, no redirects; returns a transport error."""
-    timeout = httpx.Timeout(cfg.http_timeout)
-    try:
-        return client.get(cfg.url, timeout=timeout, follow_redirects=False)
-    except httpx.TransportError as error:
-        return error
-
-
-def retryable(outcome: Outcome) -> bool:
-    """Interface `main`: any `httpx.TransportError` or HTTP 5xx is retried."""
-    return isinstance(outcome, httpx.TransportError) or outcome.is_server_error
-
-
 def download(cfg: TexturesConfig) -> bytes:
     """The body of `url`; at most `http_retries` retries after `retry_delay` each."""
     with httpx.Client() as client:
-        outcome = attempt(client, cfg)
-        for _ in range(cfg.http_retries):
-            if not retryable(outcome):
-                break
-            time.sleep(cfg.retry_delay)
-            outcome = attempt(client, cfg)
-    if isinstance(outcome, httpx.TransportError):
-        raise outcome
-    return outcome.raise_for_status().content
+        response = get(
+            client, cfg.url, cfg.http_timeout, cfg.http_retries, cfg.retry_delay
+        )
+    return response.raise_for_status().content
 
 
 def wanted(zf: zipfile.ZipFile) -> list[str]:
@@ -121,10 +90,8 @@ def main(argv: Sequence[str]) -> int:
     args = parser.parse_args(argv)
     try:
         fetch_textures(load_textures_config(args.config), load_screens(args.config))
-    except FAILURES as error:
-        cause = " ".join(f"{type(error).__name__}: {error}".split())
-        print(f"mcpref.gui.textures: {cause}", file=sys.stderr)
-        return 1
+    except (*FAILURES, zipfile.BadZipFile) as error:
+        return failed("mcpref.gui.textures", error)
     return 0
 
 

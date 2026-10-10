@@ -14,18 +14,19 @@ step config
 uv_version=$(cfg uv_version)
 python_version=$(cfg python_version)
 driver_min=$(cfg driver_min)
+ffmpeg_deb_version=$(cfg ffmpeg_deb_version)
 
 step arch
 [[ $(uname -m) == aarch64 ]]
 
 step driver
 driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader)
-printf '%s\n' "$driver_min" "$driver" | sort -V -C
+printf '%s\n' "$driver_min" "$driver" | sort -V -C ||
+  fail "driver $driver is older than driver_min $driver_min"
 
 step docker
-runtimes=$(docker info --format '{{json .Runtimes}}') ||
+docker info >/dev/null ||
   fail 'docker info failed; run "sudo usermod -aG docker $USER", then log in again'
-[[ $runtimes == *'"nvidia"'* ]] || fail "NVIDIA container runtime not found"
 
 step uv
 PATH="$HOME/.local/bin:$PATH"
@@ -39,6 +40,15 @@ uv python install "$python_version"
 
 step sync
 uv sync --locked --python "$python_version"
+
+step ffmpeg
+ffmpeg_debs=(ffmpeg libavcodec60 libavformat60 libavutil58 libswscale7 libswresample4)
+expected=$(printf 'installed %s\n' "${ffmpeg_debs[@]/*/$ffmpeg_deb_version}")
+if [[ $(dpkg-query -W -f='${db:Status-Status} ${Version}\n' "${ffmpeg_debs[@]}") != "$expected" ]]; then
+  sudo apt-get update
+  sudo apt-get install -y --allow-downgrades "${ffmpeg_debs[@]/%/=$ffmpeg_deb_version}"
+  sudo apt-mark hold "${ffmpeg_debs[@]}"
+fi
 
 step vlm
 uv run --locked python -m mcpref.vlm.server prepare configs/vlm.yaml

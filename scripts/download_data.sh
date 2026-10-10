@@ -4,3 +4,5 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 PATH="$HOME/.local/bin:$PATH"
 uv run --locked python -m mcpref.gui.textures configs/gui-screens.yaml
+uv run --locked python -m mcpref.vpt.gui_frames verify configs/vpt-gui-frames.yaml
+uv run --locked python -m mcpref.vpt.gui_frames run configs/vpt-gui-frames.yaml

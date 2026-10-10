@@ -87,4 +87,6 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `vlm` → P2 (later R-stage labelling) → `specs/vlm-client.md`
 - `scripts/`, `pyproject.toml`, `uv.lock`, `configs/spark-env.yaml` → all → `specs/spark-env.md`
 - `vpt` → GUI-recognition experiment (later P1, P5 data) → `specs/vpt-gui-frames.md`
-- `gui` → GUI-recognition experiment, env, human-click mapping → `specs/gui-screens.md` (data: `configs/gui-screens.yaml`)
+- `gui` → GUI-recognition experiment, env, human-click mapping → `specs/gui-screens.md` (data: `configs/gui-screens.yaml`), `specs/gui-labels.md`, `specs/gui-masks.md`
+- `http` → shared HTTP retries (textures, VPT downloads, VLM client) → the retry rules of `specs/vlm-client.md` (6), `specs/gui-screens.md`, `specs/vpt-gui-frames.md`
+- `cli` → shared one-line failure messages of the command-line entry points
