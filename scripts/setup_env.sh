@@ -39,3 +39,6 @@ uv python install "$python_version"
 
 step sync
 uv sync --locked --python "$python_version"
+
+step vlm
+uv run --locked python -m mcpref.vlm.server prepare configs/vlm.yaml

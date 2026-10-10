@@ -1,4 +1,4 @@
-"""Fake DGX Spark for scripts/setup_env.sh: the Tests item of specs/spark-env.md."""
+"""Fake DGX Spark for the scripts: Tests items of specs/spark-env.md and specs/vlm-client.md."""
 
 import re
 import shlex
@@ -11,7 +11,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 DIRS = ("repo/scripts", "repo/configs", "home/.local/bin", "sysbin", "ctl", "cwd")
-STEPS = ["config", "arch", "driver", "docker", "uv", "python", "sync"]
+STEPS = ["config", "arch", "driver", "docker", "uv", "python", "sync", "vlm"]
 NVIDIA_SMI_ARGS = ("--query-gpu=driver_version", "--format=csv,noheader")
 WITH_NVIDIA = (
     '{"io.containerd.runc.v2":{"path":"runc"},'
@@ -44,7 +44,7 @@ FAKES = [  # (path under tmp, recorded name, body)
     ("sysbin/nvidia-smi", "nvidia-smi", "cat @CTL@/driver\n"),
     ("sysbin/docker", "docker", DOCKER),
     ("sysbin/curl", "PATH-curl", "exit 1\n"),
-    ("sysbin/sudo", "sudo", "exit 1\n"),
+    ("sysbin/sudo", "sudo", '[ "$(cat @CTL@/fail)" != sudo ] || exit 1\n'),
     ("home/.local/bin/curl", "curl", CURL),
 ]
 
@@ -71,15 +71,16 @@ def parse(log: str) -> tuple[list, set]:
 
 
 class Spark:
-    """Temp repository with a copy of setup_env.sh, a fake HOME and recording fakes.
+    """Temp repository with a copy of `script`, a fake HOME and recording fakes.
 
-    uname, nvidia-smi and docker sit on the caller's PATH (steps 1-3 run before
+    uname, nvidia-smi, docker and sudo sit on the caller's PATH (steps 1-3 run before
     step 4 prepends $HOME/.local/bin); curl and uv only in $HOME/.local/bin.
-    curl and sudo on the caller's PATH are guards that record and fail.
+    curl on the caller's PATH is a guard that records and fails.
     """
 
-    def __init__(self, tmp: Path, cfg: dict):
+    def __init__(self, tmp: Path, cfg: dict, script: str = "setup_env.sh"):
         self.tmp, self.cfg, self.repo, self.home = tmp, cfg, tmp / "repo", tmp / "home"
+        self.script = self.repo / "scripts" / script
         self.bin, self.ctl, self.log = (
             self.home / ".local/bin",
             tmp / "ctl",
@@ -87,7 +88,7 @@ class Spark:
         )
         for d in DIRS:
             (tmp / d).mkdir(parents=True)
-        shutil.copy2(REPO / "scripts/setup_env.sh", self.repo / "scripts")
+        shutil.copy2(REPO / "scripts" / script, self.script)
         self.write_config(cfg)
         self.write_fakes()
         self.set_uv(cfg["uv_version"])
@@ -134,7 +135,7 @@ class Spark:
         self.log.write_text("")
         with self.log.open("a") as out:
             proc = subprocess.run(
-                argv or [str(self.repo / "scripts/setup_env.sh")],
+                argv or [str(self.script)],
                 cwd=cwd or self.tmp / "cwd",
                 env=self.env,
                 stdout=out,
@@ -157,7 +158,21 @@ class Spark:
         env = (f"UV_INSTALL_DIR={self.home}/.local/bin", "UV_NO_MODIFY_PATH=1")
         return [("curl", "-LsSf", url), ("install.sh", *env)]
 
-    def expected(self, uv_calls: list, last: str = "sync") -> list:
+    def vlm_server(self, command: str) -> tuple:
+        """`uv run --locked python -m mcpref.vlm.server <command> configs/vlm.yaml`."""
+        uv = f"uv@{self.cfg['uv_version']}"
+        return (
+            uv,
+            "run",
+            "--locked",
+            "python",
+            "-m",
+            "mcpref.vlm.server",
+            command,
+            "configs/vlm.yaml",
+        )
+
+    def expected(self, uv_calls: list, last: str = "vlm") -> list:
         """Steps (0)..`last` of Behaviour: header `== <name>`, then the step's calls."""
         v, py = self.cfg["uv_version"], self.cfg["python_version"]
         calls = {
@@ -168,6 +183,7 @@ class Spark:
             "uv": uv_calls,
             "python": [(f"uv@{v}", "python", "install", py)],
             "sync": [(f"uv@{v}", "sync", "--locked", "--python", py)],
+            "vlm": [self.vlm_server("prepare")],
         }
         return [
             e for s in STEPS[: STEPS.index(last) + 1] for e in [("==", s), *calls[s]]
@@ -175,10 +191,16 @@ class Spark:
 
 
 @pytest.fixture
-def repo() -> Path:
-    return REPO
+def make_spark(tmp_path):
+    return lambda cfg, script="setup_env.sh": Spark(tmp_path, cfg, script)
 
 
 @pytest.fixture
-def make_spark(tmp_path):
-    return lambda cfg: Spark(tmp_path, cfg)
+def make_script(make_spark):
+    """Spark for a script run after setup_env.sh: uv installed in $HOME/.local/bin."""
+    cfg = {
+        "driver_min": "575.64.05",
+        "python_version": "3.10.18",
+        "uv_version": "0.13.2",
+    }
+    return lambda script: make_spark(cfg, script)

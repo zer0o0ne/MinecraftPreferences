@@ -80,10 +80,11 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 15 | gui-screens — catalogue of survival screens: window, textures, dynamic regions, elements with canonical numbering | P1, P5, R1 | S | ACT, GX |
 | 16 | vpt-gui-frames — random VPT frames with an open GUI, fetched without whole videos; `download_data.sh` | GX experiment | S | GX |
 | 17 | gui-labels — screen type of each sampled frame by the VLM | GX experiment | 0, 15, 16 | GX |
-| 18 | gui-masks — three mask variants, template classifier, agreement with VLM labels; later rebuilt on engine frames | GX experiment, then 14 | 15, 17 | GX |
+| 18 | gui-masks — three mask variants, template classifier, agreement with VLM labels; later rebuilt on engine frames | GX experiment, then 14 | 15, 16, 17 | GX |
 
 ## Package map
 Filled as block specs are approved: subpackage → stage(s) → spec.
 - `vlm` → P2 (later R-stage labelling) → `specs/vlm-client.md`
 - `scripts/`, `pyproject.toml`, `uv.lock`, `configs/spark-env.yaml` → all → `specs/spark-env.md`
 - `vpt` → GUI-recognition experiment (later P1, P5 data) → `specs/vpt-gui-frames.md`
+- `gui` → GUI-recognition experiment, env, human-click mapping → `specs/gui-screens.md` (data: `configs/gui-screens.yaml`)

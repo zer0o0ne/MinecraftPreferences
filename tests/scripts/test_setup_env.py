@@ -145,9 +145,11 @@ def test_failed_download_fails_uv_step(spark):
     assert_failed(spark.run(), spark.expected(spark.uv_install()[:1], "uv"), "uv")
 
 
-@pytest.mark.parametrize("step", ["python", "sync"])
-def test_failed_uv_command_fails_its_step(spark, step):
-    spark.fail = step
+@pytest.mark.parametrize(
+    "step, command", [("python", "python"), ("sync", "sync"), ("vlm", "run")]
+)
+def test_failed_uv_command_fails_its_step(spark, step, command):
+    spark.fail = command
     events = spark.expected(spark.uv_check(CFG["uv_version"]), step)
     assert_failed(spark.run(), events, step)
 

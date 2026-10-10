@@ -1,5 +1,5 @@
 # VLM client
-Status: approved (2026-10-10)
+Status: approved (2026-10-10; clarifications after prototype and refactor the same day: transport errors, captured outputs, error messages, library arguments, starting values)
 Stage: P2 VLM labels (`specs/00-overview.md`, block 0)
 
 ## Sources
@@ -24,7 +24,9 @@ Open questions: `specs/00-questions.md`, section VLMC.
 (3) Request body: exactly the keys `model`, `messages` (from (1)), `n` (= 1), `seed` (= $s$), and the fields of Table 1. The defaults of v0.31.0 this relies on: generation stops at the eos ids `[151645, 151643]`; `skip_special_tokens = true`; `ignore_eos = false`; `min_tokens = 0`; no logprobs.
 (4) Result `choices[0]`: if `finish_reason == "stop"` and `message.content` is non-empty after stripping whitespace → the answer. Otherwise (e.g. `"length"`: the reply hit `max_tokens`) → `None` (Q VLMC-6).
 (5) At most $K$ requests in flight. An attempt longer than $T_{out}$ from its start (waiting for a slot excluded) is cancelled → `None`, not resent (Q VLMC-6).
-(6) Connection error or HTTP 5xx → resend after $\delta$, keeping its slot, at most $R$ times. Then, or at once on HTTP 4xx: cancel all requests in flight and raise `RuntimeError` with the HTTP status and body, or with the transport error.
+(6) Transport error (any `httpx.TransportError`) or HTTP 5xx → resend after $\delta$, keeping its slot, at most $R$ times. Then, or at once on HTTP 4xx: cancel all requests in flight and raise `RuntimeError` with the HTTP status and body, or with the transport error.
+
+Starting values of the other client fields: `base_url` = `http://localhost:8000`, `model` = `qwen3vl-instruct-fp8`, `max_in_flight` = 16, `attempt_timeout` = 300, `max_resends` = 3, `resend_delay` = 10.
 
 Table 1 — sampling and preprocessing fields; all are config fields with the same names.
 | Field | Starting value | Source / note |
@@ -43,31 +45,34 @@ Table 1 — sampling and preprocessing fields; all are config fields with the sa
 ## Interface
 - Module: `src/mcpref/vlm/client.py`.
 - `@dataclass(frozen=True) class VLMConfig`, `@dataclass(frozen=True) class ServerConfig` — the config fields of Notation; `def load_config(path: Path) -> tuple[VLMConfig, ServerConfig]` reads `configs/vlm.yaml`.
-- `def ask_many(prompts: Sequence[Sequence[str | np.ndarray]], seeds: Sequence[int], cfg: VLMConfig, api_key: str) -> list[str | None]` — synchronous, runs its own event loop; result $i$ is the answer to `prompts[i]` with seed `seeds[i]`; (1)–(6). Request: `POST {cfg.base_url}/v1/chat/completions` with header `Authorization: Bearer {api_key}`; `base_url` has no trailing slash and no `/v1`, e.g. `http://localhost:8000`. The caller reads `api_key` from the environment variable `MCPREF_VLM_API_KEY`; the server uses the same variable.
+- `def ask_many(prompts: Sequence[Sequence[str | np.ndarray]], seeds: Sequence[int], cfg: VLMConfig) -> list[str | None]` — synchronous, runs its own event loop; result $i$ is the answer to `prompts[i]` with seed `seeds[i]`; (1)–(6). Request: `POST {cfg.base_url}/v1/chat/completions`; `base_url` has no trailing slash and no `/v1`, e.g. `http://localhost:8000`. No authentication ([U] 2026-10-10: the server is reachable only from the Spark itself, and any local process may use it).
 - Domain: `len(seeds) == len(prompts) ≥ 1`; every prompt has ≥ 1 part, ≤ $N_{img}$ images and ≤ $P_{max}$ tokens; text parts contain no special-token strings (`<|…|>`); seeds as in Notation. Nothing outside it is checked.
 - `max_in_flight` = server `--max-num-seqs`.
 - Consumes: the server of section Server at `base_url`.
 - Produces: nothing on disk; the caller (block gui-labels, later vlm-labels) stores answers.
-- Module: `src/mcpref/vlm/server.py`; `def main(argv: Sequence[str]) -> int`, run as `python -m mcpref.vlm.server {prepare|serve} <config path>` (argparse: one positional subcommand, one positional path).
+- Module: `src/mcpref/vlm/server.py` (entry, Server steps 2 and 4), with `src/mcpref/vlm/container.py` (container existence, Server step 5); `def main(argv: Sequence[str]) -> int`, run as `python -m mcpref.vlm.server {prepare|serve|stop} <config path>` (argparse: one positional subcommand, one positional path).
   - `def prepare_commands(srv: ServerConfig) -> list[list[str]]` — the argument lists of Server step 2; `def serve_command(cfg: VLMConfig, srv: ServerConfig) -> list[str]` — the argument list of Server step 4. Pure functions; commands run without a shell; paths made absolute from the repository root.
   - `prepare`: runs `prepare_commands` in order. Called by `scripts/setup_env.sh` step (8) (block spark-env), which this block adds.
-  - `serve`: requires a non-empty `MCPREF_VLM_API_KEY`; `docker rm -f {server.container}` if `docker container inspect {server.container}` succeeds (exact name); runs `serve_command` with `VLLM_API_KEY` set to the key in the child's environment; then Server step 5.
-  - Subprocess output passes through. A failing subprocess, an unmet readiness or a failed check → a one-line message on stderr and exit code 1, no traceback; success → 0.
+  - `serve`: `docker rm -f {server.container}` if the container exists; runs `serve_command`; then Server step 5.
+  - Container existence (used by `serve` and `stop`): `docker ps -a --filter name=^/{server.container}$ --format {{.Names}}` prints exactly `{server.container}` (an anchored name match; `docker container inspect` would also match an ID prefix); its output is captured.
+  - `stop`: if the container exists, `docker rm -f {server.container}` and print `stopped {server.container}`; else print `{server.container} is not running`; both exit 0.
+  - Subprocess output passes through, except the outputs the code reads (the existence check, `docker container inspect -f`, the transformers check, `docker logs` on the success path), which are captured; the log tail printed after a readiness failure passes through. A failing or missing subprocess, an unmet readiness, a failed check, an unreadable config or response → a one-line message on stderr naming the cause and exit code 1, no traceback; success → 0.
 - Produces (`prepare`): the vLLM image in Docker; the weights under `{server.hf_home}/hub`.
-- Script: `scripts/serve_vlm.sh` (preamble of `specs/spark-env.md`): `: "${MCPREF_VLM_API_KEY:?set MCPREF_VLM_API_KEY}"`; frees the page cache (`sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`); `uv run --locked python -m mcpref.vlm.server serve configs/vlm.yaml`.
-- Tests: `prepare_commands` and `serve_command` against the Server section; `main` with an injected fake `subprocess.run` and a fake HTTP server for readiness; `scripts/serve_vlm.sh` with fake `sudo` and `uv` on `PATH`. Real runs are manual, on the Spark.
+- Script: `scripts/serve_vlm.sh` (preamble of `specs/spark-env.md`): frees the page cache (`sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`); `uv run --locked python -m mcpref.vlm.server serve configs/vlm.yaml`.
+- Script: `scripts/stop_vlm.sh` (preamble of `specs/spark-env.md`; [U] 2026-10-10): `uv run --locked python -m mcpref.vlm.server stop configs/vlm.yaml`.
+- Tests: `prepare_commands` and `serve_command` against the Server section; `stop` with a fake `subprocess.run` (running / not running / failing `docker`); `scripts/stop_vlm.sh` with a fake `uv`; `main` with an injected fake `subprocess.run` and a fake HTTP server for readiness; `scripts/serve_vlm.sh` with fake `sudo` and `uv` on `PATH`. Real runs are manual, on the Spark.
 
 ## Server
 The steps below are what `prepare`, `scripts/serve_vlm.sh` and `serve` do; listed for the record.
 DGX Spark: GB10, aarch64, 128 GB unified memory. Checked against DGX OS 7.5.0 (driver 580.159.03, CUDA 13.0.2).
 1. `nvidia-smi` shows driver ≥ 580.159.03 (checked by `scripts/setup_env.sh`). Avoid NGC `nvcr.io/nvidia/vllm` ≥ 26.04: it needs driver ≥ 595.58, and forward compatibility fails on Spark.
 2. `prepare`: `docker pull {server.image}`; `HF_HOME={server.hf_home} uvx --from huggingface_hub=={server.hf_cli} hf download {server.model_repo} --revision {server.revision}` (32.3 GB). `serve_vlm.sh` frees the page cache before `serve`, since it shares the unified memory.
-3. The user sets a non-empty `MCPREF_VLM_API_KEY` (e.g. `openssl rand -hex 16`) in the shell that runs the scripts; an empty key would disable vLLM's authentication.
-4. `serve` runs (`{…}` = config field; `{client.max_tokens + server.max_prompt_tokens}` computed; `VLLM_API_KEY` passed by name, its value from the environment, so it is not in the command line):
+3. No API key: vLLM runs without `--api-key` / `VLLM_API_KEY`, so it installs no authentication; the port is bound to 127.0.0.1 ([U] 2026-10-10).
+4. `serve` runs (`{…}` = config field; `{client.max_tokens + server.max_prompt_tokens}` computed):
 ```bash
 docker run -d --name {server.container} --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack={server.stack_ulimit} \
   -p 127.0.0.1:{server.port}:{server.port} -v {server.hf_home}:/root/.cache/huggingface \
-  -e VLLM_USE_DEEP_GEMM=0 -e HF_HUB_OFFLINE=1 -e VLLM_API_KEY \
+  -e VLLM_USE_DEEP_GEMM=0 -e HF_HUB_OFFLINE=1 \
   {server.image} \
   {server.model_repo} --revision {server.revision} --tokenizer-revision {server.revision} \
   --served-model-name {client.model} --host 0.0.0.0 --port {server.port} \
@@ -86,8 +91,9 @@ docker run -d --name {server.container} --gpus all --ipc=host --ulimit memlock=-
    - `--mm-processor-kwargs`: the same bounds as Table 1; they size vLLM's startup memory profiling.
    - `-p 127.0.0.1:…`: reachable only from the Spark itself or through an SSH tunnel.
 5. `serve`, after `docker run` returns:
-   - readiness: every `{server.poll_interval}` s, `GET http://127.0.0.1:{server.port}/health` (no key needed) with timeout `{server.poll_request_timeout}` s; a connection error or a non-200 status means not ready yet; if `docker container inspect -f '{{.State.Running}}'` is `false`, fail at once; if `{server.ready_timeout}` s pass since `docker run` returned, fail. On failure: print the last `{server.log_tail}` log lines; the container is kept for inspection.
-   - once ready: `GET /v1/models` with the key must list `{client.model}`; `docker exec {server.container} python3 -c "import transformers; print(transformers.__version__)"` must print `{server.transformers_version}`; the container log must contain the line `Using TRITON Fp8 MoE backend` (`vllm/model_executor/layers/fused_moe/oracle/fp8.py:415`). Any mismatch → failure.
+   - readiness: `GET http://127.0.0.1:{server.port}/health` with timeout `{server.poll_request_timeout}` s; a transport error (any `httpx.TransportError`, timeouts included) or a non-200 status means not ready yet, and the next poll follows `{server.poll_interval}` s after this one ends; if `docker container inspect -f '{{.State.Running}}'` is `false`, fail at once; if `{server.ready_timeout}` s pass since `docker run` returned, fail. On failure: print the last `{server.log_tail}` log lines; the container is kept for inspection.
+   - a failing `docker container inspect -f` during polling counts as a stopped container.
+   - once ready: `GET /v1/models` (timeout `{server.poll_request_timeout}` s) must list `{client.model}`; `docker exec {server.container} python3 -c "import transformers; print(transformers.__version__)"` must print `{server.transformers_version}`; the container log (stdout and stderr) must contain the text `Using TRITON Fp8 MoE backend` within a line (vLLM prefixes its log lines) (`vllm/model_executor/layers/fused_moe/oracle/fp8.py:415`). Any mismatch → failure.
    - prints the log line with `KV cache size` (`vllm/v1/core/kv_cache_utils.py:2465`) for the user: capacity in tokens should be ≥ `max_in_flight` × max-model-len, else the user lowers `max_in_flight`.
 6. Clients run on the Spark (`base_url` = `http://localhost:{server.port}`); from another machine: `ssh -N -L {server.port}:localhost:{server.port} <user>@<spark>`.
 
@@ -100,7 +106,8 @@ docker run -d --name {server.container} --gpus all --ipc=host --ulimit memlock=-
 | (3) sampling | `/v1/chat/completions` | v0.31.0 | Table 1, `n`, `seed` (own generator per request; `-1` = unseeded, outside the domain); server `--generation-config vllm` | `vllm/entrypoints/openai/chat_completion/protocol.py:213-302`; `vllm/config/model.py:1781`; `vllm/v1/worker/gpu_model_runner.py:1281` |
 | (3) `max_tokens` | same | v0.31.0 | effective `min(max_tokens, max_model_len − prompt_len)` | `vllm/entrypoints/serve/utils/api_utils.py:169-205` |
 | (3) other fields | same | v0.31.0 | none sent; unknown keys are dropped with a DEBUG log only | `vllm/entrypoints/serve/engine/protocol.py:61-73` |
-| (5), (6) transport | `httpx.AsyncClient` | 0.28.1 | `timeout` passed explicitly (the httpx default is 5 s per phase); no built-in retries | to vet at implementation (skill `vet-dependency`) |
+| (5), (6) transport | `httpx.AsyncClient` | 0.28.1 | no `Authorization` header; `timeout=None` (the attempt bound is $T_{out}$ via `asyncio.wait_for`; the httpx default would be 5 s per phase); `limits=httpx.Limits(max_connections=K)` (default 100 would queue inside the attempt); `trust_env=False` (no proxy variables or `.netrc`); transport `retries=0` (default) | prototype and refactor reports, 2026-10-10 |
+| readiness, checks | `httpx.get` | 0.28.1 | `timeout=poll_request_timeout`, `trust_env=False` | same |
 | (2) PNG | `PIL.Image.fromarray(a).save(buf, format="PNG")` | 12.3.0 | lossless | to vet at implementation |
 | config loading | `yaml.safe_load` | PyYAML 6.0.3 (pinned by block spark-env) | — | to vet at implementation |
 
