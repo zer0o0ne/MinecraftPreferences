@@ -18,13 +18,17 @@ ADDOPTS = "-m 'not gpu and not slow' -n auto --timeout=10 --durations=10"
 CFG = {"driver_min": "575.64.05", "python_version": "3.10.18", "uv_version": "0.13.2",
        "ffmpeg_deb_version": "9:8.0.1-1~test2+b1"}  # fmt: skip
 V, UV = CFG["ffmpeg_deb_version"], CFG["uv_version"]
-# Step (7): database changes after which dpkg-query does not print six lines `installed V`.
+# Step (7): database changes after which dpkg-query does not print nine lines `installed V`;
+# libavdevice60, libavfilter9 and libpostproc57 are the three of the 2026-10-12 amendment.
 NOT_PINNED = {
     "one package unknown": {"libswresample4": None},
     "one at another version": {"libavutil58": ("installed", "9:8.0.2-1")},
     "one at a longer version": {"libavformat60": ("installed", V + "build1")},
     "one removed, version kept": {"libswscale7": ("config-files", V)},
     "second architecture's copy": {"libavcodec60:armhf": ("installed", V)},
+    "libavdevice60 unknown": {"libavdevice60": None},
+    "libavfilter9 at another version": {"libavfilter9": ("installed", "9:8.0.2-1")},
+    "libpostproc57 removed, version kept": {"libpostproc57": ("config-files", V)},
 }
 
 

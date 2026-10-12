@@ -14,8 +14,12 @@ REPO = Path(__file__).resolve().parents[2]
 DIRS = ("repo/scripts", "repo/configs", "home/.local/bin", "sysbin", "ctl", "cwd")
 STEPS = ["config", "arch", "driver", "docker", "uv", "python", "sync", "ffmpeg", "vlm"]
 NVIDIA_SMI_ARGS = ("--query-gpu=driver_version", "--format=csv,noheader")
-DEBS = ("ffmpeg", "libavcodec60", "libavformat60", "libavutil58", "libswscale7", "libswresample4")  # fmt: skip
+# Step (7) of specs/vpt-gui-frames.md: the nine packages, in the order of its dpkg-query
+# call; `apt-get install` and `apt-mark hold` may take them in any order (see `canonical`).
+DEBS = ("ffmpeg", "libavcodec60", "libavdevice60", "libavfilter9", "libavformat60",
+        "libavutil58", "libpostproc57", "libswresample4", "libswscale7")  # fmt: skip
 DPKG_QUERY = ("dpkg-query", "-W", r"-f=${db:Status-Status} ${Version}\n", *DEBS)
+UNORDERED = (("apt-get", "install"), ("apt-mark", "hold"))
 DOCKER_INFO = "Server Version: fake-docker-info"
 RECORD = r"""{ printf 'CALL\037%s\037%s' @NAME@ "$PWD"; for a in "$@"; do printf '\037%s' "$a"; done; echo; } >> @LOG@
 """
@@ -86,15 +90,27 @@ class Result:
     log: str
 
 
+def canonical(event: tuple) -> tuple:
+    """Step (7) fixes the package set of `apt-get install` and `apt-mark hold`, not its
+    order: their non-option arguments sorted (also behind sudo); options keep their order."""
+    i = int(event[0] == "sudo")
+    if event[i : i + 2] not in UNORDERED:
+        return event
+    args = event[i + 2 :]
+    options = [a for a in args if a.startswith("-")]
+    return (*event[: i + 2], *options, *sorted(a for a in args if a not in options))
+
+
 def parse(log: str) -> tuple[list, set]:
-    """Stdout headers `== <name>` as ("==", name), fake calls as (tool, *args), in order."""
+    """Stdout headers `== <name>` as ("==", name), fake calls as canonical (tool, *args),
+    in order."""
     events, cwds = [], set()
     for line in log.splitlines():
         if line.startswith("== "):
             events.append(("==", line[3:]))
         elif line.startswith("CALL\x1f"):
             _, tool, cwd, *args = line.split("\x1f")
-            events.append((tool, *args))
+            events.append(canonical((tool, *args)))
             cwds.add(cwd)
     return events, cwds
 
@@ -105,7 +121,7 @@ class Spark:
     uname, nvidia-smi, docker, sudo and the dpkg/apt tools sit on the caller's PATH (steps
     1-3 run before step 4 prepends $HOME/.local/bin); curl and uv only in $HOME/.local/bin.
     curl on the caller's PATH is a guard that records and fails. The dpkg database starts
-    with the six packages of step (7) installed at `ffmpeg_deb_version`, if `cfg` has it.
+    with the nine packages of step (7) installed at `ffmpeg_deb_version`, if `cfg` has it.
     """
 
     docker_info = DOCKER_INFO  # what the fake `docker info` prints on stdout
@@ -166,7 +182,7 @@ class Spark:
         (self.ctl / "dpkg").write_text(text)
 
     def pinned(self, **changes) -> dict:
-        """The six packages of step (7) installed at `ffmpeg_deb_version`, with `changes`
+        """The nine packages of step (7) installed at `ffmpeg_deb_version`, with `changes`
         (package -> (status, version), or None for a package dpkg does not know)."""
         version = self.cfg["ffmpeg_deb_version"]
         debs = {p: ("installed", version) for p in DEBS} | changes
@@ -204,14 +220,15 @@ class Spark:
 
     def ffmpeg_install(self) -> list:
         """Step (7) when the check fails: the dpkg-query check, then each sudo command
-        followed by the fake it runs as root."""
+        followed by the fake it runs as root (canonical)."""
         pins = [f"{p}={self.cfg['ffmpeg_deb_version']}" for p in DEBS]
         root = [
             ("apt-get", "update"),
             ("apt-get", "install", "-y", "--allow-downgrades", *pins),
             ("apt-mark", "hold", *DEBS),
         ]
-        return [DPKG_QUERY] + [e for c in root for e in (("sudo", *c), c)]
+        calls = [e for c in root for e in (("sudo", *c), c)]
+        return [DPKG_QUERY] + [canonical(e) for e in calls]
 
     def vlm_server(self, command: str) -> tuple:
         """`uv run --locked python -m mcpref.vlm.server <command> configs/vlm.yaml`."""

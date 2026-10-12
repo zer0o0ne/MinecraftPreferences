@@ -42,7 +42,8 @@ step sync
 uv sync --locked --python "$python_version"
 
 step ffmpeg
-ffmpeg_debs=(ffmpeg libavcodec60 libavformat60 libavutil58 libswscale7 libswresample4)
+ffmpeg_debs=(ffmpeg libavcodec60 libavdevice60 libavfilter9 libavformat60 libavutil58
+  libpostproc57 libswresample4 libswscale7)
 expected=$(printf 'installed %s\n' "${ffmpeg_debs[@]/*/$ffmpeg_deb_version}")
 if [[ $(dpkg-query -W -f='${db:Status-Status} ${Version}\n' "${ffmpeg_debs[@]}") != "$expected" ]]; then
   sudo apt-get update
