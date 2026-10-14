@@ -1,5 +1,6 @@
 """`main` of src/mcpref/gui/labels.py (with its file helpers in label_files.py) against
-specs/gui-labels.md: (2)-(5), output files, reruns and aborts; fake ask_many, fake frames."""
+specs/gui-labels.md: (2)-(5), output files, the bar `label`, reruns and aborts; fake ask_many,
+fake frames (conftest.py, labels_world.py)."""
 
 import copy
 import hashlib
@@ -7,89 +8,26 @@ import json
 import os
 import subprocess
 import sys
-from collections import Counter
-from dataclasses import dataclass
-from pathlib import Path
 
 import pytest
 import yaml
+from labels_world import (
+    BATCHES,
+    FRAMES,
+    HASHED,
+    OK,
+    PATHS,
+    QUESTION,
+    SEED,
+    TEXTS,
+    Lab,
+    jsonl,
+    label_bar,
+    summary,
+)
+from progress_bars import assert_aborted, assert_progress, screen, tqdm_defaults
 
-from mcpref.gui.labels import main
 from mcpref.vlm.client import load_config as load_vlm_config
-
-PATHS = {"frames_dir": "frames", "screens": "gui-screens.yaml", "vlm": "vlm.yaml"}
-PATHS["out_dir"] = "out"
-TEXTS = {"instruction": "Screen?", "question": "Which?\n{classes}"}
-TEXTS.update(class_line="{name}: {description}", other_description="something else")
-QUESTION = "Which?\ninventory: Alpha screen.\ninventory_book: Alpha with the book."
-QUESTION += "\nchest3: Beta screen.\nother: something else"
-FRAMES = [  # status, line.isGuiInventory, (answer, its label by (3)) of successive asks
-    ("failed", True, []),
-    ("ok", True, [("inventory", "inventory")]),
-    ("ok", False, [(" `inventory_book` \n", "inventory_book")]),
-    ("failed", False, []),
-    ("ok", True, [("chest3", "chest3")]),
-    ("ok", False, [("other", "other")]),
-    ("ok", True, [("Chest3", "invalid")]),
-    ("ok", False, [(None, "no_answer"), ("'chest3'", "chest3")]),
-    ("ok", True, [('"other"', "other")]),
-]
-OK = [1, 2, 4, 5, 6, 7, 8]
-SEED = 5
-BATCHES = [[1, 2, 4], [5, 6, 7], [8]]  # batch = 3
-VPT = [f"{y}_flag_{g}" for y in ("inventory", "other") for g in ("true", "false")]
-HASHED = {"config": "gui-labels.yaml", "vlm": "vlm.yaml", "screens": "gui-screens.yaml"}
-
-
-def summary(labels: list, *flags: int) -> dict:
-    """summary.json: the count of each label listed; the four (5) counts in the order of VPT."""
-    return {"labels": dict(Counter(labels)), "vpt_check": dict(zip(VPT, flags))}
-
-
-@dataclass
-class Lab:
-    """One fake run directory; `run` calls main and returns (exit code, stderr)."""
-
-    root: Path
-    ids: list
-    fake: object
-    capsys: object
-    write_frames: object
-
-    def run(self) -> tuple[int, str]:
-        code = main([str(self.root / "gui-labels.yaml")])
-        return code, self.capsys.readouterr().err
-
-    def read(self, name: str):
-        text = (self.root / "out" / name).read_text()
-        return jsonl(text) if name.endswith(".jsonl") else json.loads(text)
-
-    def outputs(self) -> dict:
-        out = self.root / "out"
-        return {p.name: p.read_bytes() for p in out.iterdir()} if out.exists() else {}
-
-    def records(self, ps: list, asks: int = 1) -> list:
-        """labels.jsonl of positions ps, each frame asked at most `asks` times; seeds by (2)."""
-        recs = []
-        for p in ps:
-            answer, label = FRAMES[p][2][min(asks, len(FRAMES[p][2])) - 1]
-            recs.append({"id": self.ids[p], "seed": SEED + p, "answer": answer})
-            recs[-1]["label"] = label
-        return recs
-
-    def asked(self, first: int = 0) -> list:
-        """Per ask_many call from `first` on: (frame positions of its prompts, its seeds)."""
-        calls = self.fake.calls[first:]
-        return [([self.fake.position(q) for q in c.prompts], c.seeds) for c in calls]
-
-
-def jsonl(text: str) -> list:
-    return [json.loads(line) for line in text.splitlines()]
-
-
-def failed(code: int, err: str) -> None:
-    """Exit 1 with a one-line message on stderr (Interface)."""
-    assert code == 1 and len(err.strip().splitlines()) == 1 and "Traceback" not in err
 
 
 @pytest.fixture
@@ -104,7 +42,8 @@ def lab(
     capsys,
 ):
     """Catalogue inventory, inventory_book, chest3; FRAMES; a vlm.yaml copy whose server refuses
-    (an unfaked ask_many fails); config paths relative to the repository root; cwd elsewhere."""
+    (an unfaked ask_many fails); config paths relative to the repository root; cwd elsewhere;
+    tqdm's defaults (no TQDM_* variable)."""
     alpha, beta = catalogue["classes"]["alpha"], catalogue["classes"]["beta"]
     book = {**copy.deepcopy(alpha), "description": "Alpha with the book."}
     catalogue["classes"] = {"inventory": alpha, "inventory_book": book, "chest3": beta}
@@ -120,6 +59,7 @@ def lab(
     fake = fake_ask_many(answers, tmp_path / "out")
     (tmp_path / "cwd").mkdir()
     monkeypatch.chdir(tmp_path / "cwd")
+    tqdm_defaults(monkeypatch)
     return Lab(tmp_path, ids, fake, capsys, write_frames)
 
 
@@ -153,6 +93,16 @@ def test_outputs_rewritten_after_every_batch(lab):
     assert sorted(lab.outputs()) == ["labels.jsonl", "run.json", "summary.json"]
 
 
+def test_bar_total_and_final_count(lab):
+    """Bar `label` on stderr only, from 0 to its total, the 7 ok frames (failed ones excluded).
+    States between are drawn as tqdm's timing allows; the batch steps are checked through the
+    state drawn at close after an abort (below)."""
+    code, err = lab.run()
+    assert code == 0 and lab.out == ""
+    assert screen(err) == [label_bar(7, 7)]
+    assert_progress(err)
+
+
 def test_summary_and_vpt_check(lab):
     """(5) over class labels only, g_f from `line`; labels lists the labels that occurred."""
     assert lab.run()[0] == 0
@@ -170,10 +120,19 @@ def test_rerun_retries_no_answer_with_its_seed(lab):
     assert lab.read("summary.json") == summary([*labels, "invalid"], 1, 1, 2, 2)
 
 
-def test_finished_rerun_asks_nothing(lab):
+def test_rerun_bar_counts_the_no_answer_frame(lab):
+    """Bar total = frames still to label: the one no_answer frame."""
+    assert lab.run()[0] == 0
+    code, err = lab.run()
+    assert code == 0 and screen(err) == [label_bar(1, 1)]
+    assert_progress(err)
+
+
+def test_finished_rerun_asks_nothing_and_is_already_done(lab):
+    """Nothing left to label: no ask, files unchanged, no bar but the line `label: already done`."""
     assert lab.run()[0] == 0 and lab.run()[0] == 0
     before = lab.outputs()
-    assert lab.run()[0] == 0
+    assert lab.run() == (0, "label: already done\n") and lab.out == ""
     assert len(lab.fake.calls) == 4 and lab.outputs() == before
 
 
@@ -197,24 +156,42 @@ def test_rerun_aborts_when_a_hash_differs(lab, changed, finished):
     calls, before = len(lab.fake.calls), lab.outputs()
     path = lab.root / changed
     path.write_text(path.read_text() + "# changed\n")
-    failed(*lab.run())
+    assert_aborted(*lab.run())
     assert len(lab.fake.calls) == calls and lab.outputs() == before
 
 
 def test_abort_when_ask_many_raises_then_resume(lab):
+    """Advanced by the first batch's size once written, the failed batch not counted: the bar
+    is closed at 3 (a state drawn whatever the timing), the message below it; the resumed run's
+    bar counts the 4 frames left."""
     lab.fake.fail_on = 2
-    failed(*lab.run())
+    assert assert_aborted(*lab.run()) == [label_bar(3, 7)]
     assert lab.read("labels.jsonl") == lab.records([1, 2, 4])
     lab.fake.fail_on = None
-    assert lab.run()[0] == 0
+    code, err = lab.run()
+    assert code == 0 and screen(err) == [label_bar(4, 4)]
+    assert_progress(err)
     assert [ps for ps, _ in lab.asked(first=2)] == [[5, 6, 7], [8]]
     assert lab.read("labels.jsonl") == lab.records(OK)
+
+
+def test_resume_labels_no_answer_and_unasked_frames_together(lab):
+    """(4): frames still to label = no record yet or no_answer, batched in frames.jsonl order,
+    seeds by (2); the bar's total counts both kinds."""
+    lab.fake.fail_on = 3
+    assert assert_aborted(*lab.run()) == [label_bar(6, 7)]
+    lab.fake.fail_on = None
+    code, err = lab.run()
+    assert code == 0 and screen(err) == [label_bar(2, 2)]
+    assert_progress(err)
+    assert lab.asked(first=3) == [([7, 8], [SEED + 7, SEED + 8])]
+    assert lab.read("labels.jsonl") == lab.records(OK, asks=2)
 
 
 @pytest.mark.parametrize("frames", [[], [("failed", True), ("failed", False)]])
 def test_abort_without_ok_frame(lab, frames):
     lab.write_frames(lab.root / "frames", frames)
-    failed(*lab.run())
+    assert_aborted(*lab.run())
     assert lab.fake.calls == []
 
 
@@ -224,9 +201,14 @@ MISSING += ["gui-screens.yaml", "vlm.yaml"]
 
 @pytest.mark.parametrize("missing", MISSING)
 def test_abort_on_unreadable_file(lab, missing):
+    """The spec leaves open when a .yuv is read: a bar drawn before the abort ends at the frames
+    written (here the last ok frame's .yuv is missing)."""
     yuv = f"frames/frames/{lab.ids[OK[-1]]}.yuv"
     (lab.root / (yuv if missing == "yuv" else missing)).unlink()
-    failed(*lab.run())
+    above = assert_aborted(*lab.run())
+    out = lab.root / "out" / "labels.jsonl"
+    written = len(jsonl(out.read_text())) if out.exists() else 0
+    assert above in ([], [label_bar(written, 7)])
 
 
 def test_runs_as_module(lab):
@@ -234,4 +216,4 @@ def test_runs_as_module(lab):
     lab.write_frames(lab.root / "frames", [("failed", True)])
     argv = [sys.executable, "-m", "mcpref.gui.labels", lab.root / "gui-labels.yaml"]
     proc = subprocess.run(argv, capture_output=True, text=True, timeout=8, check=False)
-    failed(proc.returncode, proc.stderr)
+    assert_aborted(proc.returncode, proc.stderr)

@@ -33,6 +33,7 @@ Minimal code that expresses the spec.
 - Names follow the spec's notation and terms.
 - Docstrings: one or two lines linking code to math, e.g. `"""Eq. (3) of specs/metra.md: skill reward."""`. Tensor shapes only where the spec fixes them. No comments that restate code.
 - Code is device-agnostic: the device comes from the caller.
+- Progress: a loop over work items (frames, episodes, files, requests, classes, …; not a wait for a condition) that can run longer than a couple of seconds on real data shows a `tqdm` progress bar on stderr, with its total when known. Nested loops get one bar, on the outermost loop, whose total sums the work items of the inner loops (items of different kinds count as steps); a parallel loop gets one bar for all its workers, advanced as items finish. A loop with nothing to do draws no bar and prints one line on stderr instead: `<desc>: already done` when an earlier run did the work, else `<desc>: nothing to do`. Bars replace per-item progress lines, write nothing to stdout or output files and change no result; an error message is the last line of stderr, below the bars. A spec names each bar of its block (skill `spec-format`).
 
 ## Layout
 ```

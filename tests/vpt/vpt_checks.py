@@ -1,5 +1,5 @@
-"""Checks of `main` in specs/vpt-gui-frames.md: its fake data, the ffmpeg commands it
-must run, its abort message."""
+"""Checks of `main` in specs/vpt-gui-frames.md: its fake data and the ffmpeg commands it
+must run."""
 
 from vpt_world import FIELDS, Ep, options
 
@@ -38,11 +38,3 @@ def command_head(fields: dict, url: str, i: int) -> list[str]:
     return [fields["ffmpeg"], "-nostdin", "-loglevel", "error", "-y", "-headers", header,
             "-rw_timeout", micro, "-ss", seek_time(i), "-i", url, "-frames:v", "1",
             "-f", "rawvideo", "-pix_fmt", "yuv420p"]  # fmt: skip
-
-
-def assert_aborted(code: int, err: str) -> None:
-    """Interface: exit 1 with a one-line message on stderr (after any progress lines)."""
-    assert code == 1
-    assert (
-        "Traceback" not in err and err.endswith("\n") and err.splitlines()[-1].strip()
-    )

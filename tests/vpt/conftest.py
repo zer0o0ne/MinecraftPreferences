@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from progress_bars import tqdm_defaults
 from vpt_checks import EPISODES
 from vpt_world import FIELDS, SUBSETS, make_world, reference_plan
 
@@ -33,6 +34,7 @@ class Site:
         self.faults, self.redirects = {}, {}  # path -> first replies; path -> Location
         self.stalls = {}  # path -> s waited before the headers and again before the body
         self.behaviours, self.sleep = {}, 3.0  # fake ffmpeg, see fake_ffmpeg.py
+        self.noise = {}  # fake ffmpeg key -> bytes written to stderr, one per attempt
         self.ctl, self.log, self.ffmpeg = (
             tmp / "ctl.json",
             tmp / "ffmpeg.log",
@@ -111,8 +113,9 @@ class Site:
         """Writes the config and the fake ffmpeg's control file; returns the config path."""
         fields = self.fields | changes
         frame_size = fields["width"] * fields["height"] * 3 // 2
+        noise = {k: [b.hex() for b in v] for k, v in self.noise.items()}
         ctl = {"fps": fields["fps"], "frame_size": frame_size, "sleep": self.sleep,
-               "behaviours": self.behaviours}  # fmt: skip
+               "behaviours": self.behaviours, "stderr": noise}  # fmt: skip
         self.ctl.write_text(json.dumps(ctl))
         path = self.tmp / "config.yaml"
         path.write_text(yaml.safe_dump(fields, sort_keys=False))
@@ -152,13 +155,14 @@ class Site:
 @pytest.fixture
 def make_site(http, tmp_path, repo, monkeypatch):
     """Site factory, listening unless `listen=False`. The cwd is chosen so that out_dir
-    resolved against it lands elsewhere; proxy variables are unset."""
+    resolved against it lands elsewhere; proxy and TQDM_* variables are unset."""
     rel = Path(os.path.relpath(tmp_path / "out", repo))
     cwd = tmp_path.joinpath(*["cwd"] * (rel.parts.count("..") + 1))
     cwd.mkdir(parents=True)
     monkeypatch.chdir(cwd)
     for var in PROXY_VARS:
         monkeypatch.delenv(var, raising=False)
+    tqdm_defaults(monkeypatch)
 
     def make(listen: bool = True, episodes: dict = EPISODES) -> Site:
         site = Site(http, tmp_path, repo, episodes)

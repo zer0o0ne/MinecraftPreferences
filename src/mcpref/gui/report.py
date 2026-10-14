@@ -7,7 +7,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from mcpref.gui.label_files import OTHER
 from mcpref.gui.masks import Pair
+from mcpref.gui.metrics import evaluation
+from mcpref.gui.recognise import Point
 
 PARTS = ("train", "validation", "test")
 Named = dict[str, dict[str, Pair]]
@@ -42,6 +45,23 @@ def pairs_report(named: Named, names: list[str]) -> dict:
     """Interface report.json `pairs`: per class, the number of pairs and mask sizes."""
     sizes = {k: [int(m.sum()) for _, m in named.get(k, {}).values()] for k in names}
     return {k: {"n_pairs": len(s), "mask_sizes": s} for k, s in sizes.items()}
+
+
+def variant_report(
+    named: Named,
+    chosen: dict[str, Point],
+    preds: dict[str, list[str]],
+    test: list[dict],
+    names: list[str],
+) -> dict:
+    """Interface report.json, one variant: pairs; thresholds and (7) per choice."""
+    return {"pairs": pairs_report(named, names)} | {
+        c: {
+            "thresholds": dict(zip(("tau", "theta", "mu"), point)),
+            "test": evaluation(test, preds[c], names + [OTHER]),
+        }
+        for c, point in chosen.items()
+    }
 
 
 def cell(v: object) -> str:

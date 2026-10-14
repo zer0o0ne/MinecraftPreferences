@@ -281,8 +281,8 @@ def variant(pairs: dict, x: dict, va: list, te: list, grid: tuple) -> tuple:
 
 
 def expected(fs: list, config: dict) -> dict | None:
-    """The report of `main` by the oracle (None: empty validation set), with `images`,
-    `part` (episode -> part) and `n_scored` (validation and test frames)."""
+    """The report of `main` by the oracle (None: empty validation set), with `images` and
+    `part` (episode -> part)."""
     part = parts(fs, config)
     used = [
         f
@@ -310,4 +310,4 @@ def expected(fs: list, config: dict) -> dict | None:
     report["agreement_matrices"] = {
         c: o.matrices(CLASSES, labellers[c]) for c in CRITERIA
     }
-    return {**report, "n_scored": len(va) + len(te)}
+    return report

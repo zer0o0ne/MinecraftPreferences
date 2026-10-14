@@ -1,9 +1,8 @@
-"""Config, split, (6)-(8) and `main` of specs/gui-masks.md."""
+"""Config, split, the run of (1)-(8) and `main` of specs/gui-masks.md."""
 
 import argparse
 import itertools
 import sys
-from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from fractions import Fraction
@@ -11,17 +10,19 @@ from pathlib import Path
 
 import numpy as np
 import yaml
+from tqdm import tqdm
 
 from mcpref import REPO
 from mcpref.cli.failure import FAILURES, failed
 from mcpref.gui.frame_set import labelled_parts, qualified, read_frames
 from mcpref.gui.label_files import OTHER, frame_size, rgb_view
-from mcpref.gui.masks import Pair, bc_pairs, member_pairs, variance_pair
-from mcpref.gui.recognise import predict, scores
+from mcpref.gui.masks import c_pairs, member_pairs, row_starts, variance_pair
+from mcpref.gui.metrics import matrices, thresholds
+from mcpref.gui.recognise import frame_scores, predictions
 from mcpref.gui.report import (
     Named,
-    pairs_report,
     split_report,
+    variant_report,
     write_report,
     write_templates,
 )
@@ -30,7 +31,6 @@ from mcpref.gui.textures import load_textures_config
 
 PROG = "mcpref.gui.evaluate"
 VARIANTS = ("a", "b", "c")
-Scores = dict[int, list[dict[str, Fraction]]]
 
 
 @dataclass(frozen=True)
@@ -105,6 +105,29 @@ def check_patches(cfg: GuiMasksConfig, size: tuple[int, int]) -> None:
         )
 
 
+def b_built(
+    cfg: GuiMasksConfig, train: list[dict], q: list[str], size: tuple[int, int]
+) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """(2) over Q: (T, sigma_k, M) of each class; bar `templates b`."""
+    if not q:
+        print("templates b: nothing to do", file=sys.stderr)
+        return {}
+    frames = {k: [f for f in train if f["label"] == k] for k in q}
+    blocks = len(row_starts(size[1], cfg.chunk_rows))
+    total = sum(len(fs) + blocks for fs in frames.values())
+    built = {}
+    with tqdm(total=total, desc="templates b", unit="step") as bar:
+        for k, fs in frames.items():
+            x = []
+            for f in fs:
+                x.append(rgb_view(cfg.frames_dir, f, size))
+                bar.update()
+            built[k] = variance_pair(
+                x, cfg.spread_quantile, cfg.spread_max, cfg.chunk_rows, bar.update
+            )
+    return built
+
+
 def variant_pairs(
     cfg: GuiMasksConfig,
     classes: dict[str, ScreenClass],
@@ -113,16 +136,10 @@ def variant_pairs(
     size: tuple[int, int],
 ) -> dict[str, Named]:
     """(1)-(3): pairs of each variant, named <class>__<member> in (a), <class> in (b), (c)."""
-    built = {
-        k: variance_pair(
-            [rgb_view(cfg.frames_dir, f, size) for f in train if f["label"] == k],
-            cfg.spread_quantile,
-            cfg.spread_max,
-            cfg.chunk_rows,
-        )
-        for k in q
-    }
-    b, c = bc_pairs(built, cfg.patch, cfg.patches_per_class, cfg.eps)
+    built = b_built(cfg, train, q, size)
+    b = {k: (t, m) for k, (t, _, m) in built.items() if m.any()}
+    spreads = {k: s for k, (_, s, _) in built.items()}
+    c = c_pairs(b, spreads, cfg.patch, cfg.patches_per_class, cfg.eps)
     textures = load_textures_config(cfg.screens).out_dir
     a = {
         k: {f"{k}__{m}": p for m, p in member_pairs(cls, textures, *size).items()}
@@ -130,138 +147,6 @@ def variant_pairs(
     }
     return {"a": a} | {
         v: {k: {k: p} for k, p in ps.items()} for v, ps in zip("bc", (b, c))
-    }
-
-
-def frame_scores(
-    cfg: GuiMasksConfig,
-    pairs: dict[str, dict[str, list[Pair]]],
-    frames: list[dict],
-    size: tuple[int, int],
-    part: str,
-) -> dict[str, Scores]:
-    """(4) per variant and tau of tau_grid, for each frame of `part` in order; progress
-    on stderr."""
-    out = {v: {tau: [] for tau in cfg.tau_grid} for v in pairs}
-    for v, p in pairs.items():
-        for i, f in enumerate(frames, 1):
-            x = rgb_view(cfg.frames_dir, f, size)
-            for tau in cfg.tau_grid:
-                out[v][tau].append(scores(x, p, tau))
-            progress = f"scoring {part}, variant {v}: {i}/{len(frames)} frames"
-            print(f"{PROG}: {progress}", file=sys.stderr)
-    return out
-
-
-def share(num: int, den: int) -> Fraction | None:
-    """(6)-(8): an exact ratio; null when the denominator is 0."""
-    return Fraction(num, den) if den else None
-
-
-def agreement(y: list[str], y_hat: list[str]) -> Fraction | None:
-    """(6): share of frames with y_hat = y."""
-    return share(sum(a == b for a, b in zip(y, y_hat)), len(y))
-
-
-def macro_recall(y: list[str], y_hat: list[str]) -> Fraction | None:
-    """(6): mean over the labels present in y of the share of their frames predicted."""
-    hits = Counter(a for a, b in zip(y, y_hat) if a == b)
-    recalls = [Fraction(hits[k], n) for k, n in Counter(y).items()]
-    return sum(recalls, Fraction(0)) / len(recalls) if recalls else None
-
-
-CRITERIA = {"agreement": agreement, "macro_recall": macro_recall}
-
-
-def predictions(s: Scores, point: tuple, order: list[str]) -> list[str]:
-    """(5) at the grid point (tau, theta, mu)."""
-    tau, theta, mu = point
-    return [predict(x, order, theta, mu) for x in s[tau]]
-
-
-def choose(cfg: GuiMasksConfig, s: Scores, y: list[str], order: list[str]) -> dict:
-    """(6): per criterion, the first grid point (tau outermost, mu innermost) maximising it."""
-    if not y:
-        raise ValueError("no labelled validation frames")
-    grid = itertools.product(cfg.tau_grid, cfg.theta_grid, cfg.mu_grid)
-    preds = [(point, predictions(s, point, order)) for point in grid]
-    return {
-        name: max(preds, key=lambda pp: criterion(y, pp[1]))[0]
-        for name, criterion in CRITERIA.items()
-    }
-
-
-def label_metrics(y: list[str], y_hat: list[str], ids: list[str], k: str) -> dict:
-    """(7): counts, precision, recall, F1 and misclassified ids of label k."""
-    tp = sum(a == b == k for a, b in zip(y, y_hat))
-    n_true, n_pred = y.count(k), y_hat.count(k)
-    return {
-        "n_true": n_true,
-        "n_pred": n_pred,
-        "precision": share(tp, n_pred),
-        "recall": share(tp, n_true),
-        "f1": share(2 * tp, n_true + n_pred),
-        "errors": [i for i, a, b in zip(ids, y, y_hat) if a == k != b],
-    }
-
-
-def metrics(frames: list[dict], y_hat: list[str], labels: list[str]) -> dict:
-    """(7): agreement, macro recall, per-label metrics, confusion matrix (y x y_hat)."""
-    y, ids = [f["label"] for f in frames], [f["id"] for f in frames]
-    pairs = Counter(zip(y, y_hat))
-    return {
-        "agreement": agreement(y, y_hat),
-        "macro_recall": macro_recall(y, y_hat),
-        "per_label": {k: label_metrics(y, y_hat, ids, k) for k in labels},
-        "confusion": {a: {b: pairs[a, b] for b in labels} for a in labels},
-    }
-
-
-def evaluation(frames: list[dict], y_hat: list[str], labels: list[str]) -> dict:
-    """(7): metrics on F^te, and on its frames with g_f true / false."""
-    by_flag = {}
-    for name, flag in (("true", True), ("false", False)):
-        keep = [i for i, f in enumerate(frames) if f["line"]["isGuiInventory"] == flag]
-        by_flag[name] = metrics(
-            [frames[i] for i in keep], [y_hat[i] for i in keep], labels
-        )
-    return metrics(frames, y_hat, labels) | {"by_flag": by_flag}
-
-
-def agreement_matrix(labellers: dict[str, list[str]], k: str) -> dict:
-    """(8): A_k[i, j] over F_k, the frames to which some labeller assigns k."""
-    f_k = [row for row in zip(*labellers.values()) if k in row]
-    n = range(len(labellers))
-    matrix = [[share(sum(r[i] == r[j] for r in f_k), len(f_k)) for j in n] for i in n]
-    return {
-        "n": len(f_k),
-        "labellers": list(labellers),
-        "matrix": matrix if f_k else None,
-    }
-
-
-def matrices(test: list[dict], preds: dict, names: list[str]) -> dict:
-    """(8) per threshold choice: labellers VLM, (a), (b), (c); one matrix per class."""
-    y = [f["label"] for f in test]
-    return {
-        c: {
-            k: agreement_matrix({"vlm": y} | {v: preds[v][c] for v in VARIANTS}, k)
-            for k in names
-        }
-        for c in CRITERIA
-    }
-
-
-def variant_report(
-    named: Named, chosen: dict, preds: dict, test: list[dict], names: list[str]
-) -> dict:
-    """Interface report.json, one variant: pairs; thresholds and (7) per choice."""
-    return {"pairs": pairs_report(named, names)} | {
-        c: {
-            "thresholds": dict(zip(("tau", "theta", "mu"), point)),
-            "test": evaluation(test, preds[c], names + [OTHER]),
-        }
-        for c, point in chosen.items()
     }
 
 
@@ -274,14 +159,16 @@ def run(cfg: GuiMasksConfig) -> dict:
     episodes, frames = read_frames(cfg.frames_dir, cfg.labels_dir)
     parts = split_episodes(episodes, [float(p) for p in cfg.split], cfg.seed)
     train, val, test = labelled_parts(frames, parts)
+    if not val:
+        raise ValueError("no labelled validation frames")
     q = qualified(train, names, cfg.min_episodes)
     named = variant_pairs(cfg, classes, train, q, size)
     write_templates(cfg.out_dir, named)
     pairs = {v: {k: list(c.values()) for k, c in named[v].items()} for v in VARIANTS}
-    s_val = frame_scores(cfg, pairs, val, size, "validation")
-    y_val = [f["label"] for f in val]
-    chosen = {v: choose(cfg, s_val[v], y_val, names) for v in VARIANTS}
-    s_test = frame_scores(cfg, pairs, test, size, "test")
+    grid = list(itertools.product(cfg.tau_grid, cfg.theta_grid, cfg.mu_grid))
+    s_val = frame_scores(cfg.frames_dir, size, cfg.tau_grid, pairs, val, "validation")
+    chosen = thresholds(grid, s_val, [f["label"] for f in val], names)
+    s_test = frame_scores(cfg.frames_dir, size, cfg.tau_grid, pairs, test, "test")
     preds = {
         v: {c: predictions(s_test[v], point, names) for c, point in chosen[v].items()}
         for v in VARIANTS

@@ -3,7 +3,8 @@
 A video is raw frames of ctl["frame_size"] bytes. With `-ss t`: GETs the `-i` URL with the
 `-headers` lines and writes frame round(t * fps) to the last argument, as the behaviour
 ctl["behaviours"][key][attempt] says (key `<stem>_<i>`; default "ok"). Without `-ss`: copies
-the `-i` file to the last argument (`-`, `pipe:`, `pipe:1`: stdout). Logs start and end."""
+the `-i` file to the last argument (`-`, `pipe:`, `pipe:1`: stdout). First writes the bytes
+ctl["stderr"][key][attempt] (hex) to stderr, if any. Logs start and end."""
 
 import json
 import os
@@ -40,8 +41,10 @@ def extract(ctl: dict, args: list, behaviour: str, i: int) -> int:
         return 1
     size = ctl["frame_size"]
     frame = data[i * size : (i + 1) * size]
-    if behaviour == "slow":
+    if behaviour in ("slow", "blocked"):
         time.sleep(ctl["sleep"])
+    if behaviour == "blocked":  # a non-empty directory where the frame is renamed to
+        Path(args[-1].removesuffix(".part"), "x").mkdir(parents=True)
     frame = {
         "wrong": bytes(255 - b for b in frame),
         "short": frame[:-1],
@@ -69,6 +72,10 @@ def main(ctl_path: str, log_path: str, *argv: str) -> int:
     k = attempt(log_path, key) if os.path.exists(log_path) else 0
     behaviour = plan[k] if k < len(plan) else "ok"
     log(log_path, {"event": "start", "key": key, "argv": list(argv), "t": time.time()})
+    noise = ctl["stderr"].get(key, [])
+    if k < len(noise):
+        sys.stderr.buffer.write(bytes.fromhex(noise[k]))
+        sys.stderr.buffer.flush()
     code = decode(args) if i is None else extract(ctl, args, behaviour, i)
     log(log_path, {"event": "end", "key": key, "t": time.time(), "code": code})
     return code

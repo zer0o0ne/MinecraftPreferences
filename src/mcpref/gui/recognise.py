@@ -1,12 +1,19 @@
-"""(4)-(5) of specs/gui-masks.md: template scores and the predicted label."""
+"""(4)-(5) of specs/gui-masks.md: template scores and the predicted label, per frame and
+over the frames of a part."""
 
+import sys
 from collections.abc import Mapping, Sequence
 from fractions import Fraction
+from pathlib import Path
 
 import numpy as np
+from tqdm import tqdm
 
-from mcpref.gui.label_files import OTHER
+from mcpref.gui.label_files import OTHER, rgb_view
 from mcpref.gui.masks import distance
+
+Scores = dict[int, list[dict[str, Fraction]]]
+Point = tuple[int, Fraction, Fraction]
 
 
 def pair_score(x: np.ndarray, t: np.ndarray, m: np.ndarray, tau: int) -> Fraction:
@@ -36,3 +43,35 @@ def predict(
     top = max(ranked, key=scores.__getitem__)
     second = max((scores[k] for k in ranked if k != top), default=Fraction(0))
     return top if scores[top] >= theta and scores[top] - second >= mu else OTHER
+
+
+def frame_scores(
+    frames_dir: Path,
+    size: tuple[int, int],
+    tau_grid: Sequence[int],
+    pairs: Mapping[str, Mapping[str, Sequence[tuple[np.ndarray, np.ndarray]]]],
+    frames: Sequence[dict],
+    part: str,
+) -> dict[str, Scores]:
+    """(4) per variant and tau of tau_grid, for each frame of `part` in order; bar
+    `score <part>`."""
+    out = {v: {tau: [] for tau in tau_grid} for v in pairs}
+    if not frames:
+        print(f"score {part}: nothing to do", file=sys.stderr)
+        return out
+    with tqdm(
+        total=len(pairs) * len(frames), desc=f"score {part}", unit="frame"
+    ) as bar:
+        for v, p in pairs.items():
+            for f in frames:
+                x = rgb_view(frames_dir, f, size)
+                for tau in tau_grid:
+                    out[v][tau].append(scores(x, p, tau))
+                bar.update()
+    return out
+
+
+def predictions(s: Scores, point: Point, order: Sequence[str]) -> list[str]:
+    """(5) at the grid point (tau, theta, mu), for each scored frame in order."""
+    tau, theta, mu = point
+    return [predict(x, order, theta, mu) for x in s[tau]]

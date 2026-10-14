@@ -13,5 +13,6 @@ Prefer earlier kinds.
 5. **Unbiasedness** — mean of a stochastic estimator over N seeded draws vs the exact expectation, enumerated on a tiny discrete case; tolerance 5·σ̂/√N.
 6. **Library-backed code** — tiny random-init models (e.g. a transformers config with 2 layers, width 8).
 7. **External systems** (Minecraft, MineStudio simulator, network) — never real; a fake implementing exactly the contract in the spec's Interface.
+8. **Progress bars** — read with `tests/progress_bars.py`; check only states tqdm always draws (at creation, at close, after `set_postfix_str`), never redraw timing.
 
 Rules: float64 with `torch.testing.assert_close` defaults unless the spec fixes a dtype; fixed seeds; tiers and budgets of AGENTS.md (Monte-Carlo and multi-seed checks are usually `slow`; choose N for the budget, the tolerance follows from N); tests independent, safe under `pytest-xdist`; one behaviour per test, named after the equation or property it checks.

@@ -4,18 +4,18 @@ import argparse
 import dataclasses
 import json
 import sys
-import tempfile
 from collections import Counter
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import httpx
+from tqdm import tqdm
 
 from mcpref import REPO
 from mcpref.cli.failure import FAILURES, failed
-from mcpref.http.retry import get
 from mcpref.vpt.config import GuiFramesConfig, load_config
+from mcpref.vpt.downloads import download_indices, fetch
 from mcpref.vpt.episodes import (
     EpisodeRecord,
     PlannedFrame,
@@ -25,7 +25,8 @@ from mcpref.vpt.episodes import (
     plan,
     version_ok,
 )
-from mcpref.vpt.ffmpeg import decode, extract, ffmpeg_command, frame_time
+from mcpref.vpt.ffmpeg import extract, ffmpeg_command, frame_time
+from mcpref.vpt.verify import verify
 from mcpref.vpt.yuv import yuv420p_to_rgb
 
 __all__ = [
@@ -44,35 +45,33 @@ __all__ = [
 ]
 
 
-def download(client: httpx.Client, cfg: GuiFramesConfig, url: str) -> httpx.Response:
-    """(a), (e): a GET that must succeed after the retries."""
-    response = get(client, url, cfg.http_timeout, cfg.http_retries, cfg.retry_delay)
-    return response.raise_for_status()
-
-
-def fetch(client: httpx.Client, cfg: GuiFramesConfig, url: str) -> bytes | None:
-    """(b): the body, or None for HTTP 404; other failures after the retries abort."""
-    response = get(client, url, cfg.http_timeout, cfg.http_retries, cfg.retry_delay)
-    return None if response.status_code == 404 else response.raise_for_status().content
-
-
 def extract_all(
     cfg: GuiFramesConfig, frames: list[PlannedFrame], urls: list[str], out: Path
 ) -> list[str]:
-    """(c), (d): statuses in plan order, `workers` threads; existing <id>.yuv skipped."""
+    """(c), (d): statuses in plan order, `workers` threads; existing <id>.yuv skipped;
+    bar `extract`, enclosing the pool, whose queued frames an error cancels."""
     out.mkdir(parents=True, exist_ok=True)
     paths = [out / f"{f.id}.yuv" for f in frames]
     statuses = ["ok"] * len(frames)
     todo = [k for k, path in enumerate(paths) if not path.exists()]
-    with ThreadPoolExecutor(cfg.workers) as threads:
-        jobs = {
-            threads.submit(extract, cfg, urls[k], frames[k].frame, paths[k]): k
-            for k in todo
-        }
-        for done, job in enumerate(as_completed(jobs), 1):
-            statuses[jobs[job]] = "ok" if job.result() else "failed"
-            failed = statuses.count("failed")
-            print(f"extracted {done}/{len(todo)}, {failed} failed", file=sys.stderr)
+    if not todo:
+        done = "already done" if frames else "nothing to do"
+        print(f"extract: {done}", file=sys.stderr)
+        return statuses
+    with tqdm(total=len(todo), desc="extract", unit="frame") as bar:
+        bar.set_postfix_str(f"{statuses.count('failed')} failed")
+        threads = ThreadPoolExecutor(cfg.workers)
+        try:
+            jobs = {
+                threads.submit(extract, cfg, urls[k], frames[k].frame, paths[k]): k
+                for k in todo
+            }
+            for job in as_completed(jobs):
+                statuses[jobs[job]] = "ok" if job.result() else "failed"
+                bar.update(1)
+                bar.set_postfix_str(f"{statuses.count('failed')} failed")
+        finally:
+            threads.shutdown(cancel_futures=True)
     return statuses
 
 
@@ -117,7 +116,7 @@ def write_records(
 def run(cfg: GuiFramesConfig, client: httpx.Client) -> None:
     """Behaviour (a)-(d)."""
     out = REPO / cfg.out_dir
-    indices = {s: download(client, cfg, url) for s, url in cfg.index_urls.items()}
+    indices = dict(download_indices(client, cfg))
     etags = {s: response.headers.get("ETag") for s, response in indices.items()}
     header = {"config": dataclasses.asdict(cfg), "index_etags": etags}
     check_rerun(out / "run.json", header)
@@ -131,29 +130,6 @@ def run(cfg: GuiFramesConfig, client: httpx.Client) -> None:
     urls = [basedirs[f.subset] + f.relpath for f in frames]
     statuses = extract_all(cfg, frames, urls, out / "frames")
     write_records(out, header, frames, episodes, statuses)
-
-
-def video_url(client: httpx.Client, cfg: GuiFramesConfig) -> str:
-    """(e): verify_relpath under the basedir of the index that lists it."""
-    for url in cfg.index_urls.values():
-        basedir, relpaths = index(download(client, cfg, url).content)
-        if cfg.verify_relpath in relpaths:
-            return basedir + cfg.verify_relpath
-    raise RuntimeError(f"no index lists {cfg.verify_relpath}")
-
-
-def verify(cfg: GuiFramesConfig, client: httpx.Client) -> None:
-    """(e): every verify frame by ffmpeg_command equals the sequential decode."""
-    url = video_url(client, cfg)
-    with tempfile.TemporaryDirectory() as tmp:
-        video = Path(tmp) / "video.mp4"
-        video.write_bytes(download(client, cfg, url).content)
-        decoded = decode(cfg, video)
-        for i in cfg.verify_frames:
-            path = Path(tmp) / f"{i}.yuv"
-            if not extract(cfg, url, i, path) or path.read_bytes() != decoded.get(i):
-                raise RuntimeError(f"frame {i} of {url} is not the sequential decode")
-            print(f"verified frame {i}", file=sys.stderr)
 
 
 def main(argv: Sequence[str]) -> int:

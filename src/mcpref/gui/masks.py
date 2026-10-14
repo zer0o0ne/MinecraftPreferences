@@ -1,10 +1,12 @@
 """(1)-(3) of specs/gui-masks.md: template and mask pairs of the three variants."""
 
-from collections.abc import Iterable, Mapping, Sequence
+import sys
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from tqdm import tqdm
 
 from mcpref.gui.screens import Element, Member, Rect, ScreenClass
 
@@ -82,15 +84,24 @@ def block_pair(frames: Sequence[np.ndarray], rows: slice, q: float) -> Pair:
     return template, spread
 
 
+def row_starts(height: int, chunk_rows: int) -> range:
+    """(2): first rows of the row blocks of `chunk_rows` rows."""
+    return range(0, height, chunk_rows)
+
+
 def variance_pair(
-    frames: Sequence[np.ndarray], q: float, s_max: int, chunk_rows: int
+    frames: Sequence[np.ndarray],
+    q: float,
+    s_max: int,
+    chunk_rows: int,
+    step: Callable[[], None],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """(2): variant (b) template (uint8), spread sigma_k, mask sigma_k <= s_max."""
-    height = frames[0].shape[0]
-    blocks = [
-        block_pair(frames, slice(r, r + chunk_rows), q)
-        for r in range(0, height, chunk_rows)
-    ]
+    """(2): variant (b) template (uint8), spread sigma_k, mask sigma_k <= s_max;
+    step() after each row block."""
+    blocks = []
+    for r in row_starts(frames[0].shape[0], chunk_rows):
+        blocks.append(block_pair(frames, slice(r, r + chunk_rows), q))
+        step()
     template = np.concatenate([t for t, _ in blocks])
     spread = np.concatenate([s for _, s in blocks])
     return template, spread, spread <= s_max
@@ -133,26 +144,30 @@ def patch_masks(
     patch: int,
     n_p: int,
     eps: float,
+    step: Callable[[], None],
 ) -> dict[str, np.ndarray]:
-    """(3): variant (c) mask of each given class (the >= 2 of Q with a (b) template)."""
-    return {
-        k: top_patches(ratio(k, templates, spreads[k], patch, eps), n_p, patch)
-        for k in templates
-    }
+    """(3): variant (c) mask of each given class (the >= 2 of Q with a (b) template);
+    step() after each class's mask."""
+    masks = {}
+    for k in templates:
+        masks[k] = top_patches(ratio(k, templates, spreads[k], patch, eps), n_p, patch)
+        step()
+    return masks
 
 
-def bc_pairs(
-    built: Mapping[str, tuple[np.ndarray, np.ndarray, np.ndarray]],
+def c_pairs(
+    b: Mapping[str, Pair],
+    spreads: Mapping[str, np.ndarray],
     patch: int,
     n_p: int,
     eps: float,
-) -> tuple[dict[str, Pair], dict[str, Pair]]:
-    """(2)-(3): from (T, sigma_k, M) of each class of Q, the (b) pairs of the classes
-    with a non-empty M, and their (c) pairs when there are >= 2 of them."""
-    b = {k: (t, m) for k, (t, _, m) in built.items() if m.any()}
+) -> dict[str, Pair]:
+    """(3): (T, M) of the classes with a (b) template, built when there are at least
+    two; bar `templates c`."""
     if len(b) < 2:
-        return b, {}
+        print("templates c: nothing to do", file=sys.stderr)
+        return {}
     templates = {k: t for k, (t, _) in b.items()}
-    spreads = {k: built[k][1] for k in b}
-    masks = patch_masks(templates, spreads, patch, n_p, eps)
-    return b, {k: (templates[k], m) for k, m in masks.items()}
+    with tqdm(total=len(b), desc="templates c", unit="class") as bar:
+        masks = patch_masks(templates, spreads, patch, n_p, eps, bar.update)
+    return {k: (templates[k], m) for k, m in masks.items()}

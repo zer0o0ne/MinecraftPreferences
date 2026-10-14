@@ -27,6 +27,7 @@ Index ranges, boundaries, reductions, stop-grad and sampling are written out, ne
 - `def f(a: T, ...) -> R` — each argument as a Notation symbol; the result as an equation number.
 - Consumes: <artifact path and format | function> from <block spec>
 - Produces: <artifact path and format> for <block spec>
+- Progress bars (AGENTS.md Code): `<desc>` (unit) — loop; total; advanced when / by; postfix or none; line when there is nothing to do
 
 ## Library mapping
 | Eq. | Call | Version | Explicit args | Source read |

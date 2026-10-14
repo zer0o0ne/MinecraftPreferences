@@ -1,9 +1,10 @@
 # GUI labels
-Status: approved (2026-10-10; clarified after the prototype the same day: paths, run.json form, no ok frame)
+Status: approved (2026-10-10; clarified after the prototype the same day: paths, run.json form, no ok frame; 2026-10-14: progress bar, approved)
 Stage: GUI-recognition experiment (Q GX; `specs/00-overview.md`, block 17)
 
 ## Sources
 - [U] the user, 2026-10-10: the screen type of every sampled frame is labelled by the VLM; the labels are the reference for comparing mask variants (Q GX); VPT's `isGuiInventory` is an independent check (Q GX-3); every Spark action is a bash script.
+- [U] the user, 2026-10-14: a progress bar after AGENTS.md Code (`tqdm`), advanced once per batch; an error message is the last line of stderr.
 - `specs/vpt-gui-frames.md` (approved): frames, `frames.jsonl` records, RGB view (5).
 - `specs/gui-screens.md` (approved): classes, their one-line `description`.
 - `specs/vlm-client.md` (approved): `ask_many`, `load_config`.
@@ -22,21 +23,24 @@ Stage: GUI-recognition experiment (Q GX; `specs/00-overview.md`, block 17)
 (5) Check against VPT (a summary only, never used to change $y_f$): over frames with a class label (not `invalid`, `no_answer`), $g_f$ = `line.isGuiInventory` of its record; counts of the four pairs ($y_f \in$ {`inventory`, `inventory_book`}, $g_f$).
 
 ## Interface
-- Module `src/mcpref/gui/labels.py`; `def main(argv: Sequence[str]) -> int`, run as `python -m mcpref.gui.labels <config path>`; exit 0, or 1 with a one-line message on stderr when there is no `ok` frame, a file is unreadable, a rerun's hashes differ, or `ask_many` raises.
+- Module `src/mcpref/gui/labels.py`; `def main(argv: Sequence[str]) -> int`, run as `python -m mcpref.gui.labels <config path>`; exit 0, or 1 with a one-line message as the last line of stderr when there is no `ok` frame, a file is unreadable, a rerun's hashes differ, or `ask_many` raises.
   - `def load_config(path: Path) -> GuiLabelsConfig`.
   - `def prompt(cfg: GuiLabelsConfig, classes: Sequence[ScreenClass], rgb: np.ndarray) -> list[str | np.ndarray]` — (1).
   - `def parse(answer: str | None, names: Sequence[str]) -> str` — (3); `names` = the names of $\mathcal{K}$, `other` included.
 - Consumes: `{frames_dir}/frames.jsonl`, `{frames_dir}/run.json`, `frames/<id>.yuv` (`specs/vpt-gui-frames.md`); `load_screens` (`specs/gui-screens.md`); `load_config`, `ask_many` (`specs/vlm-client.md`).
 - Produces `{out_dir}/labels.jsonl`, one record per finished `ok` frame in `frames.jsonl` order: `id`, `seed`, `answer`, `label`; `{out_dir}/summary.json`: `{"labels": {label: count}, "vpt_check": {"inventory_flag_true": n, "inventory_flag_false": n, "other_flag_true": n, "other_flag_false": n}}`; `{out_dir}/run.json`: `{"config": <the config>, "sha256": {"config", "vlm", "screens"} (lowercase hex), "prompt": <the prompt of the first `ok` frame of `frames.jsonl` with the image replaced by "<image>">}`; `labels` in `summary.json` lists the labels that occurred.
 - Script `scripts/label_gui_frames.sh` (preamble of `specs/spark-env.md`): `uv run --locked python -m mcpref.gui.labels configs/gui-labels.yaml`. The server must be running (`scripts/serve_vlm.sh`).
+- Progress bar (AGENTS.md Code): `label` (unit `frame`) — the loop of (4) over batches; total = the frames still to label; advanced by a batch's size once its outputs are written (one step per batch, [U] 2026-10-14); no postfix; total 0 → the line `label: already done` instead.
+- `pyproject.toml`: adds `tqdm==4.70.1` if absent (shared with blocks vpt-gui-frames, gui-masks).
 - Starting config values: `frames_dir` = `data/gui_frames`; `out_dir` = `data/gui_labels`; `seed` = 0; `batch` = 256; `instruction` = "This is a screenshot of Minecraft 1.16 with a GUI screen open."; `question` = "Which of these screens is open? Answer with the name only, exactly as written.\n{classes}"; `class_line` = "{name}: {description}"; `other_description` = "any other screen, or no screen".
-- Tests: (1) on a tiny catalogue (order, placeholders, image position); (2); (3) hand cases (exact, padded, backticks, quotes, case mismatch → `invalid`, `None`); `main` with a fake `ask_many` (rerun skips, retries `no_answer`, summary counts, (5) table) and fake frames.
+- Tests: (1) on a tiny catalogue (order, placeholders, image position); (2); (3) hand cases (exact, padded, backticks, quotes, case mismatch → `invalid`, `None`); `main` with a fake `ask_many` (rerun skips, retries `no_answer`, summary counts, (5) table, the bar's total and final count on stderr) and fake frames.
 
 ## Library mapping
 | Item | Call | Version | Explicit args | Source read |
 |---|---|---|---|---|
 | (1), (4) | `mcpref.vlm.client.ask_many` | this repo | `prompts`, `seeds`, `cfg` | `specs/vlm-client.md` |
 | RGB view | `mcpref.vpt.gui_frames.yuv420p_to_rgb` | this repo | `width`, `height` from the frames' config | `specs/vpt-gui-frames.md` |
+| progress bars | `tqdm.tqdm` as a context manager; `update(n)`; `set_postfix_str(s)` | 4.70.1 | `total`, `desc`, `unit`; defaults otherwise: `file=None` → `sys.stderr`, `leave=True` (the final state stays, followed by a newline, also when an error leaves the `with` block), `disable=False` (drawn also when stderr is not a terminal); `TQDM_*` environment variables, which could change these defaults, are ignored until they cause a problem ([U] 2026-10-14) | `tqdm/std.py:960-979`, `1144-1151`, `1270-1310` |
 
 ## Out of scope
 - Several answers per frame, answer probabilities, constrained decoding (Q VLMC-8).

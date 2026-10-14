@@ -1,24 +1,21 @@
 """src/mcpref/gui/evaluate.py against specs/gui-masks.md: config, split, and `main` end to end
 on the synthetic worlds of masks_world.py (report.json against masks_oracle.py, templates,
-report.md, progress, exits)."""
+report.md, the bars on stderr); its aborts in test_evaluate_aborts.py."""
 
-import contextlib
 import dataclasses
-import io
-import json
-import os
 import subprocess
 import sys
 from fractions import Fraction
-from pathlib import Path
 
 import masks_world as mw
 import numpy as np
 import pytest
 import yaml
+from masks_run import Run, bars, run_main
 from PIL import Image
+from progress_bars import Bar, assert_progress, screen
 
-from mcpref.gui.evaluate import GuiMasksConfig, load_config, main, split_episodes
+from mcpref.gui.evaluate import GuiMasksConfig, load_config, split_episodes
 
 PATHS = {"frames_dir": "data/gui_frames", "labels_dir": "data/gui_labels"}
 PATHS.update(screens="configs/gui-screens.yaml", out_dir="data/gui_masks")
@@ -100,43 +97,12 @@ def test_split_episodes_one_draw_per_episode_in_order(seed, episodes):
     assert split_episodes(episodes, probs, seed) == expected
 
 
-@dataclasses.dataclass
-class Run:
-    code: int
-    err: str
-    out: Path
-    report: dict | None
-
-    def failed(self) -> None:
-        """Exit 1 with a one-line message on stderr (Interface)."""
-        lines = self.err.strip().splitlines()
-        assert self.code == 1 and len(lines) == 1 and "Traceback" not in self.err
-
-
-def run_main(root: Path, repo: Path, config: dict, relabel=False, remove=None) -> Run:
-    """Writes a world under root (without `remove`) and runs main from another directory."""
-    path = mw.write(root, repo, mw.frames(relabel), config)
-    if remove:
-        (root / remove).unlink()
-    (root / "cwd").mkdir()
-    err, cwd = io.StringIO(), os.getcwd()
-    os.chdir(root / "cwd")
-    try:
-        with contextlib.redirect_stderr(err):
-            code = main([str(path)])
-    finally:
-        os.chdir(cwd)
-    report = root / "out/report.json"
-    report = json.loads(report.read_text()) if report.exists() else None
-    return Run(code, err.getvalue(), root / "out", report)
-
-
 SCENARIOS = {  # name: (relabel, config changes)
     "base": (False, {}),
     "relabelled": (True, {}),  # labels change, the split does not
     "one_b": (False, {"min_episodes": 7}),  # Q = beta, delta; (b) delta only; no (c)
     "unqualified": (False, {"min_episodes": 100}),  # no (b), no (c)
-    "no_test": (False, {"split": ["0.5", "0.5", "0"]}),
+    "no_test": (False, {"split": ["0.5", "0.5", "0"]}),  # score test: nothing to do
 }
 
 
@@ -152,7 +118,8 @@ def world(request, tmp_path_factory, repo):
 def test_worlds_exercise_the_spec():
     """beta has no (b) template, (c) is built for alpha and delta only (none with one (b)
     template), gamma (no template) is in F^te; counting failed records or only labelled
-    episodes would change the split."""
+    episodes would change the split; validation and test episodes hold invalid, no_answer and
+    unlabelled frames, which are not scored."""
     fs = mw.frames()
     report = mw.expected(fs, mw.CONFIG)
     assert report["qualified"] == ["alpha", "beta", "delta"]
@@ -169,6 +136,19 @@ def test_worlds_exercise_the_spec():
     assert all(
         mw.expected(mw.frames(r), {**mw.CONFIG, **c}) for r, c in SCENARIOS.values()
     )
+    scored = [f for f in fs if f.status == "ok" and report["part"][f.relpath] > 0]
+    assert {"invalid", "no_answer", None} <= {f.label for f in scored}
+
+
+def test_worlds_exercise_the_bars():
+    """Each optional bar is drawn in some world and replaced by its line in another."""
+    lines = set()
+    for relabel, changes in SCENARIOS.values():
+        config = {**mw.CONFIG, **changes}
+        lines.update(bars(mw.expected(mw.frames(relabel), config), config))
+    loops = ("templates b", "templates c", "score test")
+    assert {f"{d}: nothing to do" for d in loops} <= lines
+    assert set(loops) <= {line.desc for line in lines if isinstance(line, Bar)}
 
 
 def normal(test: dict) -> dict:
@@ -262,13 +242,24 @@ def test_template_images(world):
         assert grey.mode == "L" and np.array_equal(np.asarray(grey) == 255, mask)
 
 
-def test_report_md_and_progress(world):
-    """report.md: the report as tables; progress on stderr, one line per frame, variant, part."""
-    name, run, exp = world
+def test_report_md(world):
+    """report.md: the report as tables."""
+    _, run, _ = world
     text = (run.out / "report.md").read_text()
     assert "|" in text and all(k in text for k in mw.CLASSES)
-    if name == "base":
-        assert len(run.err.strip().splitlines()) >= 3 * exp["n_scored"]
+
+
+def test_bars_on_stderr(world):
+    """Interface, progress bars: stderr holds only, in run order, `templates b` (unit step,
+    total sum over Q of |F^tr_k| + ceil(H / chunk_rows)), `templates c` (class, the classes
+    taking part), `score validation`, `thresholds` (point, 3 x 27), `score test` (frame, 3 x the
+    frames scored), each from 0 to its total without postfix, or `<desc>: nothing to do`;
+    nothing on stdout."""
+    name, run, exp = world
+    config = {**mw.CONFIG, **SCENARIOS[name][1]}
+    assert run.code == 0, run.err
+    assert screen(run.err) == bars(exp, config) and run.stdout == ""
+    assert_progress(run.err)
 
 
 def test_patches_per_class_up_to_the_number_of_patches(tmp_path, repo):
@@ -280,22 +271,6 @@ def test_patches_per_class_up_to_the_number_of_patches(tmp_path, repo):
         assert (mask == 255).all()
 
 
-FAILURES = {  # config changes, removed file
-    "patches_per_class above the number of patches": ({"patches_per_class": 9}, None),
-    "empty validation set": ({"split": ["0.5", "0", "0.5"]}, None),
-    "unreadable labels": ({}, "labels/labels.jsonl"),
-}
-
-
-@pytest.mark.parametrize("changes, remove", FAILURES.values(), ids=FAILURES)
-def test_failures_exit_1_without_report(tmp_path, repo, changes, remove):
-    """No report, and no progress line: an empty validation set fails before test frames are
-    scored."""
-    run = run_main(tmp_path, repo, {**mw.CONFIG, **changes}, remove=remove)
-    run.failed()
-    assert run.report is None
-
-
 def test_runs_as_module(tmp_path, repo):
     """`python -m mcpref.gui.evaluate <config path>`, here on an empty validation set."""
     path = mw.write(
@@ -305,4 +280,5 @@ def test_runs_as_module(tmp_path, repo):
     proc = subprocess.run(
         argv, capture_output=True, text=True, timeout=8, check=False, cwd=tmp_path
     )
-    Run(proc.returncode, proc.stderr, tmp_path / "out", None).failed()
+    run = Run(proc.returncode, proc.stderr, proc.stdout, tmp_path / "out", None)
+    assert run.failed() == []

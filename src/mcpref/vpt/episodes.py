@@ -1,12 +1,12 @@
 """(1)-(3) of specs/vpt-gui-frames.md: eligible frames, episode reasons, the plan."""
 
 import json
-import sys
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import PurePosixPath
 from typing import NamedTuple
 
 import numpy as np
+from tqdm import tqdm
 
 from mcpref.vpt.config import GuiFramesConfig
 
@@ -111,37 +111,43 @@ def draw(
     subset: str,
     fetch: Fetch,
     left: int,
-    episodes: list[EpisodeRecord],
     basedir: str,
     pool: list[str],
-) -> list[PlannedFrame]:
-    """(3) within subset s: episodes popped until one is valid or the pool is empty."""
+) -> Iterator[tuple[EpisodeRecord, list[PlannedFrame]]]:
+    """(3) within subset s: episodes popped until one is valid or the pool is empty,
+    each with the frames taken from it (none from an invalid one)."""
     while pool:
         relpath = pool.pop(rng.integers(len(pool)))
         reason, options, lines = examine(cfg, basedir, relpath, fetch)
-        episodes.append(EpisodeRecord(subset, relpath, reason, options))
-        if reason is None:
-            eligible = eligible_frames(lines)
-            r = min(cfg.per_episode, len(eligible), left)
-            chosen = rng.choice(eligible, size=r, replace=False, shuffle=True)
-            return [planned(subset, relpath, int(i), lines) for i in chosen]
-    return []
+        episode = EpisodeRecord(subset, relpath, reason, options)
+        if reason is not None:
+            yield episode, []
+            continue
+        eligible = eligible_frames(lines)
+        r = min(cfg.per_episode, len(eligible), left)
+        chosen = rng.choice(eligible, size=r, replace=False, shuffle=True)
+        yield episode, [planned(subset, relpath, int(i), lines) for i in chosen]
+        return
 
 
 def plan(
     cfg: GuiFramesConfig, fetch: Fetch
 ) -> tuple[list[PlannedFrame], list[EpisodeRecord]]:
-    """(3): subset, episodes, frames, drawn by one Generator(PCG64(seed))."""
+    """(3): subset, episodes, frames, drawn by one Generator(PCG64(seed)); bar `plan`."""
     rng = np.random.Generator(np.random.PCG64(cfg.seed))
     indices = {s: index(fetch(url)) for s, url in cfg.index_urls.items()}
     frames, episodes = [], []
-    while len(frames) < cfg.n_frames:
-        active = [s for s, (_, pool) in indices.items() if pool]
-        if not active:
-            break
-        s = active[rng.integers(len(active))]
-        left = cfg.n_frames - len(frames)
-        frames += draw(cfg, rng, s, fetch, left, episodes, *indices[s])
-        progress = f"{len(frames)}/{cfg.n_frames} frames, {len(episodes)} episodes"
-        print(f"planned {progress}", file=sys.stderr)
+    with tqdm(total=cfg.n_frames, desc="plan", unit="frame") as bar:
+        bar.set_postfix_str(f"{len(episodes)} episodes")
+        while len(frames) < cfg.n_frames:
+            active = [s for s, (_, pool) in indices.items() if pool]
+            if not active:
+                break
+            s = active[rng.integers(len(active))]
+            left = cfg.n_frames - len(frames)
+            for episode, taken in draw(cfg, rng, s, fetch, left, *indices[s]):
+                episodes.append(episode)
+                frames += taken
+                bar.update(len(taken))
+                bar.set_postfix_str(f"{len(episodes)} episodes")
     return frames, episodes

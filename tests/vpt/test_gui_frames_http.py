@@ -5,7 +5,7 @@ import itertools
 import threading
 
 import pytest
-from vpt_checks import assert_aborted
+from progress_bars import assert_aborted
 
 from mcpref.vpt.gui_frames import main
 

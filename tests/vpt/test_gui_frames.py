@@ -7,7 +7,8 @@ import subprocess
 import sys
 
 import pytest
-from vpt_checks import assert_aborted, command_head, key, stem
+from progress_bars import assert_aborted, screen
+from vpt_checks import command_head, key, stem
 from vpt_world import frame
 
 from mcpref.vpt.gui_frames import main
@@ -112,13 +113,19 @@ def test_no_part_file_left_for_extracted_frames(site):
 
 @pytest.mark.parametrize("ok", [True, False], ids=["ok", "abort"])
 def test_module_entry_point(site, ok):
-    """`python -m mcpref.vpt.gui_frames run <config>`; an index 404 aborts."""
+    """`python -m mcpref.vpt.gui_frames run <config>`; an index 404 aborts. Bars are drawn
+    on stderr also when it is a pipe (Library mapping: disable=False); stderr is read as
+    bytes, universal newlines would turn its carriage returns into line ends."""
     if not ok:
         site.faults["/idx/9xx.json"] = [404]
     cmd = [sys.executable, "-m", "mcpref.vpt.gui_frames", "run", site.config()]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
+    proc = subprocess.run(cmd, capture_output=True, timeout=60, check=False)
+    err = proc.stderr.decode()
     if ok:
-        assert proc.returncode == 0, proc.stderr
+        assert proc.returncode == 0, err
         assert site.read_jsonl("frames.jsonl") == site.expected()[0]
+        assert proc.stdout == b""
+        shown = [(b.desc, b.n, b.total) for b in screen(err)]
+        assert shown == [("indices", 5, 5), ("plan", 6, 6), ("extract", 6, 6)]
     else:
-        assert_aborted(proc.returncode, proc.stderr)
+        assert_aborted(proc.returncode, err)

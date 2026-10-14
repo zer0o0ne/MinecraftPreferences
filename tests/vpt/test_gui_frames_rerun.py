@@ -1,7 +1,8 @@
 """Behaviour (d) and the timing of run.json in specs/vpt-gui-frames.md: reruns and aborts."""
 
 import pytest
-from vpt_checks import assert_aborted, key
+from progress_bars import assert_aborted
+from vpt_checks import key
 
 from mcpref.vpt.gui_frames import main
 

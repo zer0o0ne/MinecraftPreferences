@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import yaml
+from tqdm import tqdm
 
 from mcpref import REPO
 from mcpref.cli.failure import FAILURES, failed
@@ -129,7 +130,7 @@ def ask_batch(
 
 
 def run(cfg: GuiLabelsConfig, config_path: Path) -> None:
-    """Behaviour (1)-(5): label the frames still to label, batch by batch."""
+    """Behaviour (1)-(5): label the frames still to label, batch by batch; bar `label`."""
     frames_dir, out = REPO / cfg.frames_dir, REPO / cfg.out_dir
     header = {"config": dataclasses.asdict(cfg), "sha256": hashes(cfg, config_path)}
     check_rerun(out / "run.json", header["sha256"])
@@ -144,12 +145,17 @@ def run(cfg: GuiLabelsConfig, config_path: Path) -> None:
     done = finished(out)
     labelled = {i for i, r in done.items() if r["label"] != NO_ANSWER}
     todo = [(position, f) for position, f in ok if f["id"] not in labelled]
+    if not todo:
+        print("label: already done", file=sys.stderr)
+        return
     out.mkdir(parents=True, exist_ok=True)
-    for start in range(0, len(todo), cfg.batch):
-        batch = todo[start : start + cfg.batch]
-        done.update((r["id"], r) for r in ask_batch(cfg, vlm, classes, size, batch))
-        records = [done[f["id"]] for _, f in ok if f["id"] in done]
-        write_outputs(out, header, records, vpt_check(records, flags))
+    with tqdm(total=len(todo), desc="label", unit="frame") as bar:
+        for start in range(0, len(todo), cfg.batch):
+            batch = todo[start : start + cfg.batch]
+            done.update((r["id"], r) for r in ask_batch(cfg, vlm, classes, size, batch))
+            records = [done[f["id"]] for _, f in ok if f["id"] in done]
+            write_outputs(out, header, records, vpt_check(records, flags))
+            bar.update(len(batch))
 
 
 def main(argv: Sequence[str]) -> int:

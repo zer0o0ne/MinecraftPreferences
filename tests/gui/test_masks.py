@@ -1,6 +1,7 @@
 """src/mcpref/gui/masks.py against specs/gui-masks.md (1)-(3): hand cases and the naive
-references of masks_oracle.py."""
+references of masks_oracle.py; the `step` callbacks of the bars `templates b` and `templates c`."""
 
+import math
 from fractions import Fraction
 
 import numpy as np
@@ -141,13 +142,26 @@ def frames_of(n: int, seed: int, shape=(5, 4)) -> list:
     return list(rng.choice(values, size=(n, *shape, 3)))
 
 
+class Steps:
+    """A `step` callback (Interface): counts its calls, made without arguments."""
+
+    def __init__(self):
+        self.n = 0
+
+    def __call__(self) -> None:
+        self.n += 1
+
+
 def check_variance(frames: list, q: float, chunk_rows: int) -> None:
+    """(2) against the naive reference; `step` called once per row block."""
     t, sigma, _ = spread_pair(frames, q, 0)
     s_max = int(np.sort(sigma, axis=None)[sigma.size // 2])  # some sigma equals s_max
-    got = variance_pair(frames, q, s_max, chunk_rows)
+    step = Steps()
+    got = variance_pair(frames, q, s_max, chunk_rows, step)
     assert got[0].dtype == np.uint8 and np.array_equal(got[0], t)
     assert np.array_equal(got[1], sigma)
     assert got[2].dtype == bool and np.array_equal(got[2], sigma <= s_max)
+    assert step.n == math.ceil(len(frames[0]) / chunk_rows)
 
 
 @pytest.mark.parametrize("n", [1, 2, 4, 5])
@@ -159,7 +173,8 @@ def test_variance_pair_naive_reference(n, q):
 
 @pytest.mark.parametrize("chunk_rows", [1, 2, 3, 5, 9])
 def test_variance_pair_row_blocks(chunk_rows):
-    """(2) is the same over row blocks of any height, the last one shorter."""
+    """(2) is the same over row blocks of any height, the last one shorter (5 rows: 5, 3, 2,
+    1, 1 blocks, so as many `step` calls)."""
     check_variance(frames_of(5, seed=3), 0.75, chunk_rows)
 
 
@@ -168,10 +183,12 @@ def test_variance_pair_hand_case():
     pixel 1: channel 2 = 255, 255, 255, 0 -> median 255, distances 0, 0, 0, 255 (not 1)."""
     pixels = [(255, 255), (0, 255), (200, 255), (100, 0)]
     frames = [np.array([[[a, 7, 7], [9, 9, b]]], dtype=np.uint8) for a, b in pixels]
-    t, sigma, mask = variance_pair(frames, 1.0, 155, 1)
+    step = Steps()
+    t, sigma, mask = variance_pair(frames, 1.0, 155, 1, step)
     assert t.tolist() == [[[100, 7, 7], [9, 9, 255]]]
     assert sigma.tolist() == [[155, 255]] and mask.tolist() == [[True, False]]
-    assert variance_pair(frames, 0.75, 99, 1)[1].tolist() == [[100, 0]]
+    assert variance_pair(frames, 0.75, 99, 1, step)[1].tolist() == [[100, 0]]
+    assert step.n == 2  # one row block per call
 
 
 def test_patch_masks_hand_case():
@@ -183,10 +200,11 @@ def test_patch_masks_hand_case():
     s_a = np.zeros((4, 8), dtype=np.int64)
     s_b = s_a.copy()
     s_a[:, 4:], s_b[:, :4] = 4, 254
-    got = patch_masks({"a": t_a, "b": t_b}, {"a": s_a, "b": s_b}, 4, 1, 1.0)
+    step = Steps()
+    got = patch_masks({"a": t_a, "b": t_b}, {"a": s_a, "b": s_b}, 4, 1, 1.0, step)
     left = np.zeros((4, 8), dtype=bool)
     left[:, :4] = True
-    assert set(got) == {"a", "b"}
+    assert set(got) == {"a", "b"} and step.n == 2  # one call per class's mask
     assert np.array_equal(got["a"], left) and np.array_equal(got["b"], ~left)
 
 
@@ -203,7 +221,7 @@ def test_patch_masks_ties_by_top_row_then_left_column(n_p, corners):
     expected = np.zeros((8, 12), dtype=bool)
     for top, left in corners:
         expected[top : top + 4, left : left + 4] = True
-    got = patch_masks(templates, spreads, 4, n_p, 1.0)
+    got = patch_masks(templates, spreads, 4, n_p, 1.0, Steps())
     assert all(np.array_equal(got[k], expected) for k in templates)
 
 
@@ -215,8 +233,9 @@ def test_patch_masks_naive_reference(n_p, eps):
     values = np.array([0, 1, 3, 128, 252, 254, 255], dtype=np.uint8)
     templates = {k: rng.choice(values, size=(8, 12, 3)) for k in ("a", "b", "c")}
     spreads = {k: rng.integers(0, 60, size=(8, 12)) for k in templates}
-    got = patch_masks(templates, spreads, 4, n_p, eps)
+    step = Steps()
+    got = patch_masks(templates, spreads, 4, n_p, eps, step)
     expected = naive_patch_masks(templates, spreads, 4, n_p, eps)
-    assert set(got) == set(expected)
+    assert set(got) == set(expected) and step.n == 3  # one call per class's mask
     assert all(np.array_equal(got[k], expected[k]) for k in expected)
     assert all(got[k].sum() == 16 * n_p for k in got)

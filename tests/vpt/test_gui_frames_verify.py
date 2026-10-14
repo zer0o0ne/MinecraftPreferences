@@ -1,12 +1,14 @@
-"""Behaviour (e) of specs/vpt-gui-frames.md: `main verify` with a fake ffmpeg, and once with
-the real ffmpeg on a tiny generated H.264 video."""
+"""Behaviour (e) of specs/vpt-gui-frames.md: `main verify` with a fake ffmpeg (its bars
+`indices`, `decode`, `verify` and ffmpeg's stderr included), and once with the real ffmpeg
+on a tiny generated H.264 video."""
 
 import subprocess
 import tempfile
 from pathlib import Path
 
 import pytest
-from vpt_checks import EPISODES, assert_aborted, command_head
+from progress_bars import Bar, assert_aborted, assert_progress, screen, states
+from vpt_checks import EPISODES, command_head
 from vpt_world import FIELDS
 
 from mcpref.vpt.gui_frames import main
@@ -14,6 +16,9 @@ from mcpref.vpt.gui_frames import main
 VERIFY = FIELDS["verify_relpath"]
 REAL_FFMPEG = Path("/home/dev/.local/bin/ffmpeg")
 FAILURES = ["exit1", "short", "long", "slow"]  # slow: longer than ffmpeg_timeout
+INDICES = Bar("indices", 5, 5, "file")  # verify_relpath is listed by 10xx only
+DECODE = Bar("decode", 25, None, "frame")  # its video: 24 lines, 25 frames
+VERIFY_BAR = Bar("verify", 5, 5, "frame")
 
 
 def vkey(i: int) -> str:
@@ -49,11 +54,27 @@ def test_verify_extracts_each_frame_and_decodes_the_download(site):
     assert url not in decodes[0]["argv"]  # a local copy, decoded sequentially
 
 
-def test_verify_url_from_first_index_listing_it(make_site):
-    """7xx precedes 10xx in config order and lists the same relpath."""
+def test_verify_bars_totals_and_final_counts(site, capfd):
+    assert main(["verify", site.config()]) == 0
+    out, err = capfd.readouterr()
+    assert out == "" and screen(err) == [INDICES, DECODE, VERIFY_BAR]
+    assert_progress(err)
+
+
+def test_verify_without_frames_prints_nothing_to_do(site, capfd):
+    assert main(["verify", site.config(verify_frames=[])]) == 0
+    err = capfd.readouterr().err
+    assert screen(err).count("verify: nothing to do") == 1
+    assert states(err, "verify") == [] and extractions(site) == []
+
+
+def test_verify_url_from_first_index_listing_it(make_site, capfd):
+    """7xx precedes 10xx in config order and lists the same relpath: the `indices` bar
+    stops after the second download."""
     episodes = EPISODES | {"7xx": [*EPISODES["7xx"], EPISODES["10xx"][1]]}
     site = make_site(episodes=episodes)
     assert main(["verify", site.config()]) == 0
+    assert screen(capfd.readouterr().err)[0] == Bar("indices", 2, 5, "file")
     base = site.world.basedirs["7xx"]
     assert {c["argv"][c["argv"].index("-i") + 1] for c in extractions(site)} == {
         base + VERIFY
@@ -64,14 +85,30 @@ def test_verify_url_from_first_index_listing_it(make_site):
 
 def test_verify_aborts_when_no_index_lists_relpath(site, capfd):
     cfg = site.config(verify_relpath="data/10.0/nowhere.mp4")
-    assert_aborted(main(["verify", cfg]), capfd.readouterr().err)
-    assert site.calls() == []
+    code = main(["verify", cfg])
+    err = capfd.readouterr().err
+    assert_aborted(code, err)
+    assert site.calls() == [] and screen(err)[:-1] == [INDICES]
+
+
+def assert_verify_stopped(code: int, err: str) -> None:
+    """Aborted with the `verify` bar closed below its total: a frame never equalled."""
+    assert_aborted(code, err)
+    *done, verify = screen(err)[:-1]
+    assert done == [INDICES, DECODE]
+    assert (verify.desc, verify.total, verify.unit, verify.postfix) == (
+        "verify",
+        5,
+        "frame",
+        None,
+    )
+    assert verify.n <= 4
 
 
 @pytest.mark.parametrize("i", [0, 20, 23])
 def test_verify_aborts_on_a_frame_unequal_to_the_decode(site, capfd, i):
     site.behaviours = {vkey(i): ["wrong"]}
-    assert_aborted(main(["verify", site.config()]), capfd.readouterr().err)
+    assert_verify_stopped(main(["verify", site.config()]), capfd.readouterr().err)
 
 
 @pytest.mark.parametrize("failure", FAILURES)
@@ -86,8 +123,26 @@ def test_verify_retries_a_failed_extraction(site, failure):
 def test_verify_aborts_when_a_frame_still_fails(site, capfd, failure):
     site.behaviours = {vkey(1): [failure] * 2}
     cfg = site.config(ffmpeg_timeout=1.0, http_retries=1, retry_delay=0.05)
-    assert_aborted(main(["verify", cfg]), capfd.readouterr().err)
+    assert_verify_stopped(main(["verify", cfg]), capfd.readouterr().err)
     assert len(extractions(site, 1)) == 2
+
+
+def test_verify_prints_ffmpeg_stderr_above_the_running_bar(site, capfd):
+    """The decode's stderr above `decode`, an extraction's above `verify`."""
+    site.noise = {"decode": [b"decode note\n"], vkey(19): [b"seek note\n"]}
+    assert main(["verify", site.config()]) == 0
+    shown = [INDICES, "decode note", DECODE, "seek note", VERIFY_BAR]
+    err = capfd.readouterr().err
+    assert screen(err) == shown
+    assert_progress(err)
+
+
+def test_verify_decode_never_blocked_by_its_stderr(site, capfd):
+    """256 KiB of stderr, beyond a pipe's buffer, before the decoded video on stdout."""
+    big = "e" * 2**18
+    site.noise = {"decode": [big.encode()]}
+    assert main(["verify", site.config()]) == 0
+    assert screen(capfd.readouterr().err) == [INDICES, big, DECODE, VERIFY_BAR]
 
 
 @pytest.mark.parametrize("behaviour, code", [("ok", 0), ("wrong", 1)])
