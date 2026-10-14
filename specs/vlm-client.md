@@ -1,5 +1,5 @@
 # VLM client
-Status: approved (2026-10-10; clarifications after prototype and refactor the same day: transport errors, captured outputs, error messages, library arguments, starting values)
+Status: approved (2026-10-10; clarifications after prototype and refactor the same day: transport errors, captured outputs, error messages, library arguments, starting values; 2026-10-14: pixel bounds set by the server only, approved)
 Stage: P2 VLM labels (`specs/00-overview.md`, block 0)
 
 ## Sources
@@ -21,7 +21,7 @@ Open questions: `specs/00-questions.md`, section VLMC.
 ## Behaviour
 (1) One request per prompt: a single user message whose content is the parts of $q$ in their order; no system message (Q VLMC-1, VLMC-2). The chat template [M] renders text parts verbatim, every image as `<|vision_start|><|image_pad|><|vision_end|>` without a "Picture N:" prefix, with no separators, and ends the prompt with `<|im_start|>assistant\n`.
 (2) Image part → `{"type": "image_url", "image_url": {"url": "data:image/png;base64,<b64>"}}`: `<b64>` is the PNG of the array, in the standard base64 alphabet, padded, without line breaks. Text part → `{"type": "text", "text": <part>}`.
-(3) Request body: exactly the keys `model`, `messages` (from (1)), `n` (= 1), `seed` (= $s$), and the fields of Table 1. The defaults of v0.31.0 this relies on: generation stops at the eos ids `[151645, 151643]`; `skip_special_tokens = true`; `ignore_eos = false`; `min_tokens = 0`; no logprobs.
+(3) Request body: exactly the keys `model`, `messages` (from (1)), `n` (= 1), `seed` (= $s$), and the fields of Table 1 except `min_pixels`, `max_pixels` (set by the server, Server step 4). The defaults of v0.31.0 this relies on: generation stops at the eos ids `[151645, 151643]`; `skip_special_tokens = true`; `ignore_eos = false`; `min_tokens = 0`; no logprobs.
 (4) Result `choices[0]`: if `finish_reason == "stop"` and `message.content` is non-empty after stripping whitespace → the answer. Otherwise (e.g. `"length"`: the reply hit `max_tokens`) → `None` (Q VLMC-6).
 (5) At most $K$ requests in flight. An attempt longer than $T_{out}$ from its start (waiting for a slot excluded) is cancelled → `None`, not resent (Q VLMC-6).
 (6) Transport error (any `httpx.TransportError`) or HTTP 5xx → resend after $\delta$, keeping its slot, at most $R$ times. Then, or at once on HTTP 4xx: cancel all requests in flight and raise `RuntimeError` with the HTTP status and body, or with the transport error.
@@ -39,8 +39,8 @@ Table 1 — sampling and preprocessing fields; all are config fields with the sa
 | `frequency_penalty` | 0.0 | |
 | `repetition_penalty` | 1.0 | [Q] |
 | `max_tokens` | 300 | [U]; effective limit is `min(max_tokens, max_model_len − prompt_len)`, equal to `max_tokens` when prompt ≤ $P_{max}$ |
-| `min_pixels` → `mm_processor_kwargs.min_pixels` | 65 536 | always sent together with `max_pixels` [T]; default 65 536 upscales smaller frames |
-| `max_pixels` → `mm_processor_kwargs.max_pixels` | 230 400 (640×360) | default 16 777 216 |
+| `min_pixels` → server `--mm-processor-kwargs` `min_pixels` | 65 536 | always set together with `max_pixels` [T]; default 65 536 upscales smaller frames; not sent per request: v0.31.0 rejects a request's `mm_processor_kwargs` unless the server runs with `--trust-request-mm-kwargs` (found on the user's Spark, 2026-10-14; `vllm/entrypoints/generate/base/protocol.py:52-77`), and the server's values apply to every request (`vllm/config/multimodal.py:530-549`) |
+| `max_pixels` → server `--mm-processor-kwargs` `max_pixels` | 230 400 (640×360) | default 16 777 216; as `min_pixels` |
 
 ## Interface
 - Module: `src/mcpref/vlm/client.py`.
@@ -88,7 +88,7 @@ docker run -d --name {server.container} --gpus all --ipc=host --ulimit memlock=-
    - `--moe-backend triton`, `VLLM_USE_DEEP_GEMM=0`: otherwise vLLM picks DeepGEMM on GB10, which rounds the checkpoint's FP32 block scales to powers of two (vllm#50332).
    - `--generation-config vllm`: otherwise `generation_config.json` silently fills every sampling field a request omits.
    - `--chat-template-content-format openai`: pins the layout of (1) instead of auto-detection.
-   - `--mm-processor-kwargs`: the same bounds as Table 1; they size vLLM's startup memory profiling.
+   - `--mm-processor-kwargs`: the bounds of Table 1; vLLM applies them to every request and sizes its startup memory profiling by them.
    - `-p 127.0.0.1:…`: reachable only from the Spark itself or through an SSH tunnel.
 5. `serve`, after `docker run` returns:
    - readiness: `GET http://127.0.0.1:{server.port}/health` with timeout `{server.poll_request_timeout}` s; a transport error (any `httpx.TransportError`, timeouts included) or a non-200 status means not ready yet, and the next poll follows `{server.poll_interval}` s after this one ends; if `docker container inspect -f '{{.State.Running}}'` is `false`, fail at once; if `{server.ready_timeout}` s pass since `docker run` returned, fail. On failure: print the last `{server.log_tail}` log lines; the container is kept for inspection.
@@ -102,7 +102,7 @@ docker run -d --name {server.container} --gpus all --ipc=host --ulimit memlock=-
 |---|---|---|---|---|
 | (1) prompt layout | vLLM chat renderer + [M] template | v0.31.0 | server `--chat-template-content-format openai`; no `chat_template_kwargs` (so `add_vision_id` undefined) | `vllm/renderers/hf.py:403-506`; [M] template rendered with jinja2 |
 | (2) base64 | decoded by `pybase64.b64decode(…, validate=True)` | v0.31.0 | standard alphabet, padded, no line breaks | `vllm/multimodal/media/image.py:104-105` |
-| (2) preprocessing | `Qwen2VLImageProcessor(Fast)` via vLLM | [T] v5.17.0 (checked in step 5) | both `min_pixels`, `max_pixels` per request (one alone is ignored); resize to multiples of 32 px (`smart_resize`), BICUBIC; one token per 32×32 block | `vllm/model_executor/models/qwen3_vl.py:964-967`; [T] `image_processing_qwen2_vl.py` |
+| (2) preprocessing | `Qwen2VLImageProcessor(Fast)` via vLLM | [T] v5.17.0 (checked in step 5) | both `min_pixels`, `max_pixels` from the server's `--mm-processor-kwargs`, merged into every request (one alone is ignored); resize to multiples of 32 px (`smart_resize`), BICUBIC; one token per 32×32 block | `vllm/config/multimodal.py:530-549`; `vllm/multimodal/processing/context.py:293-330`; `vllm/model_executor/models/qwen3_vl.py:960-967`; [T] `image_processing_qwen2_vl.py` |
 | (3) sampling | `/v1/chat/completions` | v0.31.0 | Table 1, `n`, `seed` (own generator per request; `-1` = unseeded, outside the domain); server `--generation-config vllm` | `vllm/entrypoints/openai/chat_completion/protocol.py:213-302`; `vllm/config/model.py:1781`; `vllm/v1/worker/gpu_model_runner.py:1281` |
 | (3) `max_tokens` | same | v0.31.0 | effective `min(max_tokens, max_model_len − prompt_len)` | `vllm/entrypoints/serve/utils/api_utils.py:169-205` |
 | (3) other fields | same | v0.31.0 | none sent; unknown keys are dropped with a DEBUG log only | `vllm/entrypoints/serve/engine/protocol.py:61-73` |

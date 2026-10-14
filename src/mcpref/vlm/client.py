@@ -77,7 +77,8 @@ def content_part(part: str | np.ndarray) -> dict:
 
 
 def request_body(prompt: Sequence[str | np.ndarray], seed: int, cfg: VLMConfig) -> dict:
-    """(1), (3): one user message with the parts of q in order; n, seed, Table 1."""
+    """(1), (3): one user message with the parts of q in order; n, seed, Table 1
+    except min_pixels, max_pixels (set by the server, Server step 4)."""
     return {
         "model": cfg.model,
         "messages": [{"role": "user", "content": [content_part(p) for p in prompt]}],
@@ -91,10 +92,6 @@ def request_body(prompt: Sequence[str | np.ndarray], seed: int, cfg: VLMConfig) 
         "frequency_penalty": cfg.frequency_penalty,
         "repetition_penalty": cfg.repetition_penalty,
         "max_tokens": cfg.max_tokens,
-        "mm_processor_kwargs": {
-            "min_pixels": cfg.min_pixels,
-            "max_pixels": cfg.max_pixels,
-        },
     }
 
 

@@ -14,6 +14,7 @@ from PIL import Image
 
 from mcpref.vlm.client import ServerConfig, VLMConfig, ask_many, load_config
 
+# Table 1 fields sent per request: all except min_pixels, max_pixels (3).
 TABLE1 = ("temperature", "top_p", "top_k", "min_p", "presence_penalty", "frequency_penalty",
           "repetition_penalty", "max_tokens")  # fmt: skip
 
@@ -73,6 +74,7 @@ def carries(exc: BaseException, kind: type) -> bool:
 
 
 def test_request_body_has_exactly_the_spec_keys(http, fields):
+    """(3): Table 1 except the pixel bounds, which only the server sets (no mm_processor_kwargs)."""
     server = http(echo)
     assert ask(fields, server, [["q"]], [2**63 - 1]) == ["q"]
     (req,) = server.requests
@@ -81,8 +83,7 @@ def test_request_body_has_exactly_the_spec_keys(http, fields):
     c, body = fields["client"], dict(req.body)
     text = {"type": "text", "text": "q"}
     assert body.pop("messages") == [{"role": "user", "content": [text]}]
-    px = {"min_pixels": c["min_pixels"], "max_pixels": c["max_pixels"]}
-    spec = {"model": c["model"], "n": 1, "seed": 2**63 - 1, "mm_processor_kwargs": px}
+    spec = {"model": c["model"], "n": 1, "seed": 2**63 - 1}
     assert body == spec | {k: c[k] for k in TABLE1}
 
 
