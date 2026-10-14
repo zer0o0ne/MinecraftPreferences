@@ -117,7 +117,7 @@ def test_module_entry_point(site, ok):
     on stderr also when it is a pipe (Library mapping: disable=False); stderr is read as
     bytes, universal newlines would turn its carriage returns into line ends."""
     if not ok:
-        site.faults["/idx/9xx.json"] = [404]
+        site.faults[site.get("/idx/9xx.json")] = [404]
     cmd = [sys.executable, "-m", "mcpref.vpt.gui_frames", "run", site.config()]
     proc = subprocess.run(cmd, capture_output=True, timeout=60, check=False)
     err = proc.stderr.decode()

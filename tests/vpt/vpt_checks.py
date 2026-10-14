@@ -1,5 +1,5 @@
-"""Checks of `main` in specs/vpt-gui-frames.md: its fake data and the ffmpeg commands it
-must run."""
+"""Checks of `main` in specs/vpt-gui-frames.md: its fake data, the ffmpeg commands it
+must run and the byte ranges of (f)."""
 
 from vpt_world import FIELDS, Ep, options
 
@@ -29,6 +29,13 @@ def key(row: dict) -> str:
 def seek_time(i: int) -> str:
     """(4), transcribed: exact decimal of i / 20."""
     return f"{i // 20}.{5 * (i % 20):02d}"
+
+
+def part_ranges(size: int, q: int) -> list[str]:
+    """(f), transcribed: the Range values of a file of size L > 0 on q threads, p = ceil(L/q),
+    part j = bytes [j p, min((j + 1) p, L) - 1], j < ceil(L / p)."""
+    p = -(-size // q)
+    return [f"bytes={j * p}-{min((j + 1) * p, size) - 1}" for j in range(-(-size // p))]
 
 
 def command_head(fields: dict, url: str, i: int) -> list[str]:

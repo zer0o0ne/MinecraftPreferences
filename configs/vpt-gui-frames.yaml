@@ -22,6 +22,7 @@ n_frames: 5000
 per_episode: 5
 seed: 0
 workers: 8
+fetch_streams: 8
 http_timeout: 60
 http_retries: 3
 retry_delay: 10

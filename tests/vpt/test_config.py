@@ -11,9 +11,9 @@ from vpt_world import FIELDS
 from mcpref.vpt.gui_frames import GuiFramesConfig, load_config
 
 NAMES = ["index_urls", "x_ms_version", "min_version", "required_options", "width", "height",
-         "fps", "n_frames", "per_episode", "seed", "workers", "http_timeout", "http_retries",
-         "retry_delay", "ffmpeg", "ffmpeg_rw_timeout", "ffmpeg_timeout", "verify_relpath",
-         "verify_frames", "out_dir"]  # fmt: skip
+         "fps", "n_frames", "per_episode", "seed", "workers", "fetch_streams", "http_timeout",
+         "http_retries", "retry_delay", "ffmpeg", "ffmpeg_rw_timeout", "ffmpeg_timeout",
+         "verify_relpath", "verify_frames", "out_dir"]  # fmt: skip
 BLOB = "https://openaipublic.blob.core.windows.net/minecraft-rl/snapshots/"
 STARTING = {
     "index_urls": {"6xx": BLOB + "all_6xx_Jun_29.json", "7xx": BLOB + "all_7xx_Apr_6.json",
@@ -24,7 +24,7 @@ STARTING = {
                          "framebufferHeight": 720, "lang": "en_us", "forceUnicodeFont": False,
                          "resourcePacks": "[]"},
     "width": 640, "height": 360, "fps": 20, "n_frames": 5000, "per_episode": 5, "seed": 0,
-    "workers": 8, "http_timeout": 60, "http_retries": 3, "retry_delay": 10,
+    "workers": 8, "fetch_streams": 8, "http_timeout": 60, "http_retries": 3, "retry_delay": 10,
     "ffmpeg": "/usr/bin/ffmpeg", "ffmpeg_rw_timeout": 60, "ffmpeg_timeout": 300,
     "verify_relpath": "data/10.0/cheeky-cornflower-setter-02e496ce4abb-20220421-092639.mp4",
     "verify_frames": [0, 127, 128, 129, 1271, 5999, 6000],

@@ -2,37 +2,32 @@
 
 import json
 import os
-import re
 import shlex
 import sys
-import time
 from pathlib import Path
 
 import pytest
 import yaml
+from fake_azure import FakeAzure
 from progress_bars import tqdm_defaults
 from vpt_checks import EPISODES
 from vpt_world import FIELDS, SUBSETS, make_world, reference_plan
 
 FAKE_FFMPEG = Path(__file__).with_name("fake_ffmpeg.py")
-HOLD = 3.0  # s a held reply waits; longer than every http_timeout of these tests
 PROXY_VARS = ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY",
               "all_proxy", "NO_PROXY", "no_proxy")  # fmt: skip
 WRAPPER = '#!/bin/sh\nexec {python} -I -S {fake} {ctl} {log} "$0" "$@"\n'
 
 
-class Site:
-    """Server for `world` (indices with ETags, episode files, videos with byte ranges),
-    a fake ffmpeg at `self.ffmpeg`, configs with out_dir relative to the repository root."""
+class Site(FakeAzure):
+    """Fake Azure server (fake_azure.py) of `world`, a fake ffmpeg at `self.ffmpeg`, configs
+    with out_dir relative to the repository root."""
 
     def __init__(self, http, tmp: Path, repo: Path, episodes: dict):
+        super().__init__(http)
         self.tmp, self.out = tmp, tmp / "out"
-        self.server = http(self.app, listen=False)
-        self.host = f"http://127.0.0.1:{self.server.port}"
         self.world = make_world(episodes, host=self.host)
         self.etags = {s: f"0x8DA5AB90A1B2F{k:02X}" for k, s in enumerate(SUBSETS)}
-        self.faults, self.redirects = {}, {}  # path -> first replies; path -> Location
-        self.stalls = {}  # path -> s waited before the headers and again before the body
         self.behaviours, self.sleep = {}, 3.0  # fake ffmpeg, see fake_ffmpeg.py
         self.noise = {}  # fake ffmpeg key -> bytes written to stderr, one per attempt
         self.ctl, self.log, self.ffmpeg = (
@@ -52,53 +47,9 @@ class Site:
         self.ffmpeg.chmod(0o755)
         self.fields = FIELDS | {"index_urls": self.world.index_urls, "ffmpeg": str(self.ffmpeg),
                                 "out_dir": os.path.relpath(self.out, repo)}  # fmt: skip
-        site, base = self, self.server.server.RequestHandlerClass
-
-        class Headed(base):
-            def end_headers(self) -> None:
-                for key, value in site.headers(self.path, self.headers).items():
-                    self.send_header(key, value)
-                super().end_headers()
-                time.sleep(site.stalls.get(self.path, 0))
-
-        self.server.server.RequestHandlerClass = Headed
 
     def data(self, path: str) -> bytes | None:
         return self.world.fetch(self.host + path)
-
-    def span(self, path: str, headers) -> tuple[int, int] | None:
-        """Byte range asked for a video: inclusive (first, last)."""
-        match = re.fullmatch(r"bytes=(\d+)-(\d*)", headers.get("Range") or "")
-        if not path.endswith(".mp4") or not match:
-            return None
-        last = len(self.data(path)) - 1
-        return int(match[1]), min(int(match[2] or last), last)
-
-    def app(self, req):
-        n = sum(r.path == req.path for r in self.server.requests) - 1
-        faults = self.faults.get(req.path, [])
-        if n < len(faults) and faults[n] == "hold":
-            req.hold(HOLD)
-        elif n < len(faults):
-            return None if faults[n] == "drop" else (faults[n], b"")
-        req.hold(self.stalls.get(req.path, 0))
-        data, span = self.data(req.path), self.span(req.path, req.headers)
-        if data is None:
-            return 404, b""
-        return (206, data[span[0] : span[1] + 1]) if span else (200, data)
-
-    def headers(self, path: str, request_headers) -> dict:
-        subset = re.fullmatch(r"/idx/(.+)\.json", path)
-        out = {"Location": self.redirects[path]} if path in self.redirects else {}
-        if subset and self.etags.get(subset[1]) is not None:
-            out["ETag"] = self.etags[subset[1]]
-        if path.endswith(".mp4") and self.data(path) is not None:
-            out["Accept-Ranges"] = "bytes"
-            if span := self.span(path, request_headers):
-                out["Content-Range"] = (
-                    f"bytes {span[0]}-{span[1]}/{len(self.data(path))}"
-                )
-        return out
 
     def path(self, subset: str, relpath: str, suffix: str) -> str:
         url = self.world.url(subset, self.world.eps[subset, relpath], suffix)

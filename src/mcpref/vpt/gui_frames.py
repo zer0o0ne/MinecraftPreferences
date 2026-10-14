@@ -34,6 +34,7 @@ __all__ = [
     "GuiFramesConfig",
     "PlannedFrame",
     "eligible_frames",
+    "fetch",
     "ffmpeg_command",
     "frame_time",
     "load_config",
@@ -114,7 +115,7 @@ def write_records(
 
 
 def run(cfg: GuiFramesConfig, client: httpx.Client) -> None:
-    """Behaviour (a)-(d)."""
+    """Behaviour (a)-(d), the files of (b) by the ranged fetch (f)."""
     out = REPO / cfg.out_dir
     indices = dict(download_indices(client, cfg))
     etags = {s: response.headers.get("ETag") for s, response in indices.items()}

@@ -22,7 +22,8 @@ FRAME_SIZE = WIDTH * HEIGHT * 3 // 2
 FIELDS = {  # GuiFramesConfig fields except index_urls, ffmpeg and out_dir
     "x_ms_version": "2019-12-12", "min_version": "6.12", "required_options": REQUIRED,
     "width": WIDTH, "height": HEIGHT, "fps": 20, "n_frames": 6, "per_episode": 2,
-    "seed": 0, "workers": 3, "http_timeout": 2.0, "http_retries": 2, "retry_delay": 0.1,
+    "seed": 0, "workers": 3, "fetch_streams": 4, "http_timeout": 2.0, "http_retries": 2,
+    "retry_delay": 0.1,
     "ffmpeg_rw_timeout": 7, "ffmpeg_timeout": 5.0,
     "verify_relpath": "data/10.0/verify-me.mp4", "verify_frames": [0, 1, 19, 20, 23],
 }  # fmt: skip

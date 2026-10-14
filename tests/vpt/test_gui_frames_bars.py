@@ -1,13 +1,13 @@
 """Progress bars of `main run` in specs/vpt-gui-frames.md (Interface, AGENTS.md Progress):
-`indices`, `plan`, `extract`, the lines replacing them, ffmpeg's stderr above them, the
-abort message below them; read off stderr in tqdm's default format."""
+`indices`, `plan`, `extract`, the lines replacing them, none of (f), ffmpeg's stderr above
+them, the abort message below them; read off stderr in tqdm's default format."""
 
 import itertools
 import re
 
 import pytest
 from progress_bars import Bar, assert_aborted, assert_progress, screen, states
-from vpt_checks import key
+from vpt_checks import EPISODES, key
 from vpt_world import Ep
 
 from mcpref.vpt.gui_frames import main
@@ -98,9 +98,23 @@ def test_empty_plan_prints_nothing_to_do(make_site, capfd):
     assert_progress(err)
 
 
+def test_ranged_fetch_draws_no_bar_and_prints_no_line(make_site, capfd):
+    """(f) adds nothing to stderr, also for an empty .jsonl (L = 0: its HEAD alone)."""
+    empty = Ep("data/8.2/z8.mp4", reason="empty", jsonl=b"")
+    site = make_site(episodes=EPISODES | {"8xx": [*EPISODES["8xx"], empty]})
+    assert main(["run", site.config(n_frames=100)]) == 0
+    err = capfd.readouterr().err
+    rows, _ = site.expected(n_frames=100)
+    extract = Bar("extract", len(rows), len(rows), "frame", "0 failed")
+    assert screen(err) == [INDICES, plan_bar(site, 100), extract]
+    assert {b.desc for b in states(err)} == {"indices", "plan", "extract"}
+    path = site.path("8xx", empty.relpath, ".jsonl")
+    assert site.asked(path) == [site.head(path)]
+
+
 def test_abort_while_downloading_indices_follows_the_closed_bar(site, capfd):
     """9xx, the fourth index, fails: three downloads advanced the bar."""
-    site.faults["/idx/9xx.json"] = [404]
+    site.faults[site.get("/idx/9xx.json")] = [404]
     code = main(["run", site.config()])
     err = capfd.readouterr().err
     assert_aborted(code, err)
@@ -110,7 +124,7 @@ def test_abort_while_downloading_indices_follows_the_closed_bar(site, capfd):
 @pytest.mark.parametrize("suffix", ["-options.json", ".jsonl"])
 def test_abort_while_planning_follows_the_closed_bars(site, capfd, suffix):
     """The first downloaded episode fails; only `version` episodes precede it."""
-    site.faults[site.first_fetched(suffix)] = [503] * 10
+    site.faults[site.head(site.first_fetched(suffix))] = [503] * 10
     code = main(["run", site.config(http_retries=0)])
     err = capfd.readouterr().err
     assert_aborted(code, err)

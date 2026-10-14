@@ -46,8 +46,10 @@ def test_rerun_extracts_frame_whose_yuv_is_missing(site):
 
 
 @pytest.mark.parametrize(
-    "change", [{"seed": 1}, {"n_frames": 7}, {"workers": 2}, {"ffmpeg_timeout": 4.0}]
-)
+    "change",
+    [{"seed": 1}, {"n_frames": 7}, {"workers": 2}, {"fetch_streams": 5},
+     {"ffmpeg_timeout": 4.0}],
+)  # fmt: skip
 def test_rerun_with_other_config_aborts_untouched(site, capfd, change):
     assert main(["run", site.config()]) == 0
     before = snapshot(site)
@@ -81,14 +83,14 @@ def test_rerun_after_etag_appears_aborts(site, capfd):
 @pytest.mark.parametrize("suffix", ["-options.json", ".jsonl"])
 def test_run_json_written_before_planning(site, capfd, suffix):
     """An abort while planning leaves run.json with the config and the index ETags only."""
-    site.faults[site.first_fetched(suffix)] = [503] * 10
+    site.faults[site.head(site.first_fetched(suffix))] = [503] * 10
     assert_aborted(main(["run", site.config()]), capfd.readouterr().err)
     assert site.run_json() == {"config": site.fields, "index_etags": site.etags}
     assert site.files() == {} and site.calls() == []
 
 
 def test_interrupted_run_protects_its_config(site, capfd):
-    site.faults[site.first_fetched(".jsonl")] = [503] * 10
+    site.faults[site.head(site.first_fetched(".jsonl"))] = [503] * 10
     assert_aborted(main(["run", site.config()]), capfd.readouterr().err)
     site.faults.clear()
     assert_aborted(main(["run", site.config(seed=3)]), capfd.readouterr().err)

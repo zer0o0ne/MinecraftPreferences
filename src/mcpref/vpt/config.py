@@ -21,6 +21,7 @@ class GuiFramesConfig:
     per_episode: int
     seed: int
     workers: int
+    fetch_streams: int
     http_timeout: float
     http_retries: int
     retry_delay: float
