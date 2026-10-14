@@ -9,6 +9,7 @@ import pytest
 from mcpref.gui.screens import (
     Blit,
     Element,
+    Label,
     Member,
     Rect,
     ScreenClass,
@@ -31,7 +32,8 @@ REQUIRED = [
     *[("class", k) for k in ("members", "description", "window", "elements")],
     *[("member", k) for k in ("blits", "dynamic", "labels")],
     *[("blit", k) for k in BLIT],
-    *[(level, k) for level in ("dynamic", "label") for k in ("name", "rect")],
+    *[("dynamic", k) for k in ("name", "rect")],
+    *[("label", k) for k in ("name", "rect", "color")],
     *[("element", k) for k in ("index", "name", "kind", "hit", "click")],
 ]
 
@@ -62,12 +64,12 @@ def test_yaml_forms_map_to_dataclasses(catalogue, write_config):
             Blit("gui/widgets.png", 0, 66, 200, 20, 220, 200),
         ),
         (Rect("arrow", 40, 2, 24, 17),),
-        (Rect("Title", 8, 6, 31, 8),),
+        (Label(Rect("Title", 8, 6, 31, 8), 0x404040),),
     )
     assert (alpha.name, alpha.description) == ("alpha", "Alpha screen.")
     assert dict(alpha.members) == {
         "first": first,
-        "second": Member((), (), (Rect("T", 8, 6, 5, 9),)),
+        "second": Member((), (), (Label(Rect("T", 8, 6, 5, 9), 0xE0E0E0),)),
     }
     assert by_index(alpha)[37] == Element(
         37, "c", "button", Rect("c", 5, 30, 21, 13), (15.5, 36.5)
@@ -106,6 +108,7 @@ def test_dataclasses_are_frozen_with_spec_fields(catalogue, write_config):
         (alpha.window, ("name", "x", "y", "w", "h")),
         (member.blits[0], BLIT),
         (alpha.elements[0], ("index", "name", "kind", "hit", "click")),
+        (member.labels[0], ("rect", "color")),
         (member, ("blits", "dynamic", "labels")),
         (alpha, ("name", "description", "window", "book_panel", "members", "elements")),
     ]
@@ -118,6 +121,13 @@ def test_dataclasses_are_frozen_with_spec_fields(catalogue, write_config):
 @pytest.mark.parametrize("level", list(LEVELS))
 def test_unknown_key_raises(catalogue, write_config, level):
     at(catalogue, level)["bogus"] = 1
+    with pytest.raises(ValueError):
+        load_screens(write_config(catalogue))
+
+
+def test_color_on_dynamic_entry_raises(catalogue, write_config):
+    """Dynamic entries are {name, rect}: `color` belongs to label entries only."""
+    at(catalogue, "dynamic")["color"] = 0x404040
     with pytest.raises(ValueError):
         load_screens(write_config(catalogue))
 
@@ -186,6 +196,9 @@ def transcribe(name: str, c: dict) -> ScreenClass:
     def rects(entries: list) -> tuple:
         return tuple(Rect(d["name"], *d["rect"]) for d in entries)
 
+    def labels(entries: list) -> tuple:
+        return tuple(Label(Rect(d["name"], *d["rect"]), d["color"]) for d in entries)
+
     def element(e: dict) -> Element:
         hit = Rect(e["name"], *e["hit"])
         return Element(e["index"], e["name"], e["kind"], hit, tuple(e["click"]))
@@ -194,7 +207,7 @@ def transcribe(name: str, c: dict) -> ScreenClass:
         k: Member(
             tuple(Blit(*(b[f] for f in BLIT)) for b in m["blits"]),
             rects(m["dynamic"]),
-            rects(m["labels"]),
+            labels(m["labels"]),
         )
         for k, m in c["members"].items()
     }

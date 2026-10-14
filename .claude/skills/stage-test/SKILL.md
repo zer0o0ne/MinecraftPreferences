@@ -6,6 +6,7 @@ description: Procedure of the tester agent — write CPU tests checking a block 
 
 Input: spec path; on a repeat, what changed.
 Load skills `test-oracles` and `exactness-checklist`.
+Scratch files live in `<scratchpad>/<block>-<stage>/`, never in the scratchpad root: other agents run in parallel.
 
 1. The contract is the spec's Math and Interface; import only what the Interface names. A test the spec is not enough to write is a spec defect: report it.
 2. Cover every equation (≥ 1 oracle), every boundary the spec defines, every applicable `exactness-checklist` item (e.g. gradient reaches exactly the parameters the spec says).

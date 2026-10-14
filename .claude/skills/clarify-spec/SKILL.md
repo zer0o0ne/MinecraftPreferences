@@ -9,7 +9,7 @@ Goal: every equation and interface item admits exactly one implementation.
 1. Read `specs/00-overview.md`, the specs of blocks this one consumes from or feeds, and their implemented interfaces in `src/`.
 2. Every linked paper: skill `read-paper`. Every library that would compute part of the math: skill `vet-dependency`.
 3. Draft `specs/<block>.md` with `Status: draft` (skill `spec-format`).
-4. List open points: disagreements between the user's text, the paper and its code; every `exactness-checklist` question the draft does not answer; every unfixed interface detail (arguments, results, artifacts, callers, callees).
+4. List open points: disagreements between the user's text, the paper and its code; every `exactness-checklist` question the draft does not answer; every unfixed interface detail (arguments, results, artifacts, callers, callees); every config field without a type and domain; every loop over work items left without a bar whose run time on real inputs was not measured.
 5. Run agent `spec-auditor` on the draft; add its findings to the open points.
 6. Ask the user the open points, numbered, each with its concrete alternatives written as formulas or signatures. You may recommend; the user decides. Never close a point yourself.
 7. Update the draft; repeat 4–6 until no open point remains.

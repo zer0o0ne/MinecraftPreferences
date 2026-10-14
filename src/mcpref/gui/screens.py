@@ -48,12 +48,20 @@ class Element:
 
 
 @dataclass(frozen=True)
+class Label:
+    """(5): label rectangle and the text colour 0xRRGGBB of its draw call."""
+
+    rect: Rect
+    color: int
+
+
+@dataclass(frozen=True)
 class Member:
     """(5): drawing data of one member."""
 
     blits: tuple[Blit, ...]
     dynamic: tuple[Rect, ...]
-    labels: tuple[Rect, ...]
+    labels: tuple[Label, ...]
 
 
 @dataclass(frozen=True)
@@ -91,9 +99,15 @@ def read_catalogue(path: Path) -> dict:
 
 
 def named(entry: dict) -> Rect:
-    """Interface Data: a dynamic or label entry `{name, rect}`."""
+    """Interface Data: a dynamic entry `{name, rect}`."""
     e = fields(entry, {"name", "rect"})
     return Rect(e["name"], *e["rect"])
+
+
+def label(entry: dict) -> Label:
+    """Interface Data: a label entry `{name, rect, color}`."""
+    e = fields(entry, {"name", "rect", "color"})
+    return Label(Rect(e["name"], *e["rect"]), e["color"])
 
 
 def member(entry: dict) -> Member:
@@ -102,7 +116,7 @@ def member(entry: dict) -> Member:
     return Member(
         blits=tuple(Blit(**fields(b, keys(Blit))) for b in e["blits"]),
         dynamic=tuple(named(r) for r in e["dynamic"]),
-        labels=tuple(named(r) for r in e["labels"]),
+        labels=tuple(label(r) for r in e["labels"]),
     )
 
 

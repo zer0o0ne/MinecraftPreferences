@@ -1,12 +1,10 @@
-"""(1)-(3) of specs/gui-masks.md: template and mask pairs of the three variants."""
+"""(1)-(3) of specs/gui-masks.md: template and mask pairs of variants (a), (b), (c)."""
 
-import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from tqdm import tqdm
 
 from mcpref.gui.screens import Element, Member, Rect, ScreenClass
 
@@ -14,8 +12,10 @@ Pair = tuple[np.ndarray, np.ndarray]
 
 
 def distance(x: np.ndarray, t: np.ndarray) -> np.ndarray:
-    """Notation d_T: max over channels (last axis) of |x - T|, in a signed integer type."""
-    return np.abs(x.astype(np.int16) - t.astype(np.int16)).max(axis=-1)
+    """Notation d_T: max over channels (last axis) of |x - T|, in a signed integer type
+    (int16 for uint8 images, int64 for the edges of (12))."""
+    signed = np.promote_types(np.promote_types(x.dtype, t.dtype), np.int16)
+    return np.abs(x.astype(signed) - t.astype(signed)).max(axis=-1)
 
 
 def union(rects: Iterable[Rect], width: int, height: int) -> np.ndarray:
@@ -32,18 +32,26 @@ def slot_content(e: Element) -> Rect:
     return Rect(e.name, e.hit.x + 1, e.hit.y + 1, 17, 18)
 
 
+def drawn_rects(cls: ScreenClass) -> list[Rect]:
+    """(1), (11): every dynamic and label rectangle of any member of k."""
+    members = cls.members.values()
+    return [r for m in members for r in m.dynamic] + [
+        lab.rect for m in members for lab in m.labels
+    ]
+
+
 def allowed(cls: ScreenClass, width: int, height: int) -> np.ndarray:
     """(1): inside window or book_panel, outside hits, slot contents, dynamic and labels."""
     regions = [cls.window] + ([cls.book_panel] if cls.book_panel else [])
     hits = [e.hit for e in cls.elements]
     contents = [slot_content(e) for e in cls.elements if e.kind == "slot"]
-    drawn = [r for m in cls.members.values() for r in m.dynamic + m.labels]
-    excluded = union(hits + contents + drawn, width, height)
+    excluded = union(hits + contents + drawn_rects(cls), width, height)
     return union(regions, width, height) & ~excluded
 
 
 def canvas(member: Member, textures_dir: Path, width: int, height: int) -> np.ndarray:
-    """(1): the member's blits, RGBA, source-over in draw order on a transparent canvas."""
+    """(1): Gamma_m, the member's blits, RGBA, source-over in draw order on a transparent
+    canvas."""
     out = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     for b in member.blits:
         with Image.open(textures_dir / b.texture) as texture:
@@ -54,19 +62,34 @@ def canvas(member: Member, textures_dir: Path, width: int, height: int) -> np.nd
     return np.asarray(out)
 
 
+def opaque_canvas(
+    member: Member, textures_dir: Path, width: int, height: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Notation: bar Gamma_m (RGB, black where alpha < 255) and the pixels of alpha 255."""
+    rgba = canvas(member, textures_dir, width, height)
+    opaque = rgba[..., 3] == 255
+    return np.where(opaque[..., None], rgba[..., :3], 0), opaque
+
+
+def opaque_pairs(
+    cls: ScreenClass, region: np.ndarray, textures_dir: Path, width: int, height: int
+) -> dict[str, Pair]:
+    """(1), (11): member -> (bar Gamma_m, M = pixels of `region` with alpha 255); members
+    with an empty M skipped."""
+    pairs = {}
+    for name, member in cls.members.items():
+        t, opaque = opaque_canvas(member, textures_dir, width, height)
+        mask = opaque & region
+        if mask.any():
+            pairs[name] = (t, mask)
+    return pairs
+
+
 def member_pairs(
     cls: ScreenClass, textures_dir: Path, width: int, height: int
 ) -> dict[str, Pair]:
-    """(1): member -> (T, M); T black where alpha < 255; members with an empty M skipped."""
-    region = allowed(cls, width, height)
-    pairs = {}
-    for name, member in cls.members.items():
-        rgba = canvas(member, textures_dir, width, height)
-        opaque = rgba[..., 3] == 255
-        mask = opaque & region
-        if mask.any():
-            pairs[name] = (np.where(opaque[..., None], rgba[..., :3], 0), mask)
-    return pairs
+    """(1): member -> (T, M) of variant (a); members with an empty M skipped."""
+    return opaque_pairs(cls, allowed(cls, width, height), textures_dir, width, height)
 
 
 def texture_pairs(
@@ -146,28 +169,10 @@ def patch_masks(
     eps: float,
     step: Callable[[], None],
 ) -> dict[str, np.ndarray]:
-    """(3): variant (c) mask of each given class (the >= 2 of Q with a (b) template);
+    """(3): variant (c) mask of each given class (the >= 2 with a (b) template);
     step() after each class's mask."""
     masks = {}
     for k in templates:
         masks[k] = top_patches(ratio(k, templates, spreads[k], patch, eps), n_p, patch)
         step()
     return masks
-
-
-def c_pairs(
-    b: Mapping[str, Pair],
-    spreads: Mapping[str, np.ndarray],
-    patch: int,
-    n_p: int,
-    eps: float,
-) -> dict[str, Pair]:
-    """(3): (T, M) of the classes with a (b) template, built when there are at least
-    two; bar `templates c`."""
-    if len(b) < 2:
-        print("templates c: nothing to do", file=sys.stderr)
-        return {}
-    templates = {k: t for k, (t, _) in b.items()}
-    with tqdm(total=len(b), desc="templates c", unit="class") as bar:
-        masks = patch_masks(templates, spreads, patch, n_p, eps, bar.update)
-    return {k: (templates[k], m) for k, m in masks.items()}

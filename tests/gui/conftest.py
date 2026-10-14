@@ -22,19 +22,20 @@ def element(index: int, name: str, kind: str, hit: list, click: list) -> dict:
 
 @pytest.fixture
 def catalogue() -> dict:
-    """`alpha`: book panel, abutting slots 1-2, odd-sized button 37; `beta`: no book panel."""
+    """`alpha`: book panel, abutting slots 1-2, odd-sized button 37, labels of two colours;
+    `beta`: no book panel."""
     first = {
         "blits": [
             blit("gui/container/inventory.png", 0, 0, 176, 166, 232, 97),
             blit("gui/widgets.png", 0, 66, 200, 20, 220, 200),
         ],
         "dynamic": [{"name": "arrow", "rect": [40, 2, 24, 17]}],
-        "labels": [{"name": "Title", "rect": [8, 6, 31, 8]}],
+        "labels": [{"name": "Title", "rect": [8, 6, 31, 8], "color": 0x404040}],
     }
     second = {
         "blits": [],
         "dynamic": [],
-        "labels": [{"name": "T", "rect": [8, 6, 5, 9]}],
+        "labels": [{"name": "T", "rect": [8, 6, 5, 9], "color": 0xE0E0E0}],
     }
     alpha = {
         "members": {"first": first, "second": second},

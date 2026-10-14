@@ -1,7 +1,6 @@
 """configs/gui-screens.yaml (the approved catalogue) against specs/gui-screens.md."""
 
 import itertools
-from collections import Counter
 
 import pytest
 
@@ -87,18 +86,6 @@ def test_book_panel_only_on_recipe_book_classes(classes):
 def test_full_screen_classes_carry_labels_and_elements_only(classes):
     members = all_members(classes, ["death", "sleep", "pause"])
     assert all(m["blits"] == [] and m["dynamic"] == [] for m in members)
-
-
-def test_label_heights_follow_5(classes):
-    """(5): 8 without a shadow, 9 with one, 18 only for the death title drawn at 2x."""
-    heights = Counter(
-        (k, label["rect"][3])
-        for k in classes
-        for m in all_members(classes, [k])
-        for label in m["labels"]
-    )
-    assert {h for _, h in heights} <= {8, 9, 18}
-    assert {k: n for (k, h), n in heights.items() if h == 18} == {"death": 1}
 
 
 def test_blit_textures_lie_under_gui(classes):

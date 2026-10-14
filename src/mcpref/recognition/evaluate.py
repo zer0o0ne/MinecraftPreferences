@@ -1,4 +1,4 @@
-"""Config, split, the run of (1)-(8) and `main` of specs/gui-masks.md."""
+"""Config, split, the run of (1)-(14) and `main` of specs/gui-masks.md."""
 
 import argparse
 import itertools
@@ -10,27 +10,26 @@ from pathlib import Path
 
 import numpy as np
 import yaml
-from tqdm import tqdm
 
 from mcpref import REPO
 from mcpref.cli.failure import FAILURES, failed
-from mcpref.gui.frame_set import labelled_parts, qualified, read_frames
-from mcpref.gui.label_files import OTHER, frame_size, rgb_view
-from mcpref.gui.masks import c_pairs, member_pairs, row_starts, variance_pair
-from mcpref.gui.metrics import matrices, thresholds
-from mcpref.gui.recognise import frame_scores, predictions
-from mcpref.gui.report import (
-    Named,
+from mcpref.gui.label_files import OTHER, frame_size
+from mcpref.gui.screens import load_screens
+from mcpref.gui.textures import load_textures_config
+from mcpref.recognition.frame_set import folds, labelled_parts, qualified, read_frames
+from mcpref.recognition.metrics import matrices, thresholds
+from mcpref.recognition.pairs import VARIANTS, all_pairs
+from mcpref.recognition.recognise import part_scores, predictions, train_features
+from mcpref.recognition.report import (
     split_report,
     variant_report,
+    write_features,
     write_report,
     write_templates,
 )
-from mcpref.gui.screens import ScreenClass, load_screens
-from mcpref.gui.textures import load_textures_config
 
-PROG = "mcpref.gui.evaluate"
-VARIANTS = ("a", "b", "c")
+PROG = "mcpref.recognition.evaluate"
+TITLE = "GUI masks report"
 
 
 @dataclass(frozen=True)
@@ -52,6 +51,9 @@ class GuiMasksConfig:
     theta_grid: tuple[Fraction, ...]
     mu_grid: tuple[Fraction, ...]
     chunk_rows: int
+    folds: int
+    fold_seed: int
+    feature_quantile: float
     out_dir: Path
 
 
@@ -66,6 +68,8 @@ def check(cfg: GuiMasksConfig) -> None:
     """Notation: the constraints on config fields."""
     if len(cfg.split) != 3 or sum(cfg.split) != 1:
         raise ValueError(f"split {cfg.split} is not three decimals summing to 1")
+    if type(cfg.min_episodes) is not int or cfg.min_episodes < 1:
+        raise ValueError(f"min_episodes {cfg.min_episodes} is not an integer >= 1")
     if cfg.patch <= 0 or 40 % cfg.patch:
         raise ValueError(f"patch {cfg.patch} does not divide 40")
     if cfg.patches_per_class < 1:
@@ -74,6 +78,12 @@ def check(cfg: GuiMasksConfig) -> None:
         raise ValueError(f"eps {cfg.eps} is not > 0")
     if not all(type(t) is int for t in cfg.tau_grid):
         raise ValueError(f"tau_grid {cfg.tau_grid} holds non-integers")
+    if type(cfg.folds) is not int or cfg.folds < 2:
+        raise ValueError(f"folds {cfg.folds} is not an integer >= 2")
+    if type(cfg.fold_seed) is not int:
+        raise ValueError(f"fold_seed {cfg.fold_seed} is not an integer")
+    if not 0 < cfg.feature_quantile <= 1:
+        raise ValueError(f"feature_quantile {cfg.feature_quantile} is not in (0, 1]")
 
 
 def load_config(path: Path) -> GuiMasksConfig:
@@ -105,90 +115,74 @@ def check_patches(cfg: GuiMasksConfig, size: tuple[int, int]) -> None:
         )
 
 
-def b_built(
-    cfg: GuiMasksConfig, train: list[dict], q: list[str], size: tuple[int, int]
-) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
-    """(2) over Q: (T, sigma_k, M) of each class; bar `templates b`."""
-    if not q:
-        print("templates b: nothing to do", file=sys.stderr)
-        return {}
-    frames = {k: [f for f in train if f["label"] == k] for k in q}
-    blocks = len(row_starts(size[1], cfg.chunk_rows))
-    total = sum(len(fs) + blocks for fs in frames.values())
-    built = {}
-    with tqdm(total=total, desc="templates b", unit="step") as bar:
-        for k, fs in frames.items():
-            x = []
-            for f in fs:
-                x.append(rgb_view(cfg.frames_dir, f, size))
-                bar.update()
-            built[k] = variance_pair(
-                x, cfg.spread_quantile, cfg.spread_max, cfg.chunk_rows, bar.update
-            )
-    return built
-
-
-def variant_pairs(
-    cfg: GuiMasksConfig,
-    classes: dict[str, ScreenClass],
-    train: list[dict],
-    q: list[str],
-    size: tuple[int, int],
-) -> dict[str, Named]:
-    """(1)-(3): pairs of each variant, named <class>__<member> in (a), <class> in (b), (c)."""
-    built = b_built(cfg, train, q, size)
-    b = {k: (t, m) for k, (t, _, m) in built.items() if m.any()}
-    spreads = {k: s for k, (_, s, _) in built.items()}
-    c = c_pairs(b, spreads, cfg.patch, cfg.patches_per_class, cfg.eps)
-    textures = load_textures_config(cfg.screens).out_dir
-    a = {
-        k: {f"{k}__{m}": p for m, p in member_pairs(cls, textures, *size).items()}
-        for k, cls in classes.items()
-    }
-    return {"a": a} | {
-        v: {k: {k: p} for k, p in ps.items()} for v, ps in zip("bc", (b, c))
-    }
-
-
-def run(cfg: GuiMasksConfig) -> dict:
-    """Notation, (1)-(8): templates written to out_dir; returns the report."""
-    classes = load_screens(cfg.screens)
-    names = list(classes)
-    size = frame_size(cfg.frames_dir)
-    check_patches(cfg, size)
+def split_frames(cfg: GuiMasksConfig) -> tuple[dict[str, int], list[list[dict]]]:
+    """Notation: the split of the episodes and F^tr, F^va, F^te; an empty F^va raises."""
     episodes, frames = read_frames(cfg.frames_dir, cfg.labels_dir)
     parts = split_episodes(episodes, [float(p) for p in cfg.split], cfg.seed)
-    train, val, test = labelled_parts(frames, parts)
-    if not val:
+    labelled = labelled_parts(frames, parts)
+    if not labelled[1]:
         raise ValueError("no labelled validation frames")
-    q = qualified(train, names, cfg.min_episodes)
-    named = variant_pairs(cfg, classes, train, q, size)
-    write_templates(cfg.out_dir, named)
-    pairs = {v: {k: list(c.values()) for k, c in named[v].items()} for v in VARIANTS}
+    return parts, labelled
+
+
+def recognised(
+    cfg: GuiMasksConfig,
+    size: tuple[int, int],
+    named: dict,
+    val: list[dict],
+    test: list[dict],
+    names: list[str],
+) -> tuple[dict, dict, np.ndarray, np.ndarray]:
+    """(4)-(6), (14): F^va scored, thresholds chosen, then F^te scored and predicted;
+    returns the choices, the test predictions and the features of F^va, F^te."""
     grid = list(itertools.product(cfg.tau_grid, cfg.theta_grid, cfg.mu_grid))
-    s_val = frame_scores(cfg.frames_dir, size, cfg.tau_grid, pairs, val, "validation")
+    scored = (cfg.frames_dir, size, cfg.tau_grid, named)
+    s_val, x_val = part_scores(*scored, val, "validation", cfg.feature_quantile)
     chosen = thresholds(grid, s_val, [f["label"] for f in val], names)
-    s_test = frame_scores(cfg.frames_dir, size, cfg.tau_grid, pairs, test, "test")
+    s_test, x_test = part_scores(*scored, test, "test", cfg.feature_quantile)
     preds = {
         v: {c: predictions(s_test[v], point, names) for c, point in chosen[v].items()}
         for v in VARIANTS
     }
-    split = split_report(parts, [train, val, test], names + [OTHER])
+    return chosen, preds, x_val, x_test
+
+
+def run(cfg: GuiMasksConfig) -> dict:
+    """Notation, (1)-(14): templates and features.npz written to out_dir; returns the
+    report."""
+    classes = load_screens(cfg.screens)
+    names, size = list(classes), frame_size(cfg.frames_dir)
+    check_patches(cfg, size)
+    parts, (train, val, test) = split_frames(cfg)
+    q = qualified(train, names, cfg.min_episodes)
+    fold_of = folds([e for e, p in parts.items() if p == 0], cfg.folds, cfg.fold_seed)
+    textures = load_textures_config(cfg.screens).out_dir
+    named, fold_pairs = all_pairs(cfg, classes, textures, train, q, fold_of, size)
+    write_templates(cfg.out_dir, named)
+    x_train = train_features(
+        cfg.frames_dir, size, named, fold_pairs, fold_of, train, cfg.feature_quantile
+    )
+    chosen, preds, x_val, x_test = recognised(cfg, size, named, val, test, names)
+    x = {"train": (train, x_train), "validation": (val, x_val), "test": (test, x_test)}
+    labels = names + [OTHER]
+    write_features(cfg.out_dir, named, labels, x, preds)
+    split = split_report(parts, [train, val, test], labels, fold_of, cfg.folds)
     report = {"split": split, "qualified": q}
     report |= {
         v: variant_report(named[v], chosen[v], preds[v], test, names) for v in VARIANTS
     }
-    return report | {"agreement_matrices": matrices(test, preds, names)}
+    y_test = [f["label"] for f in test]
+    return report | {"agreement_matrices": matrices(y_test, preds, names)}
 
 
 def main(argv: Sequence[str]) -> int:
-    """`python -m mcpref.gui.evaluate <config path>`; exit code."""
+    """`python -m mcpref.recognition.evaluate <config path>`; exit code."""
     parser = argparse.ArgumentParser(prog=f"python -m {PROG}")
     parser.add_argument("config", type=Path)
     args = parser.parse_args(argv)
     try:
         cfg = load_config(args.config)
-        write_report(cfg.out_dir, run(cfg))
+        write_report(cfg.out_dir, run(cfg), TITLE)
     except FAILURES as error:
         return failed(PROG, error)
     return 0

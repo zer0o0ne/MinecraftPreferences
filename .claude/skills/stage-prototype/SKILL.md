@@ -6,6 +6,7 @@ description: Procedure of the prototyper agent — implement an approved spec ex
 
 Input: approved spec path; on a repeat, the report that caused it.
 Load skills `exactness-checklist` and `vet-dependency`.
+Scratch files live in `<scratchpad>/<block>-<stage>/`, never in the scratchpad root: other agents run in parallel.
 
 1. Read the spec and every existing module its Interface names.
 2. Implement the Interface signatures exactly, as a composition of functions following the equations.

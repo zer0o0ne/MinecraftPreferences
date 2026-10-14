@@ -1,5 +1,5 @@
-"""Naive references for specs/gui-masks.md (1)-(8): explicit loops over pixels and frames,
-Python integers and exact fractions; nothing from src/."""
+"""Naive references for specs/gui-masks.md (1)-(5), (13), (14): explicit loops over pixels and
+frames, Python integers and exact fractions; nothing from src/."""
 
 import math
 from fractions import Fraction
@@ -99,14 +99,34 @@ def patch_masks(templates: dict, spreads: dict, p: int, n_p: int, eps) -> dict:
     return out
 
 
-def score(x: np.ndarray, pairs: list, tau: int) -> Fraction | None:
-    """(4): best c / |M| over the pairs; None without a pair."""
+def deviations(x: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """d_T: max over channels of |x - t| in int64; on (f)'s E arrays (no channel axis)
+    1000 d^f."""
+    d = np.abs(x.astype(np.int64) - t.astype(np.int64))
+    return d if d.ndim == 2 else d.max(axis=2)
+
+
+def score(x: np.ndarray, pairs: list, bound: int) -> Fraction | None:
+    """(4): best c / |M| over the pairs, c counting d <= bound (tau; 1000 tau for (f));
+    None without a pair."""
     best = None
     for t, m in pairs:
-        d = np.abs(x.astype(np.int64) - t.astype(np.int64)).max(axis=2)
-        s = Fraction(int((m & (d <= tau)).sum()), int(m.sum()))
+        s = Fraction(int((m & (deviations(x, t) <= bound)).sum()), int(m.sum()))
         best = s if best is None or s > best else best
     return best
+
+
+def feature(x: np.ndarray, t: np.ndarray, m: np.ndarray, q: float) -> int:
+    """(14): the inverted_cdf quantile of the |M| deviations over the mask, repeats kept
+    (1000 times the feature for (f))."""
+    d = deviations(x, t)
+    return order_stat([int(d[y, i]) for y, i in zip(*np.nonzero(m))], q)
+
+
+def folds(episodes: list, k: int, seed: int) -> dict:
+    """(13): episode pi[r] of the training episodes gets fold r mod K."""
+    pi = np.random.Generator(np.random.PCG64(seed)).permutation(len(episodes))
+    return {episodes[int(p)]: r % k for r, p in enumerate(pi)}
 
 
 def predict(s: dict, order: list, theta: Fraction, mu: Fraction) -> str:
@@ -117,72 +137,3 @@ def predict(s: dict, order: list, theta: Fraction, mu: Fraction) -> str:
     top = next(k for k in order if s.get(k) == ranked[0])
     second = ranked[1] if len(ranked) > 1 else 0
     return top if ranked[0] >= theta and ranked[0] - second >= mu else "other"
-
-
-def criteria(y: list, yhat: list) -> dict:
-    """(6), (7): agreement and macro recall (None on an empty set)."""
-    if not y:
-        return {"agreement": None, "macro_recall": None}
-    recalls = [recall(y, yhat, k) for k in dict.fromkeys(y)]
-    agree = Fraction(sum(a == b for a, b in zip(y, yhat)), len(y))
-    return {"agreement": agree, "macro_recall": sum(recalls) / len(recalls)}
-
-
-def recall(y: list, yhat: list, k: str) -> Fraction:
-    return Fraction(sum(a == b == k for a, b in zip(y, yhat)), y.count(k))
-
-
-def choose(y: list, preds: dict, grid: tuple) -> dict:
-    """(6): criterion -> the first (tau, theta, mu) in grid order with the largest value;
-    `preds[(tau, theta, mu)]` are the predictions on the validation frames."""
-    out = {}
-    for crit in ("agreement", "macro_recall"):
-        best = None
-        for point in ((t, th, m) for t in grid[0] for th in grid[1] for m in grid[2]):
-            value = criteria(y, preds[point])[crit]
-            if best is None or value > best[0]:
-                best = (value, point)
-        out[crit] = best[1]
-    return out
-
-
-def ratio(num: int, den: int) -> float | None:
-    return None if den == 0 else float(Fraction(num, den))
-
-
-def metrics(ids: list, y: list, yhat: list, labels: list) -> dict:
-    """(7) on one set of frames: fractions as floats, errors sorted, no zero confusion cells."""
-    crit = {k: None if v is None else float(v) for k, v in criteria(y, yhat).items()}
-    per_label, confusion = {}, {}
-    for k in labels:
-        tp = sum(a == b == k for a, b in zip(y, yhat))
-        n_true, n_pred = y.count(k), yhat.count(k)
-        per_label[k] = {"n_true": n_true, "n_pred": n_pred}
-        per_label[k].update(precision=ratio(tp, n_pred), recall=ratio(tp, n_true))
-        per_label[k]["f1"] = ratio(2 * tp, n_true + n_pred)
-        per_label[k]["errors"] = sorted(
-            i for i, a, b in zip(ids, y, yhat) if a == k != b
-        )
-    for a, b in zip(y, yhat):
-        confusion.setdefault(a, {}).setdefault(b, 0)
-        confusion[a][b] += 1
-    return {**crit, "per_label": per_label, "confusion": confusion}
-
-
-def matrices(classes: list, labellers: list) -> dict:
-    """(8): class -> (|F_k|, matrix as floats) for the classes some labeller assigns."""
-    out = {}
-    for k in classes:
-        fk = [
-            f for f in range(len(labellers[0])) if any(lab[f] == k for lab in labellers)
-        ]
-        if fk:
-            agree = [
-                [sum(li[f] == lj[f] for f in fk) for lj in labellers]
-                for li in labellers
-            ]
-            out[k] = (
-                len(fk),
-                [[float(Fraction(n, len(fk))) for n in row] for row in agree],
-            )
-    return out

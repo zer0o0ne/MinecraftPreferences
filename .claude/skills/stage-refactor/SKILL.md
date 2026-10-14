@@ -6,6 +6,7 @@ description: Procedure of the refactorer agent — reduce a prototype to the min
 
 Input: spec path, prototype report.
 Load skill `exactness-checklist`: its items are invariants a refactor must not break.
+Scratch files live in `<scratchpad>/<block>-<stage>/`, never in the scratchpad root: other agents run in parallel.
 
 Over the block's code and every `src/` module it touches:
 1. Trace each parameter, option, branch, class, config field and default to the spec; delete what does not trace.
