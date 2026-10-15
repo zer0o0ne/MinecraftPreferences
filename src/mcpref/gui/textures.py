@@ -2,6 +2,7 @@
 
 import argparse
 import hashlib
+import io
 import sys
 import zipfile
 from collections.abc import Sequence
@@ -14,6 +15,7 @@ from mcpref import REPO
 from mcpref.cli.failure import FAILURES, failed
 from mcpref.gui.screens import ScreenClass, fields, keys, load_screens, read_catalogue
 from mcpref.http.retry import get
+from mcpref.shards.store import make_dirs, write_file
 
 PREFIX = "assets/minecraft/textures/"
 FONT = "font/ascii.png"
@@ -38,9 +40,20 @@ def load_textures_config(path: Path) -> TexturesConfig:
 
 
 def needed(classes: dict[str, ScreenClass]) -> set[str]:
-    """Interface `main`: every texture named by a blit, and font/ascii.png."""
+    """Notation T: every texture named by a blit of any member, and font/ascii.png."""
     blits = (b for c in classes.values() for m in c.members.values() for b in m.blits)
     return {b.texture for b in blits} | {FONT}
+
+
+def make_parents(out_dir: Path, T: set[str]) -> None:
+    """Interface `main`: make_dirs of the parent of every path of T under out_dir."""
+    for parent in sorted({(out_dir / t).parent for t in T}):
+        make_dirs(parent)
+
+
+def missing(out_dir: Path, T: set[str]) -> list[str]:
+    """Interface `main`: the paths of T without a file out_dir/<path>, sorted."""
+    return sorted(t for t in T if not (out_dir / t).is_file())
 
 
 def download(cfg: TexturesConfig) -> bytes:
@@ -52,35 +65,31 @@ def download(cfg: TexturesConfig) -> bytes:
     return response.raise_for_status().content
 
 
-def wanted(zf: zipfile.ZipFile) -> list[str]:
-    """File members under assets/minecraft/textures/gui/, and font/ascii.png."""
-    gui = [i for i in zf.infolist() if i.filename.startswith(PREFIX + "gui/")]
-    return [i.filename for i in gui if not i.is_dir()] + [PREFIX + FONT]
+def check_sha1(cfg: TexturesConfig, body: bytes) -> None:
+    """Interface `main`: the sha1 of the jar equals `sha1`."""
+    if hashlib.sha1(body).hexdigest() != cfg.sha1:
+        raise RuntimeError(f"sha1 of {cfg.url} is not {cfg.sha1}")
 
 
-def extract(jar: Path, out_dir: Path) -> None:
-    """Each wanted member to out_dir/<path relative to assets/minecraft/textures/>."""
-    with zipfile.ZipFile(jar) as zf:
-        for name in wanted(zf):
-            target = out_dir / name[len(PREFIX) :]
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with zf.open(name) as member:
-                target.write_bytes(member.read())
+def write_members(jar: zipfile.ZipFile, paths: list[str], out_dir: Path) -> None:
+    """Every member assets/minecraft/textures/<path> looked up by exact name (first
+    absent: KeyError), then each written to out_dir/<path> by specs/shards.md (4)."""
+    infos = {path: jar.getinfo(PREFIX + path) for path in paths}
+    for path, info in infos.items():
+        write_file(out_dir / path, jar.read(info))
 
 
 def fetch_textures(cfg: TexturesConfig, classes: dict[str, ScreenClass]) -> None:
-    """Interface `main`: download, sha1 check, extraction; nothing if all are present."""
-    if all((cfg.out_dir / t).exists() for t in needed(classes)):
+    """Interface `main`: the missing paths of T from the verified jar, held in memory."""
+    T = needed(classes)
+    make_parents(cfg.out_dir, T)
+    paths = missing(cfg.out_dir, T)
+    if not paths:
         return
-    cfg.out_dir.mkdir(parents=True, exist_ok=True)
-    jar = cfg.out_dir / "client.jar.part"
     body = download(cfg)
-    jar.write_bytes(body)
-    if hashlib.sha1(body).hexdigest() != cfg.sha1:
-        jar.unlink()
-        raise RuntimeError(f"sha1 of {cfg.url} is not {cfg.sha1}")
-    extract(jar, cfg.out_dir)
-    jar.unlink()
+    check_sha1(cfg, body)
+    with zipfile.ZipFile(io.BytesIO(body), "r") as jar:
+        write_members(jar, paths, cfg.out_dir)
 
 
 def main(argv: Sequence[str]) -> int:
@@ -90,7 +99,7 @@ def main(argv: Sequence[str]) -> int:
     args = parser.parse_args(argv)
     try:
         fetch_textures(load_textures_config(args.config), load_screens(args.config))
-    except (*FAILURES, zipfile.BadZipFile) as error:
+    except FAILURES as error:
         return failed("mcpref.gui.textures", error)
     return 0
 
