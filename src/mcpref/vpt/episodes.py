@@ -1,39 +1,17 @@
-"""(1)-(3) of specs/vpt-gui-frames.md: eligible frames, episode reasons, the plan; the
-reasons without `no_gui` and the draw without the frames, shared with
+"""(1)-(3) of specs/vpt-gui-frames.md: eligible frames, episode reasons, the draws and
+their frames; the reasons without `no_gui` and the draw without the frames, shared with
 specs/perception-data.md (1)."""
 
 import json
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from functools import partial
 from pathlib import PurePosixPath
 from typing import NamedTuple
 
 import numpy as np
-from tqdm import tqdm
 
 from mcpref.vpt.config import Access, GuiFramesConfig
 
 Fetch = Callable[[str], bytes | None]
-
-
-class PlannedFrame(NamedTuple):
-    """Interface `plan`: frame i of episode e with its lines (l_{i-1}, l_i)."""
-
-    id: str
-    subset: str
-    relpath: str
-    version: str
-    frame: int
-    lines: tuple[Mapping, Mapping]
-
-
-class EpisodeRecord(NamedTuple):
-    """Interface `plan`: a drawn episode, its reason (2), its options or None."""
-
-    subset: str
-    relpath: str
-    reason: str | None
-    options: Mapping | None
 
 
 def eligible_frames(lines: Sequence[Mapping]) -> list[int]:
@@ -122,12 +100,11 @@ def examine_gui(
     return examined
 
 
-def planned(
-    subset: str, relpath: str, i: int, lines: Sequence[Mapping]
-) -> PlannedFrame:
-    """Interface: the PlannedFrame of frame i, id <version>_<stem>_<i>."""
-    name, pair = f"{episode_name(relpath)}_{i}", (lines[i - 1], lines[i])
-    return PlannedFrame(name, subset, relpath, version_of(relpath), i, pair)
+def frame_record(subset: str, relpath: str, i: int, lines: Sequence[Mapping]) -> dict:
+    """Interface Produces: a frame of shard.json, id <version>_<stem>_<i>, l_{i-1}, l_i."""
+    name, version = f"{episode_name(relpath)}_{i}", version_of(relpath)
+    record = {"id": name, "subset": subset, "relpath": relpath, "version": version}
+    return record | {"frame": i, "prev_line": lines[i - 1], "line": lines[i]}
 
 
 def draw(
@@ -155,30 +132,9 @@ def take(
     relpath: str,
     lines: Sequence[Mapping],
     left: int,
-) -> list[PlannedFrame]:
+) -> list[dict]:
     """(3): r = min(m, |F_e|, N - planned) frames of a valid e, without replacement."""
     eligible = eligible_frames(lines)
     r = min(cfg.per_episode, len(eligible), left)
     chosen = rng.choice(eligible, size=r, replace=False, shuffle=True)
-    return [planned(subset, relpath, int(i), lines) for i in chosen]
-
-
-def plan(
-    cfg: GuiFramesConfig, fetch: Fetch
-) -> tuple[list[PlannedFrame], list[EpisodeRecord]]:
-    """(3): subset, episodes, frames, drawn by one Generator(PCG64(seed)); bar `plan`."""
-    rng = np.random.Generator(np.random.PCG64(cfg.seed))
-    indices = {s: index(fetch(url)) for s, url in cfg.index_urls.items()}
-    drawn = draw(rng, indices, partial(examine_gui, cfg, fetch))
-    frames, episodes = [], []
-    with tqdm(total=cfg.n_frames, desc="plan", unit="frame") as bar:
-        bar.set_postfix_str(f"{len(episodes)} episodes")
-        while len(frames) < cfg.n_frames and (e := next(drawn, None)) is not None:
-            subset, relpath, (reason, _, options, _, lines) = e
-            episodes.append(EpisodeRecord(subset, relpath, reason, options))
-            left = cfg.n_frames - len(frames)
-            taken = [] if reason else take(cfg, rng, subset, relpath, lines, left)
-            frames += taken
-            bar.update(len(taken))
-            bar.set_postfix_str(f"{len(episodes)} episodes")
-    return frames, episodes
+    return [frame_record(subset, relpath, int(i), lines) for i in chosen]

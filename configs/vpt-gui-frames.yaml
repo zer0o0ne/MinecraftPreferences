@@ -23,6 +23,7 @@ per_episode: 5
 seed: 0
 workers: 8
 fetch_streams: 8
+plan_shard_draws: 20
 http_timeout: 60
 http_retries: 3
 retry_delay: 10

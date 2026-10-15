@@ -1,12 +1,18 @@
 """Notation of specs/vpt-gui-frames.md: configs/vpt-gui-frames.yaml; the access fields
-shared with specs/perception-data.md; run.json and the rerun check of both."""
+shared with specs/perception-data.md; run.json and the rerun check of each."""
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
 import yaml
+
+from mcpref.shards.store import write_file
+
+OUTPUT_FIELDS = ("index_urls", "min_version", "required_options", "width", "height")
+OUTPUT_FIELDS += ("fps", "n_frames", "per_episode", "seed")
 
 
 class Access(Protocol):
@@ -42,6 +48,7 @@ class GuiFramesConfig:
     seed: int
     workers: int
     fetch_streams: int
+    plan_shard_draws: int
     http_timeout: float
     http_retries: int
     retry_delay: float
@@ -58,19 +65,37 @@ def load_config(path: Path) -> GuiFramesConfig:
     return GuiFramesConfig(**yaml.safe_load(path.read_text()))
 
 
-def check_rerun(path: Path, header: dict) -> None:
-    """(d) of specs/vpt-gui-frames.md, (7) of specs/perception-data.md: an existing
-    run.json must hold the same value of every header key."""
-    if not path.exists():
-        return
-    previous = json.loads(path.read_text())
+def check_same(path: Path, previous: Mapping, current: Mapping) -> None:
+    """(d) of specs/vpt-gui-frames.md, (7) of specs/perception-data.md: abort when a
+    value of `current` differs from `previous` (read from `path`) as JSON text."""
     changed = [
-        k for k, v in header.items() if json.dumps(previous.get(k)) != json.dumps(v)
+        k for k, v in current.items() if json.dumps(previous.get(k)) != json.dumps(v)
     ]
     if changed:
         raise RuntimeError(f"{path} holds other values of {changed}")
 
 
+def check_rerun(path: Path, header: dict) -> None:
+    """(7) of specs/perception-data.md: an existing run.json must hold the same value of
+    every header key."""
+    if path.exists():
+        check_same(path, json.loads(path.read_text()), header)
+
+
 def write_run(out: Path, run: dict) -> None:
-    """Behaviour: run.json, the header before planning, completed with the counts."""
+    """(7) of specs/perception-data.md: run.json, the header before planning, completed
+    with the counts."""
     (out / "run.json").write_text(json.dumps(run, indent=2) + "\n")
+
+
+def check_outputs(path: Path, config: dict) -> None:
+    """(d) of specs/vpt-gui-frames.md: an existing run.json must hold the same output
+    fields in its config, each compared as JSON text."""
+    if path.exists():
+        outputs = {k: config[k] for k in OUTPUT_FIELDS}
+        check_same(path, json.loads(path.read_text())["config"], outputs)
+
+
+def store_run(path: Path, run: dict) -> None:
+    """run.json of specs/vpt-gui-frames.md, written atomically (specs/shards.md (4))."""
+    write_file(path, json.dumps(run, indent=2).encode())

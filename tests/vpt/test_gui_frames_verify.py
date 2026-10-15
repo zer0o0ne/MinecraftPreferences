@@ -153,6 +153,18 @@ def test_verify_deletes_its_temporary_files(site, temp_dir, behaviour, code):
     assert not [p for p in site.out.rglob("*") if p.is_file()]
 
 
+def test_verify_downloads_indices_itself_and_writes_nothing(site):
+    """After a run has stored the indices: `verify` downloads them again, in config order up
+    to 10xx (the first listing verify_relpath), and leaves out_dir as it is."""
+    assert main(["run", site.config()]) == 0
+    before = site.snapshot()
+    site.server.requests.clear()
+    assert main(["verify", site.config()]) == 0
+    asked = [r.path for r in site.server.requests if r.path.startswith("/idx/")]
+    assert asked == [f"/idx/{s}.json" for s in site.world.index_urls]
+    assert site.snapshot() == before
+
+
 def h264(path: Path, frames: int) -> bytes:
     """32 x 16 yuv420p H.264 at 20 fps, a keyframe every 10 frames, B-frames, noise."""
     src = "testsrc2=size=32x16:rate=20,noise=alls=40:allf=t"

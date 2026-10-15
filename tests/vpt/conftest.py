@@ -9,9 +9,18 @@ from pathlib import Path
 import pytest
 import yaml
 from fake_azure import FakeAzure
-from progress_bars import tqdm_defaults
-from vpt_checks import EPISODES
-from vpt_world import FIELDS, SUBSETS, make_world, reference_plan
+from progress_bars import assert_aborted, tqdm_defaults
+from vpt_checks import EPISODES, read_shards
+from vpt_world import (
+    FIELDS,
+    SUBSETS,
+    joined,
+    make_world,
+    reference_draws,
+    reference_shards,
+)
+
+from mcpref.vpt.gui_frames import main
 
 FAKE_FFMPEG = Path(__file__).with_name("fake_ffmpeg.py")
 PROXY_VARS = ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY",
@@ -21,7 +30,8 @@ WRAPPER = '#!/bin/sh\nexec {python} -I -S {fake} {ctl} {log} "$0" "$@"\n'
 
 class Site(FakeAzure):
     """Fake Azure server (fake_azure.py) of `world`, a fake ffmpeg at `self.ffmpeg`, configs
-    with out_dir relative to the repository root."""
+    with out_dir relative to the repository root. The server sends ETags, which (a) and (d)
+    ignore."""
 
     def __init__(self, http, tmp: Path, repo: Path, episodes: dict):
         super().__init__(http)
@@ -72,20 +82,46 @@ class Site(FakeAzure):
         path.write_text(yaml.safe_dump(fields, sort_keys=False))
         return str(path)
 
-    def expected(self, **changes) -> tuple[list, list]:
-        """frames.jsonl rows (status "ok") and episodes.jsonl rows of (3)."""
+    def draws(self, **changes) -> list[dict]:
+        """The draws of (3) for the fields with `changes`."""
         f = self.fields | changes
-        frames, records = reference_plan(
-            self.world, f["n_frames"], f["per_episode"], f["seed"]
-        )
-        rows = [{k: v for k, v in p.items() if k != "lines"} for p in frames]
-        rows = [r | {"prev_line": p["lines"][0], "line": p["lines"][1], "status": "ok"}
-                for r, p in zip(rows, frames)]  # fmt: skip
-        keys = ("subset", "relpath", "reason", "options")
-        return rows, [dict(zip(keys, r)) for r in records]
+        return reference_draws(self.world, f["n_frames"], f["per_episode"], f["seed"])
 
-    def read_jsonl(self, name: str) -> list[dict]:
-        return [json.loads(line) for line in (self.out / name).read_text().splitlines()]
+    def expected(self, **changes) -> tuple[list, list]:
+        """Frames and episode records of the plan (3), in draw order."""
+        draws = self.draws(**changes)
+        return joined(draws, "frames"), joined(draws, "episodes")
+
+    def shards(self, before: tuple = (), **changes) -> list[dict]:
+        """Plan shards (3') after the interrupted runs `before` ((h, K) each)."""
+        k = (self.fields | changes)["plan_shard_draws"]
+        return reference_shards(self.draws(**changes), k, before)
+
+    def plan(self) -> list[dict]:
+        """The complete shards of out_dir/plan."""
+        return read_shards(self.out / "plan")
+
+    def planned(self) -> list[dict]:
+        """The frames of out_dir/plan in shard order."""
+        return joined(self.plan(), "frames")
+
+    def stop_in_plan(self, capfd, **changes) -> None:
+        """`main run` aborted in the draw that starts shard 1: the HEAD of either file of its
+        first downloaded episode fails (no retries). Shard 0 stays, as (3) cuts it."""
+        k = (self.fields | changes)["plan_shard_draws"]
+        draw = self.draws(**changes)[k]
+        first = next(r for r in draw["episodes"] if r["reason"] != "version")
+        for suffix in ("-options.json", ".jsonl"):
+            path = self.path(first["subset"], first["relpath"], suffix)
+            self.faults[self.head(path)] = [503]
+        code = main(["run", self.config(**(changes | {"http_retries": 0}))])
+        assert_aborted(code, capfd.readouterr().err)
+        self.faults.clear()
+        assert self.plan() == self.shards(**changes)[:1]
+
+    def snapshot(self) -> dict:
+        """Every file under out_dir: path -> bytes."""
+        return {p: p.read_bytes() for p in self.out.rglob("*") if p.is_file()}
 
     def run_json(self) -> dict:
         return json.loads((self.out / "run.json").read_text())

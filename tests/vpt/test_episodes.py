@@ -2,21 +2,21 @@
 episode reasons in order (through `plan` with a fake `fetch`)."""
 
 import pytest
+from vpt_checks import plan_config, read_shards
 from vpt_world import (
     BAD_JSON,
     BAD_JSONL,
     DIFFERENT,
-    FIELDS,
     OPTIONS,
     REQUIRED,
     Ep,
+    joined,
     lines,
     make_world,
     options,
 )
 
 from mcpref.vpt.gui_frames import (
-    GuiFramesConfig,
     eligible_frames,
     options_ok,
     plan,
@@ -106,35 +106,30 @@ REASONS = [  # (Ep fields, reason of (2))
 ]
 
 
+def records(world, directory) -> list[dict]:
+    """Episode records of the plan shards `plan` writes to `directory`."""
+    plan(plan_config(world), world.fetch, directory)
+    return joined(read_shards(directory), "episodes")
+
+
 @pytest.mark.parametrize("fields, reason", REASONS)
-def test_reason_is_first_failing_check_eq2(fields, reason):
+def test_reason_is_first_failing_check_eq2(tmp_path, fields, reason):
+    """Its record: options parsed for `options`, `no_gui` and valid episodes, else null."""
     e = Ep(**({"relpath": "data/7.1/x.mp4"} | fields), reason=reason)
     world = make_world({"8xx": [e]})
-    cfg = GuiFramesConfig(
-        **FIELDS, index_urls=world.index_urls, ffmpeg="ffmpeg", out_dir="o"
-    )
-    _, records = plan(cfg, world.fetch)
-    assert [(r.subset, r.relpath, r.reason) for r in records] == [
-        ("8xx", e.relpath, reason)
-    ]
-    if reason in (None, "options", "no_gui"):
-        assert records[0].options == e.record_options()
-    if reason == "version":
-        assert records[0].options is None
-        assert set(world.fetched) == set(
-            world.index_urls.values()
-        )  # nothing downloaded
+    assert records(world, tmp_path / "plan") == [e.record("8xx")]
+    if reason == "version":  # nothing downloaded but the indices
+        assert set(world.fetched) == set(world.index_urls.values())
 
 
 @pytest.mark.parametrize(
     "fields",
-    [{"options": None}, {"options": b""}, {"options": BAD_JSON}],
-    ids=["missing", "empty", "malformed"],
-)
-def test_record_options_none_when_options_file_unusable(fields):
-    e = Ep("data/7.1/x.mp4", **fields)
+    [{"options": None}, {"options": b""}, {"options": BAD_JSON},
+     {"options": options(lang="en_gb"), "jsonl": BAD_JSONL},
+     {"relpath": "data/6.11/x.mp4", "options": options(lang="en_gb")}],
+    ids=["missing", "empty", "malformed", "malformed jsonl", "version"],
+)  # fmt: skip
+def test_record_options_null_for_other_reasons(tmp_path, fields):
+    e = Ep(**({"relpath": "data/7.1/x.mp4"} | fields))
     world = make_world({"7xx": [e]})
-    cfg = GuiFramesConfig(
-        **FIELDS, index_urls=world.index_urls, ffmpeg="ffmpeg", out_dir="o"
-    )
-    assert plan(cfg, world.fetch)[1][0].options is None
+    assert records(world, tmp_path / "plan")[0]["options"] is None

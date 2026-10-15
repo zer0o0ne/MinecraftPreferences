@@ -2,11 +2,9 @@
 
 import argparse
 import dataclasses
-import json
 import sys
-from collections import Counter
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import httpx
@@ -14,25 +12,23 @@ from tqdm import tqdm
 
 from mcpref import REPO
 from mcpref.cli.failure import FAILURES, failed
-from mcpref.vpt.config import GuiFramesConfig, check_rerun, load_config, write_run
-from mcpref.vpt.downloads import download_indices, fetch
+from mcpref.shards.store import complete_shards, make_dirs
+from mcpref.vpt.config import GuiFramesConfig, check_outputs, load_config, store_run
+from mcpref.vpt.downloads import fetch, index_path, store_indices
 from mcpref.vpt.episodes import (
-    EpisodeRecord,
-    PlannedFrame,
+    Fetch,
     eligible_frames,
     index,
     options_ok,
-    plan,
     version_ok,
 )
 from mcpref.vpt.ffmpeg import extract, ffmpeg_command, frame_time
+from mcpref.vpt.plan import plan, read_shard
 from mcpref.vpt.verify import verify
 from mcpref.vpt.yuv import yuv420p_to_rgb
 
 __all__ = [
-    "EpisodeRecord",
     "GuiFramesConfig",
-    "PlannedFrame",
     "eligible_frames",
     "fetch",
     "ffmpeg_command",
@@ -46,76 +42,75 @@ __all__ = [
 ]
 
 
+def submit_shard(
+    cfg: GuiFramesConfig,
+    threads: ThreadPoolExecutor,
+    shard: dict,
+    basedirs: dict[str, str],
+    out: Path,
+) -> list[Future]:
+    """(c): the extraction of each frame of a plan shard without <id>.yuv; its video URL
+    = the basedir of its subset + its relpath."""
+    jobs = []
+    for f in shard["frames"]:
+        path, url = out / f"{f['id']}.yuv", basedirs[f["subset"]] + f["relpath"]
+        if not path.exists():
+            jobs.append(threads.submit(extract, cfg, url, f["frame"], path))
+    return jobs
+
+
 def extract_all(
-    cfg: GuiFramesConfig, frames: list[PlannedFrame], urls: list[str], out: Path
-) -> list[str]:
-    """(c), (d): statuses in plan order, `workers` threads; existing <id>.yuv skipped;
-    bar `extract`, enclosing the pool, whose queued frames an error cancels."""
-    out.mkdir(parents=True, exist_ok=True)
-    paths = [out / f"{f.id}.yuv" for f in frames]
-    statuses = ["ok"] * len(frames)
-    todo = [k for k, path in enumerate(paths) if not path.exists()]
-    if not todo:
-        done = "already done" if frames else "nothing to do"
-        print(f"extract: {done}", file=sys.stderr)
-        return statuses
-    with tqdm(total=len(todo), desc="extract", unit="frame") as bar:
-        bar.set_postfix_str(f"{statuses.count('failed')} failed")
+    cfg: GuiFramesConfig, plan_dir: Path, basedirs: dict[str, str], out: Path, n: int
+) -> int:
+    """(c), (d): the n planned frames without <id>.yuv, shard by shard, on `workers`
+    threads, an error cancelling the queued ones; bar `extract`; the failed count."""
+    make_dirs(out)
+    total, n_failed = n - sum(1 for _ in out.glob("*.yuv")), 0
+    if total == 0:
+        print(f"extract: {'already done' if n else 'nothing to do'}", file=sys.stderr)
+        return n_failed
+    with tqdm(total=total, desc="extract", unit="frame") as bar:
+        bar.set_postfix_str(f"{n_failed} failed")
         threads = ThreadPoolExecutor(cfg.workers)
         try:
-            jobs = {
-                threads.submit(extract, cfg, urls[k], frames[k].frame, paths[k]): k
-                for k in todo
-            }
-            for job in as_completed(jobs):
-                statuses[jobs[job]] = "ok" if job.result() else "failed"
-                bar.update(1)
-                bar.set_postfix_str(f"{statuses.count('failed')} failed")
+            for k in range(complete_shards(plan_dir)):
+                shard = read_shard(plan_dir, k)
+                jobs = submit_shard(cfg, threads, shard, basedirs, out)
+                for job in as_completed(jobs):
+                    n_failed += not job.result()
+                    bar.update(1)
+                    bar.set_postfix_str(f"{n_failed} failed")
         finally:
             threads.shutdown(cancel_futures=True)
-    return statuses
+    return n_failed
 
 
-def frame_record(frame: PlannedFrame, status: str) -> dict:
-    """Interface: one record of frames.jsonl."""
-    record = frame._asdict()
-    prev_line, line = record.pop("lines")
-    return record | {"prev_line": prev_line, "line": line, "status": status}
+def stored_fetch(client: httpx.Client, cfg: GuiFramesConfig, indices: Path) -> Fetch:
+    """(b): the index_urls answered with the files of (a), every other URL by (f)."""
+    files = {url: index_path(indices, s) for s, url in cfg.index_urls.items()}
+    return lambda url: (
+        files[url].read_bytes() if url in files else fetch(client, cfg, url)
+    )
 
 
-def write_records(
-    out: Path,
-    header: dict,
-    frames: list[PlannedFrame],
-    episodes: list[EpisodeRecord],
-    statuses: list[str],
-) -> None:
-    """Interface Produces: frames.jsonl (plan order), episodes.jsonl (draw order), run.json."""
-    records = map(frame_record, frames, statuses)
-    (out / "frames.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records))
-    lines = (json.dumps(e._asdict()) + "\n" for e in episodes)
-    (out / "episodes.jsonl").write_text("".join(lines))
-    reasons, counts = Counter(e.reason for e in episodes), Counter(statuses)
-    write_run(out, header | {"episodes": reasons, "frames": counts})
+def index_basedirs(cfg: GuiFramesConfig, indices: Path) -> dict[str, str]:
+    """(c): the basedir of each indices/<subset>.json, read one at a time."""
+    return {s: index(index_path(indices, s).read_bytes())[0] for s in cfg.index_urls}
 
 
 def run(cfg: GuiFramesConfig, client: httpx.Client) -> None:
-    """Behaviour (a)-(d), the files of (b) by the ranged fetch (f)."""
-    out = REPO / cfg.out_dir
-    indices = dict(download_indices(client, cfg))
-    etags = {s: response.headers.get("ETag") for s, response in indices.items()}
-    header = {"config": dataclasses.asdict(cfg), "index_etags": etags}
-    check_rerun(out / "run.json", header)
-    out.mkdir(parents=True, exist_ok=True)
-    write_run(out, header)
-    bodies = {cfg.index_urls[s]: response.content for s, response in indices.items()}
-    frames, episodes = plan(
-        cfg, lambda url: bodies[url] if url in bodies else fetch(client, cfg, url)
-    )
-    basedirs = {s: index(response.content)[0] for s, response in indices.items()}
-    urls = [basedirs[f.subset] + f.relpath for f in frames]
-    statuses = extract_all(cfg, frames, urls, out / "frames")
-    write_records(out, header, frames, episodes, statuses)
+    """Behaviour (d), run.json, (a)-(c); the files of (b) by the ranged fetch (f)."""
+    out, config = REPO / cfg.out_dir, dataclasses.asdict(cfg)
+    check_outputs(out / "run.json", config)
+    store_run(out / "run.json", {"config": config})
+    indices, plan_dir = out / "indices", out / "plan"
+    store_indices(client, cfg, indices)
+    n, reasons = plan(cfg, stored_fetch(client, cfg, indices), plan_dir)
+    basedirs = index_basedirs(cfg, indices)
+    n_failed = extract_all(cfg, plan_dir, basedirs, out / "frames", n)
+    frames = {k: v for k, v in (("ok", n - n_failed), ("failed", n_failed)) if v}
+    counts = {"episodes": reasons, "frames": frames}
+    store_run(out / "run.json", {"config": config} | counts)
 
 
 def main(argv: Sequence[str]) -> int:

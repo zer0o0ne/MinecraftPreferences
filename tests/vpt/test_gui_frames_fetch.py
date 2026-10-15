@@ -115,8 +115,7 @@ def aborted_run(site, http, capfd, faults: dict, stalls: dict | None = None) -> 
     code = main(["run", site.config()])
     err = capfd.readouterr().err
     assert_aborted(code, err)
-    assert elsewhere.requests == [] and site.calls() == []
-    assert not (site.out / "frames.jsonl").exists()
+    assert elsewhere.requests == [] and site.calls() == [] and site.files() == {}
     return err[:-1].rsplit("\n", 1)[-1]
 
 

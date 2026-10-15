@@ -13,6 +13,7 @@ from typing import BinaryIO
 from tqdm import tqdm
 
 from mcpref.http.retry import retried
+from mcpref.shards.store import publish
 from mcpref.vpt.config import Access, GuiFramesConfig
 
 
@@ -59,12 +60,13 @@ def ffmpeg_ok(cfg: GuiFramesConfig, url: str, i: int, part: Path) -> bool:
 
 
 def extract(cfg: GuiFramesConfig, url: str, i: int, path: Path) -> bool:
-    """(c): ffmpeg into <path>.part, retried; renamed to `path` on success."""
+    """(c): ffmpeg into <path>.part, retried; published as `path` on success
+    (specs/shards.md (3))."""
     part = path.with_name(path.name + ".part")
     run = partial(ffmpeg_ok, cfg, url, i, part)
     ok = retried(run, lambda ok: not ok, cfg.http_retries, cfg.retry_delay)
     if ok:
-        part.rename(path)
+        publish(part, path)
     return ok
 
 

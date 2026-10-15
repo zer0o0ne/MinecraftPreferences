@@ -1,6 +1,7 @@
 """Behaviour (a), (b), the download of (e) and Retries of specs/vpt-gui-frames.md through
 `main`: one GET per index and per `verify` video, the ranged fetch (f) of episode files,
-retries of each request, aborts, the `x-ms-version` header, no redirects (Library mapping)."""
+retries of each request, aborts, the `x-ms-version` header, no redirects (Library mapping).
+The server sends ETags; nothing depends on them."""
 
 import itertools
 import threading
@@ -107,7 +108,7 @@ def test_timeout_per_phase_without_total_deadline(site, which):
     phase: the download succeeds although it takes longer than http_timeout."""
     site.stalls[target(site, which)] = 0.7
     assert main(["run", site.config(http_timeout=1.0, http_retries=0)]) == 0
-    assert site.read_jsonl("frames.jsonl") == site.expected()[0]
+    assert site.plan() == site.shards()
 
 
 @pytest.mark.parametrize("which, fault", TRANSIENT)
@@ -115,9 +116,7 @@ def test_transient_failure_is_retried_and_plan_unchanged(site, which, fault):
     key = target(site, which)
     site.faults[key] = [fault]
     assert main(["run", site.config(http_timeout=0.5, retry_delay=0.2)]) == 0
-    rows, records = site.expected()
-    assert site.read_jsonl("frames.jsonl") == rows
-    assert site.read_jsonl("episodes.jsonl") == records
+    assert site.plan() == site.shards()
     assert len(gaps(site, key)) == 1 and gaps(site, key)[0] >= 0.2
     assert fault != "hold" or ours(site, key)[0].cancelled()
 
@@ -132,7 +131,7 @@ def test_retries_exhausted_abort_the_run(site, capfd, which, retries, fault):
     assert_aborted(main(["run", cfg]), capfd.readouterr().err)
     assert len(gaps(site, key)) == retries
     assert all(gap >= 0.1 for gap in gaps(site, key))
-    assert site.calls() == [] and not (site.out / "frames.jsonl").exists()
+    assert site.calls() == [] and site.files() == {}
 
 
 @pytest.mark.parametrize("fault", [503, "drop", "cut"])
@@ -156,7 +155,7 @@ def test_verify_video_retries_exhausted_abort(site, capfd, retries):
 def test_index_http_failure_aborts(site, capfd, status):
     site.faults[site.get("/idx/9xx.json")] = [status] * 10
     assert_aborted(main(["run", site.config()]), capfd.readouterr().err)
-    assert site.calls() == [] and not (site.out / "frames.jsonl").exists()
+    assert site.calls() == [] and site.files() == {}
 
 
 def test_refused_connection_is_retried(make_site):
@@ -167,7 +166,7 @@ def test_refused_connection_is_retried(make_site):
     code = main(["run", cfg])
     timer.join()
     assert code == 0
-    assert site.read_jsonl("frames.jsonl") == site.expected()[0]
+    assert site.plan() == site.shards()
 
 
 @pytest.mark.parametrize("which", TARGETS)

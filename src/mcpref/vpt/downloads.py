@@ -1,15 +1,18 @@
 """(a), (e), (f) of specs/vpt-gui-frames.md: indices, the verify video, ranged fetch;
 also of specs/perception-data.md (access fields `Access`)."""
 
+import sys
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+from pathlib import Path
 
 import httpx
 from tqdm import tqdm
 
 from mcpref.http.retry import Method, request
-from mcpref.vpt.config import Access
+from mcpref.shards.store import make_dirs, write_file
+from mcpref.vpt.config import Access, GuiFramesConfig
 
 
 def send(method: Method, cfg: Access, url: str) -> httpx.Response:
@@ -25,12 +28,32 @@ def download(client: httpx.Client, cfg: Access, url: str) -> httpx.Response:
 def download_indices(
     client: httpx.Client, cfg: Access
 ) -> Iterator[tuple[str, httpx.Response]]:
-    """(a), (e): each subset's index downloaded, in config order; bar `indices`."""
+    """(e): each subset's index downloaded, in config order; bar `indices`."""
     with tqdm(total=len(cfg.index_urls), desc="indices", unit="file") as bar:
         for s, url in cfg.index_urls.items():
             response = download(client, cfg, url)
             bar.update(1)
             yield s, response
+
+
+def index_path(directory: Path, subset: str) -> Path:
+    """Interface Produces: indices/<subset>.json."""
+    return directory / f"{subset}.json"
+
+
+def store_indices(client: httpx.Client, cfg: GuiFramesConfig, directory: Path) -> None:
+    """(a): each index without a stored file downloaded with one GET, in config order,
+    and written atomically (specs/shards.md (4)); bar `indices`."""
+    make_dirs(directory)
+    missing = [s for s in cfg.index_urls if not index_path(directory, s).exists()]
+    if not missing:
+        print("indices: already done", file=sys.stderr)
+        return
+    with tqdm(total=len(missing), desc="indices", unit="file") as bar:
+        for s in missing:
+            body = download(client, cfg, cfg.index_urls[s]).content
+            write_file(index_path(directory, s), body)
+            bar.update(1)
 
 
 def size(client: httpx.Client, cfg: Access, url: str) -> int | None:

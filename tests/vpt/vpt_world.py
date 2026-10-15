@@ -1,5 +1,5 @@
 """Fake VPT data for specs/vpt-gui-frames.md: episodes, indices, a fake `fetch` and
-transcriptions of (1) and (3) as oracles."""
+transcriptions of (1), (3) and (3') as oracles."""
 
 import hashlib
 import json
@@ -22,8 +22,8 @@ FRAME_SIZE = WIDTH * HEIGHT * 3 // 2
 FIELDS = {  # GuiFramesConfig fields except index_urls, ffmpeg and out_dir
     "x_ms_version": "2019-12-12", "min_version": "6.12", "required_options": REQUIRED,
     "width": WIDTH, "height": HEIGHT, "fps": 20, "n_frames": 6, "per_episode": 2,
-    "seed": 0, "workers": 3, "fetch_streams": 4, "http_timeout": 2.0, "http_retries": 2,
-    "retry_delay": 0.1,
+    "seed": 0, "workers": 3, "fetch_streams": 4, "plan_shard_draws": 2,
+    "http_timeout": 2.0, "http_retries": 2, "retry_delay": 0.1,
     "ffmpeg_rw_timeout": 7, "ffmpeg_timeout": 5.0,
     "verify_relpath": "data/10.0/verify-me.mp4", "verify_frames": [0, 1, 19, 20, 23],
 }  # fmt: skip
@@ -63,9 +63,6 @@ def frame(stem: str, i: int) -> bytes:
     return hashlib.sha256(f"{stem}/{i}".encode()).digest()[:FRAME_SIZE]
 
 
-AMBIGUOUS = object()  # an EpisodeRecord's options where (2) leaves it open
-
-
 @dataclass(frozen=True)
 class Ep:
     """An episode; `options`, `jsonl`: served bytes, None (404) or GOOD; `reason` expected."""
@@ -93,23 +90,20 @@ class Ep:
             ".mp4": video,
         }
 
-    def record_options(self):
-        """EpisodeRecord options: None unless read as JSON; AMBIGUOUS where (2) is open."""
+    def record(self, subset: str) -> dict:
+        """Its episode record of a plan shard: options parsed for the reasons `options`,
+        `no_gui` and valid episodes, else null."""
         raw = self.files()["-options.json"]
-        if self.reason == "version" or not raw:
-            return None
-        try:
-            value = json.loads(raw)
-        except ValueError:
-            return None
-        return value if self.reason in (None, "options", "no_gui") else AMBIGUOUS
+        parsed = json.loads(raw) if self.reason in (None, "options", "no_gui") else None
+        return {"subset": subset, "relpath": self.relpath, "reason": self.reason,
+                "options": parsed}  # fmt: skip
 
     def planned(self, subset: str, i: int) -> dict:
-        """PlannedFrame fields of frame i."""
+        """Its frame i as a plan shard holds it."""
         id_ = f"{self.version}_{self.stem}_{i}"
-        both = (lines(self.gui)[i - 1], lines(self.gui)[i])
         return {"id": id_, "subset": subset, "relpath": self.relpath,
-                "version": self.version, "frame": i, "lines": both}  # fmt: skip
+                "version": self.version, "frame": i, "prev_line": lines(self.gui)[i - 1],
+                "line": lines(self.gui)[i]}  # fmt: skip
 
 
 class World:
@@ -149,29 +143,50 @@ def make_world(episodes: dict, order=SUBSETS, host: str = "http://h.test") -> Wo
     return World(full, index_urls, basedirs)
 
 
-def reference_plan(world: World, n: int, m: int, seed: int) -> tuple[list, list]:
-    """(3), transcribed: PlannedFrame fields and (subset, relpath, reason, options)."""
+def reference_draws(world: World, n: int, m: int, seed: int) -> list[dict]:
+    """(3), transcribed: per draw its episode records, its frames and the generator state
+    after it."""
     rng = np.random.Generator(np.random.PCG64(seed))
     pools = {
         s: list(dict.fromkeys(e.relpath for e in es))
         for s, es in world.episodes.items()
     }
-    frames, records = [], []
-    while len(frames) < n and any(pools.values()):
+    draws, planned = [], 0
+    while planned < n and any(pools.values()):
         active = [s for s in world.episodes if pools[s]]
         s = active[rng.integers(len(active))]
+        draw = {"episodes": [], "frames": []}
         while pools[s]:
             e = world.eps[s, pools[s].pop(rng.integers(len(pools[s])))]
-            records.append((s, e.relpath, e.reason, e.record_options()))
+            draw["episodes"].append(e.record(s))
             if e.reason is None:
                 f_e = eligible(e.gui)
-                r = min(m, len(f_e), n - len(frames))
-                frames += [
-                    e.planned(s, int(i)) for i in rng.choice(f_e, size=r, replace=False)
-                ]
+                r = min(m, len(f_e), n - planned)
+                chosen = rng.choice(f_e, size=r, replace=False)
+                draw["frames"] = [e.planned(s, int(i)) for i in chosen]
+                planned += r
                 break
-    return frames, records
+        draws.append(draw | {"rng": rng.bit_generator.state})
+    return draws
 
 
-def same_options(actual, expected) -> bool:
-    return expected is AMBIGUOUS or actual == expected
+def reference_shards(draws: list[dict], k: int, before: tuple = ()) -> list[dict]:
+    """(3'): `draws` cut into shards by the runs `before`, each (h, K): interrupted after
+    writing h shards of K draws, then by a run with K = `k` ending the plan."""
+    starts = [0]
+    for h, size in before:
+        starts.append(starts[-1] + h * size)
+    sizes = [size for _, size in before] + [k]
+    cuts = [
+        (a, size, b) for a, size, b in zip(starts, sizes, starts[1:] + [len(draws)])
+    ]
+    chunks = [
+        draws[a : min(a + size, b)] for a, size, b in cuts for a in range(a, b, size)
+    ]
+    return [{"episodes": joined(c, "episodes"), "frames": joined(c, "frames"),
+             "rng": c[-1]["rng"]} for c in chunks]  # fmt: skip
+
+
+def joined(shards: list[dict], key: str) -> list[dict]:
+    """The episode records (key "episodes") or frames ("frames") of `shards` in order."""
+    return [item for shard in shards for item in shard[key]]

@@ -1,8 +1,10 @@
-"""Progress bars of `main run` in specs/vpt-gui-frames.md (Interface, AGENTS.md Progress):
-`indices`, `plan`, `extract`, the lines replacing them, none of (f), ffmpeg's stderr above
-them, the abort message below them; read off stderr in tqdm's default format."""
+"""Progress bars of a fresh `main run` in specs/vpt-gui-frames.md (Interface, AGENTS.md
+Progress): `indices`, `resume`, `plan`, `extract`, the lines replacing them, none of (f),
+ffmpeg's stderr above them, the abort message below them; read off stderr in tqdm's default
+format."""
 
 import itertools
+import os
 import re
 
 import pytest
@@ -13,6 +15,7 @@ from vpt_world import Ep
 from mcpref.vpt.gui_frames import main
 
 INDICES = Bar("indices", 5, 5, "file")
+FRESH = "resume: nothing to do"
 
 
 def plan_bar(site, n: int = 6) -> Bar:
@@ -29,7 +32,7 @@ def test_run_bars_totals_and_final_counts(site, capfd, n):
     rows, _ = site.expected(n_frames=n)
     assert code == 0 and out == ""
     extract = Bar("extract", len(rows), len(rows), "frame", "0 failed")
-    assert screen(err) == [INDICES, plan_bar(site, n), extract]
+    assert screen(err) == [INDICES, FRESH, plan_bar(site, n), extract]
     assert_progress(err)
 
 
@@ -62,40 +65,26 @@ def test_extract_bar_counts_each_result_and_its_failures(site, capfd):
     assert all(a <= c and b <= d for (a, b), (c, d) in itertools.pairwise(counted))
 
 
-def test_extract_total_is_planned_frames_without_yuv(site, capfd):
-    rows, _ = site.expected()
-    site.behaviours = {key(rows[3]): ["exit1"]}
-    assert main(["run", site.config(http_retries=0)]) == 0
-    (site.out / "frames" / f"{rows[0]['id']}.yuv").unlink()
-    assert states(capfd.readouterr().err, "extract")[-1].postfix == "1 failed"
-    assert main(["run", site.config(http_retries=0)]) == 0
-    err = capfd.readouterr().err
-    assert screen(err) == [
-        INDICES,
-        plan_bar(site),
-        Bar("extract", 2, 2, "frame", "0 failed"),
-    ]
-
-
-def test_rerun_with_every_frame_extracted_prints_already_done(site, capfd):
-    path = site.config()
-    assert main(["run", path]) == 0
-    capfd.readouterr()
-    assert main(["run", path]) == 0
-    err = capfd.readouterr().err
-    assert screen(err) == [INDICES, plan_bar(site), "extract: already done"]
-    assert states(err, "extract") == []
-    assert_progress(err)
-
-
 def test_empty_plan_prints_nothing_to_do(make_site, capfd):
+    """One `version` episode: one draw, no frame; `frames/` is made all the same."""
     site = make_site(episodes={"6xx": [Ep("data/6.9/old6.mp4", reason="version")]})
     assert main(["run", site.config()]) == 0
     err = capfd.readouterr().err
-    assert screen(err) == [INDICES, plan_bar(site), "extract: nothing to do"]
+    assert screen(err) == [INDICES, FRESH, plan_bar(site), "extract: nothing to do"]
     assert plan_bar(site) == Bar("plan", 0, 6, "frame", "1 episodes")
-    assert states(err, "extract") == []
+    assert states(err, "extract") == [] and os.listdir(site.out / "frames") == []
     assert_progress(err)
+
+
+def test_every_pool_empty_prints_nothing_to_do(make_site, capfd):
+    site = make_site(episodes={})
+    assert main(["run", site.config()]) == 0
+    err = capfd.readouterr().err
+    lines = [FRESH, "plan: nothing to do", "extract: nothing to do"]
+    assert screen(err) == [INDICES, *lines]
+    assert os.listdir(site.out / "frames") == []
+    assert main(["run", site.config()]) == 0
+    assert screen(capfd.readouterr().err) == ["indices: already done", *lines]
 
 
 def test_ranged_fetch_draws_no_bar_and_prints_no_line(make_site, capfd):
@@ -106,7 +95,7 @@ def test_ranged_fetch_draws_no_bar_and_prints_no_line(make_site, capfd):
     err = capfd.readouterr().err
     rows, _ = site.expected(n_frames=100)
     extract = Bar("extract", len(rows), len(rows), "frame", "0 failed")
-    assert screen(err) == [INDICES, plan_bar(site, 100), extract]
+    assert screen(err) == [INDICES, FRESH, plan_bar(site, 100), extract]
     assert {b.desc for b in states(err)} == {"indices", "plan", "extract"}
     path = site.path("8xx", empty.relpath, ".jsonl")
     assert site.asked(path) == [site.head(path)]
@@ -128,8 +117,9 @@ def test_abort_while_planning_follows_the_closed_bars(site, capfd, suffix):
     code = main(["run", site.config(http_retries=0)])
     err = capfd.readouterr().err
     assert_aborted(code, err)
-    shown = [(b.desc, b.n, b.total, b.unit) for b in screen(err)[:-1]]
-    assert shown == [("indices", 5, 5, "file"), ("plan", 0, 6, "frame")]
+    shown = [b if isinstance(b, str) else (b.desc, b.n, b.total, b.unit)
+             for b in screen(err)[:-1]]  # fmt: skip
+    assert shown == [("indices", 5, 5, "file"), FRESH, ("plan", 0, 6, "frame")]
 
 
 def test_raising_result_cancels_queued_frames_then_closes_the_bar(site, capfd):
@@ -143,7 +133,7 @@ def test_raising_result_cancels_queued_frames_then_closes_the_bar(site, capfd):
     assert_aborted(code, err)
     assert 1 <= len(site.calls()) <= 2 and len(site.calls("end")) == len(site.calls())
     extract = Bar("extract", 0, 6, "frame", "0 failed")
-    assert screen(err)[:-1] == [INDICES, plan_bar(site), extract]
+    assert screen(err)[:-1] == [INDICES, FRESH, plan_bar(site), extract]
 
 
 @pytest.mark.parametrize("failure", ["exit1", "slow"])  # slow: killed at ffmpeg_timeout
@@ -155,7 +145,7 @@ def test_ffmpeg_stderr_printed_after_each_run_above_the_bar(site, capfd, failure
     site.noise = {key(rows[1]): [b"first try\n", b"bad \xff byte\n\n"]}
     assert main(["run", site.config(ffmpeg_timeout=1.0, retry_delay=0.05)]) == 0
     extract = Bar("extract", 6, 6, "frame", "0 failed")
-    shown = [INDICES, plan_bar(site), "first try", "bad � byte", extract]
+    shown = [INDICES, FRESH, plan_bar(site), "first try", "bad � byte", extract]
     err = capfd.readouterr().err
     assert screen(err) == shown
     assert_progress(err)
@@ -167,5 +157,5 @@ def test_large_ffmpeg_stderr_never_blocks_extraction(site, capfd):
     big = "e" * 2**18
     site.noise = {key(rows[0]): [big.encode()]}
     assert main(["run", site.config(ffmpeg_timeout=2.0, http_retries=0)]) == 0
-    assert site.read_jsonl("frames.jsonl") == rows
+    assert len(site.files()) == len(rows)
     assert screen(capfd.readouterr().err).count(big) == 1
