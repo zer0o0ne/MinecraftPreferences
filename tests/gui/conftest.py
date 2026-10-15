@@ -1,7 +1,8 @@
-"""Small catalogue in the YAML forms of specs/gui-screens.md (Interface); the approved one."""
+"""Small catalogue in the YAML forms of specs/gui-screens.md (Interface); the approved one;
+fake ask_many and fake run directory of specs/gui-labels.md."""
 
-import json
-import shutil
+import copy
+import os
 import sys
 from collections import Counter
 from dataclasses import dataclass
@@ -92,76 +93,25 @@ def write_config(tmp_path):
     return write
 
 
-# specs/gui-labels.md: fake frames (specs/vpt-gui-frames.md), fake ask_many (specs/vlm-client.md).
-FRAME_W, FRAME_H = 4, 2  # width, height in the fake frames' run.json
-OUT_FILES = ("labels.jsonl", "summary.json", "run.json")
-
-
-def lit(p: int) -> np.ndarray:
-    """Fake frame p: pixel (r, c) is lit iff bit r * width + c of (37 p + 11) mod 256 is set."""
-    bits = (37 * p + 11) % 256
-    rows = [
-        [bits >> (r * FRAME_W + c) & 1 for c in range(FRAME_W)] for r in range(FRAME_H)
-    ]
-    return np.array(rows, dtype=np.uint8)
-
-
-def frame_yuv(p: int) -> bytes:
-    """Raw yuv420p: Y plane (height x width) 235 where lit, else 16; U, V (height/2 x width/2) 128."""
-    chroma = bytes([128]) * (lit(p).size // 2)
-    return (16 + 219 * lit(p)).astype(np.uint8).tobytes() + chroma
-
-
-def frame_rgb(p: int) -> np.ndarray:
-    """vpt-gui-frames (5) by hand: U = V = 128 gives R = G = B = 255/219 (Y - 16): 16 -> 0, 235 -> 255."""
-    return np.repeat(lit(p)[..., None] * np.uint8(255), 3, axis=2)
-
-
-@pytest.fixture
-def write_frames():
-    """Writes a {frames_dir}: frames (status, line.isGuiInventory) by position, prev_line with the
-    opposite flag, a .yuv for `ok` frames only, run.json with the frame size; returns the ids."""
-
-    def write(root: Path, frames: list) -> list:
-        shutil.rmtree(root, ignore_errors=True)
-        (root / "frames").mkdir(parents=True)
-        ids = [f"7.0_ep{p}_{p + 3}" for p in range(len(frames))]
-        recs = []
-        for p, (status, flag) in enumerate(frames):
-            line = {"isGuiOpen": True, "isGuiInventory": flag}
-            recs.append(
-                {"id": ids[p], "subset": "7xx", "relpath": f"data/7.0/ep{p}.mp4"}
-            )
-            recs[-1].update(version="7.0", frame=p + 3, status=status, line=line)
-            recs[-1]["prev_line"] = {**line, "isGuiInventory": not flag}
-            if status == "ok":
-                (root / "frames" / f"{ids[p]}.yuv").write_bytes(frame_yuv(p))
-        (root / "frames.jsonl").write_text("".join(json.dumps(r) + "\n" for r in recs))
-        counts = dict(Counter(s for s, _ in frames))
-        config = {"width": FRAME_W, "height": FRAME_H, "fps": 20}
-        run = {"config": config, "index_etags": {}, "episodes": {}, "frames": counts}
-        (root / "run.json").write_text(json.dumps(run))
-        return ids
-
-    return write
-
-
+# specs/gui-labels.md: fake ask_many (specs/vlm-client.md), the fake world of labels_world.py.
 @dataclass
 class Call:
     prompts: list
     seeds: list
     cfg: object
-    files: dict  # output file name -> (text, handle opened at call time)
+    run_json: str | None  # text of {out_dir}/run.json when called
+    labels: list  # entries of {out_dir}/labels when called
 
 
 class FakeAskMany:
-    """ask_many: the answer to a prompt is the next of answers[p], p the frame whose RGB view is
-    its image (None if none is); raises on call `fail_on`; records calls and the output files."""
+    """ask_many: the answer to a prompt is the next of answers[p], p the frame whose image is the
+    prompt's second part (None if none is); raises on call `fail_on` (counted over runs);
+    records the calls and the outputs present at each."""
 
-    def __init__(self, answers: dict, out: Path):
+    def __init__(self, answers: dict, images: dict, out: Path):
         self.answers, self.out, self.fail_on, self.calls = answers, out, None, []
         self.asked = Counter()
-        self.images = {self.key(frame_rgb(p)): p for p in answers}
+        self.images = {self.key(image): p for p, image in images.items()}
 
     @staticmethod
     def key(image) -> tuple | None:
@@ -173,9 +123,12 @@ class FakeAskMany:
         return self.images.get(self.key(list(prompt)[1])) if len(prompt) > 1 else None
 
     def __call__(self, prompts, seeds, cfg) -> list:
-        paths = [self.out / n for n in OUT_FILES if (self.out / n).exists()]
-        files = {p.name: (p.read_text(), p.open()) for p in paths}
-        self.calls.append(Call([list(q) for q in prompts], list(seeds), cfg, files))
+        run, labels = self.out / "run.json", self.out / "labels"
+        text = run.read_text() if run.exists() else None
+        names = sorted(p.name for p in labels.iterdir()) if labels.exists() else []
+        self.calls.append(
+            Call([list(q) for q in prompts], list(seeds), cfg, text, names)
+        )
         if len(self.calls) == self.fail_on:
             raise RuntimeError("HTTP 400: rejected")
         return [self.answer(self.position(q)) for q in prompts]
@@ -194,16 +147,50 @@ def fake_ask_many(monkeypatch):
     import mcpref.gui.labels
     import mcpref.vlm.client
 
-    real, fakes = mcpref.vlm.client.ask_many, []
+    real = mcpref.vlm.client.ask_many
 
-    def make(answers: dict, out: Path) -> FakeAskMany:
-        fakes.append(FakeAskMany(answers, out))
+    def make(answers: dict, images: dict, out: Path) -> FakeAskMany:
+        fake = FakeAskMany(answers, images, out)
         for name, module in list(sys.modules.items()):
             if name.startswith("mcpref") and getattr(module, "ask_many", None) is real:
-                monkeypatch.setattr(module, "ask_many", fakes[-1])
-        return fakes[-1]
+                monkeypatch.setattr(module, "ask_many", fake)
+        return fake
 
-    yield make
-    for call in (c for fake in fakes for c in fake.calls):
-        for _, handle in call.files.values():
-            handle.close()
+    return make
+
+
+@pytest.fixture
+def lab(tmp_path, repo, catalogue, write_config, fake_ask_many, monkeypatch, capsys):
+    """Catalogue inventory, inventory_book, chest3; FRAMES in SHARDS, K = 2; a vlm.yaml copy whose
+    server refuses (an unfaked ask_many fails); config paths relative to the repository root;
+    cwd elsewhere; tqdm's defaults (no TQDM_* variable)."""
+    from labels_world import (
+        FRAMES,
+        PATHS,
+        SEED,
+        SHARDS,
+        TEXTS,
+        Lab,
+        frame_rgb,
+        write_frames,
+    )
+    from progress_bars import tqdm_defaults
+
+    alpha, beta = catalogue["classes"]["alpha"], catalogue["classes"]["beta"]
+    book = {**copy.deepcopy(alpha), "description": "Alpha with the book."}
+    catalogue["classes"] = {"inventory": alpha, "inventory_book": book, "chest3": beta}
+    write_config(catalogue)
+    vlm = yaml.safe_load((repo / "configs/vlm.yaml").read_text())
+    vlm["client"].update(base_url="http://127.0.0.1:9", max_resends=0)
+    (tmp_path / "vlm.yaml").write_text(yaml.safe_dump(vlm))
+    statuses = [f[:2] for f in FRAMES]
+    ids = write_frames(tmp_path / "frames", statuses, SHARDS, 2, True)
+    paths = {k: os.path.relpath(tmp_path / v, repo) for k, v in PATHS.items()}
+    cfg = {**paths, **TEXTS, "seed": SEED}
+    (tmp_path / "gui-labels.yaml").write_text(yaml.safe_dump(cfg))
+    answers = {p: [a for a, _ in f[2]] for p, f in enumerate(FRAMES) if f[0] == "ok"}
+    fake = fake_ask_many(answers, {p: frame_rgb(p) for p in answers}, tmp_path / "out")
+    (tmp_path / "cwd").mkdir()
+    monkeypatch.chdir(tmp_path / "cwd")
+    tqdm_defaults(monkeypatch)
+    return Lab(tmp_path, cfg, ids, fake, capsys)

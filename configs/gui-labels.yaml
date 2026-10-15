@@ -7,5 +7,4 @@ question: "Which of these screens is open? Answer with the name only, exactly as
 class_line: "{name}: {description}"
 other_description: "any other screen, or no screen"
 seed: 0
-batch: 256
 out_dir: "data/gui_labels"

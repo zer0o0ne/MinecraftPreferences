@@ -19,7 +19,6 @@ STARTING = {
     "class_line": "{name}: {description}",
     "other_description": "any other screen, or no screen",
     "seed": 0,
-    "batch": 256,
 }
 STARTING_PATHS = {
     "frames_dir": "data/gui_frames",

@@ -1,8 +1,8 @@
-"""`main` of src/mcpref/gui/labels.py (with its file helpers in label_files.py) against
-specs/gui-labels.md: (2)-(5), output files, the bar `label`, reruns and aborts; fake ask_many,
-fake frames (conftest.py, labels_world.py)."""
+"""`main` of src/mcpref/gui/labels.py against specs/gui-labels.md on a fresh {out_dir}: (2),
+(4) calls and label shards, (4'), (5), run.json, the bar `label`, aborts before labelling;
+fake ask_many, fake plan shards and frames (conftest.py, labels_world.py). Reruns:
+test_label_files_rerun.py, test_label_files_checks.py."""
 
-import copy
 import hashlib
 import json
 import os
@@ -10,66 +10,41 @@ import subprocess
 import sys
 
 import pytest
-import yaml
 from labels_world import (
-    BATCHES,
-    FRAMES,
+    ENDS,
+    FINGERPRINT,
     HASHED,
-    OK,
-    PATHS,
+    LABELS,
+    NAMES,
     QUESTION,
-    SEED,
     TEXTS,
-    Lab,
-    jsonl,
+    calls,
+    check_bar,
     label_bar,
     summary,
 )
-from progress_bars import assert_aborted, assert_progress, screen, tqdm_defaults
+from progress_bars import assert_aborted
 
 from mcpref.vlm.client import load_config as load_vlm_config
 
 
-@pytest.fixture
-def lab(
-    tmp_path,
-    repo,
-    catalogue,
-    write_config,
-    write_frames,
-    fake_ask_many,
-    monkeypatch,
-    capsys,
-):
-    """Catalogue inventory, inventory_book, chest3; FRAMES; a vlm.yaml copy whose server refuses
-    (an unfaked ask_many fails); config paths relative to the repository root; cwd elsewhere;
-    tqdm's defaults (no TQDM_* variable)."""
-    alpha, beta = catalogue["classes"]["alpha"], catalogue["classes"]["beta"]
-    book = {**copy.deepcopy(alpha), "description": "Alpha with the book."}
-    catalogue["classes"] = {"inventory": alpha, "inventory_book": book, "chest3": beta}
-    write_config(catalogue)
-    vlm = yaml.safe_load((repo / "configs/vlm.yaml").read_text())
-    vlm["client"].update(base_url="http://127.0.0.1:9", max_resends=0)
-    (tmp_path / "vlm.yaml").write_text(yaml.safe_dump(vlm))
-    ids = write_frames(tmp_path / "frames", [f[:2] for f in FRAMES])
-    paths = {k: os.path.relpath(tmp_path / v, repo) for k, v in PATHS.items()}
-    cfg = {**paths, **TEXTS, "seed": SEED, "batch": len(BATCHES[0])}
-    (tmp_path / "gui-labels.yaml").write_text(yaml.safe_dump(cfg))
-    answers = {p: [a for a, _ in f[2]] for p, f in enumerate(FRAMES) if f[0] == "ok"}
-    fake = fake_ask_many(answers, tmp_path / "out")
-    (tmp_path / "cwd").mkdir()
-    monkeypatch.chdir(tmp_path / "cwd")
-    tqdm_defaults(monkeypatch)
-    return Lab(tmp_path, ids, fake, capsys, write_frames)
-
-
-def test_records_seeds_batches_prompts(lab):
-    """(1)-(4): one ask_many call per batch of ok frames in frames.jsonl order, seeds by (2)."""
+def test_one_call_per_plan_shard_with_its_ok_frames_and_seeds(lab):
+    """(2), (4): plan shards 0, 3, 4 have ok frames; 1 (no frame) and 2 (failed only) none;
+    seed = seed + position over all shards, failed frames included."""
     code, err = lab.run()
     assert code == 0, err
-    assert lab.read("labels.jsonl") == lab.records(OK)
-    assert lab.asked() == [(b, [SEED + p for p in b]) for b in BATCHES]
-    assert all(isinstance(s, int) for c in lab.fake.calls for s in c.seeds)
+    assert lab.asked() == [
+        ([1, 2], [6, 7]),
+        ([4, 5, 6, 7], [9, 10, 11, 12]),
+        ([8], [13]),
+    ]
+    assert lab.asked() == calls()
+    assert all(type(s) is int for c in lab.fake.calls for s in c.seeds)
+
+
+def test_prompts_and_vlm_config(lab):
+    """(1) per frame: [instruction, its RGB view (the fake knows each frame's), question]."""
+    assert lab.run()[0] == 0
     prompts = [q for c in lab.fake.calls for q in c.prompts]
     assert all(len(q) == 3 and q[0] == TEXTS["instruction"] for q in prompts)
     assert all(q[2] == QUESTION for q in prompts)
@@ -77,143 +52,126 @@ def test_records_seeds_batches_prompts(lab):
     assert all(c.cfg == vlm for c in lab.fake.calls)
 
 
-def test_outputs_rewritten_after_every_batch(lab):
-    """(4): only finished frames; each rewrite replaces the file (temporary file, then rename),
-    so a handle opened before still reads the old text."""
+def test_label_shards_contents_and_end(lab):
+    """One label shard per plan shard, file labels.json: records of its ok frames in order
+    (g_f from `line`), `end` after its last frame (unchanged after a shard without frames)."""
     assert lab.run()[0] == 0
-    files = [c.files for c in lab.fake.calls]
-    labels = [jsonl(f["labels.jsonl"][0]) if "labels.jsonl" in f else [] for f in files]
-    assert labels == [[], lab.records([1, 2, 4]), lab.records([1, 2, 4, 5, 6, 7])]
-    first = ["inventory", "inventory_book", "chest3"]
-    assert [json.loads(f["summary.json"][0]) for f in files[1:]] == [
-        summary(first, 1, 1, 1, 0),
-        summary([*first, "other", "invalid", "no_answer"], 1, 1, 1, 1),
+    assert lab.names() == NAMES
+    assert [lab.shard(k) for k in range(5)] == [lab.label_shard(k) for k in range(5)]
+    assert [lab.shard(k)["end"] for k in range(5)] == ENDS == [3, 3, 4, 8, 10]
+    assert lab.shard(1) == {"labels": [], "end": 3} and lab.shard(2)["labels"] == []
+    for name in NAMES:
+        assert os.listdir(lab.root / "out" / "labels" / name) == ["labels.json"]
+    assert sorted(os.listdir(lab.root / "out")) == [
+        "labels",
+        "run.json",
+        "summary.json",
     ]
-    assert all(handle.read() == text for f in files for text, handle in f.values())
-    assert sorted(lab.outputs()) == ["labels.jsonl", "run.json", "summary.json"]
 
 
-def test_bar_total_and_final_count(lab):
-    """Bar `label` on stderr only, from 0 to its total, the 7 ok frames (failed ones excluded).
-    States between are drawn as tqdm's timing allows; the batch steps are checked through the
-    state drawn at close after an abort (below)."""
-    code, err = lab.run()
-    assert code == 0 and lab.out == ""
-    assert screen(err) == [label_bar(7, 7)]
-    assert_progress(err)
+def test_each_label_shard_written_after_its_call(lab):
+    """At each call: the label shards of the earlier plan shards, nothing of its own."""
+    assert lab.run()[0] == 0
+    assert [c.labels for c in lab.fake.calls] == [[], NAMES[:3], NAMES[:4]]
 
 
 def test_summary_and_vpt_check(lab):
-    """(5) over class labels only, g_f from `line`; labels lists the labels that occurred."""
+    """(5) over class labels only: inventory (g T), inventory_book (F); other: chest3 (T),
+    other (F), other (T); invalid and no_answer excluded."""
     assert lab.run()[0] == 0
-    labels = ["inventory", "inventory_book", "chest3", "other", "invalid", "no_answer"]
-    assert lab.read("summary.json") == summary([*labels, "other"], 1, 1, 2, 1)
+    assert lab.read("summary.json") == summary(LABELS, 1, 1, 2, 1)
 
 
-def test_rerun_retries_no_answer_with_its_seed(lab):
-    assert lab.run()[0] == 0
-    code, err = lab.run()
-    assert code == 0, err
-    assert lab.asked(first=3) == [([7], [SEED + 7])]
-    assert lab.read("labels.jsonl") == lab.records(OK, asks=2)
-    labels = ["inventory", "inventory_book", "chest3", "chest3", "other", "other"]
-    assert lab.read("summary.json") == summary([*labels, "invalid"], 1, 1, 2, 2)
-
-
-def test_rerun_bar_counts_the_no_answer_frame(lab):
-    """Bar total = frames still to label: the one no_answer frame."""
-    assert lab.run()[0] == 0
-    code, err = lab.run()
-    assert code == 0 and screen(err) == [label_bar(1, 1)]
-    assert_progress(err)
-
-
-def test_finished_rerun_asks_nothing_and_is_already_done(lab):
-    """Nothing left to label: no ask, files unchanged, no bar but the line `label: already done`."""
-    assert lab.run()[0] == 0 and lab.run()[0] == 0
-    before = lab.outputs()
-    assert lab.run() == (0, "label: already done\n") and lab.out == ""
-    assert len(lab.fake.calls) == 4 and lab.outputs() == before
-
-
-def test_run_json(lab):
+def test_run_json_contents(lab):
     assert lab.run()[0] == 0
     run = lab.read("run.json")
-    assert set(run) == {"config", "sha256", "prompt"}
+    assert set(run) == {"config", "sha256", "frames", "prompt"}
+    assert run["config"] == lab.cfg
     files = {k: (lab.root / v).read_bytes() for k, v in HASHED.items()}
     assert run["sha256"] == {k: hashlib.sha256(b).hexdigest() for k, b in files.items()}
+    assert run["frames"] == FINGERPRINT
     assert run["prompt"] == [TEXTS["instruction"], "<image>", QUESTION]
-    assert set(run["config"]) == {*PATHS, *TEXTS, "seed", "batch"}
-    values = {k: run["config"][k] for k in (*TEXTS, "seed", "batch")}
-    assert values == {**TEXTS, "seed": SEED, "batch": len(BATCHES[0])}
 
 
-@pytest.mark.parametrize("finished", [False, True])
-@pytest.mark.parametrize("changed", HASHED.values())
-def test_rerun_aborts_when_a_hash_differs(lab, changed, finished):
-    for _ in range(1 + finished):
-        assert lab.run()[0] == 0
-    calls, before = len(lab.fake.calls), lab.outputs()
-    path = lab.root / changed
-    path.write_text(path.read_text() + "# changed\n")
+def test_run_json_written_before_the_first_call(lab):
+    assert lab.run()[0] == 0
+    final = (lab.root / "out" / "run.json").read_text()
+    assert [c.run_json for c in lab.fake.calls] == [final] * 3
+
+
+def test_failed_count_zero_when_absent(lab):
+    """Frames' run.json without `failed` (none occurred): fingerprint failed = 0; a rerun
+    finds it equal."""
+    lab.frames(frames=[("ok", True), ("ok", False)], shards=[[0], [1]])
+    assert lab.run()[0] == 0
+    assert lab.read("run.json")["frames"] == {"shards": 2, "ok": 2, "failed": 0}
+    assert lab.run() == (0, "label: already done\n")
+
+
+def test_bar_total_and_final_count(lab):
+    """Bar `label` on stderr only, from 0 to its total, the ok count of the frames' run.json;
+    nothing on stdout."""
+    code, err = lab.run()
+    assert code == 0 and lab.out == ""
+    check_bar(err, 0)
+
+
+@pytest.mark.parametrize("j, written", [(1, 0), (2, 2), (3, 6)])
+def test_bar_closed_at_the_shards_written(lab, j, written):
+    """Advanced by a shard's records once written: closed at the records of the shards before
+    the shard whose call raises (a state drawn whatever the timing), the message below it."""
+    lab.fake.fail_on = j
+    assert assert_aborted(*lab.run()) == [label_bar(written)]
+
+
+def test_abort_while_frames_lack_counts(lab):
+    """{frames_dir}/run.json as at the start of a vpt-gui-frames run: frames not complete."""
+    lab.frames(counts=False)
     assert_aborted(*lab.run())
-    assert len(lab.fake.calls) == calls and lab.outputs() == before
+    assert lab.fake.calls == [] and not (lab.root / "out").exists()
 
 
-def test_abort_when_ask_many_raises_then_resume(lab):
-    """Advanced by the first batch's size once written, the failed batch not counted: the bar
-    is closed at 3 (a state drawn whatever the timing), the message below it; the resumed run's
-    bar counts the 4 frames left."""
-    lab.fake.fail_on = 2
-    assert assert_aborted(*lab.run()) == [label_bar(3, 7)]
-    assert lab.read("labels.jsonl") == lab.records([1, 2, 4])
-    lab.fake.fail_on = None
-    code, err = lab.run()
-    assert code == 0 and screen(err) == [label_bar(4, 4)]
-    assert_progress(err)
-    assert [ps for ps, _ in lab.asked(first=2)] == [[5, 6, 7], [8]]
-    assert lab.read("labels.jsonl") == lab.records(OK)
+@pytest.mark.parametrize("case", ["failed only", "no frame", "ok count 0"])
+def test_abort_without_ok_frame(lab, case):
+    frames = [("failed", True), ("failed", False)] if case != "no frame" else []
+    lab.frames(frames=frames, shards=[[0], [1]] if frames else [])
+    if case == "ok count 0":
+        run = json.loads((lab.root / "frames/run.json").read_text())
+        run["frames"]["ok"] = 0
+        (lab.root / "frames/run.json").write_text(json.dumps(run))
+    assert_aborted(*lab.run())
+    assert lab.fake.calls == [] and not (lab.root / "out").exists()
 
 
-def test_resume_labels_no_answer_and_unasked_frames_together(lab):
-    """(4): frames still to label = no record yet or no_answer, batched in frames.jsonl order,
-    seeds by (2); the bar's total counts both kinds."""
-    lab.fake.fail_on = 3
-    assert assert_aborted(*lab.run()) == [label_bar(6, 7)]
-    lab.fake.fail_on = None
-    code, err = lab.run()
-    assert code == 0 and screen(err) == [label_bar(2, 2)]
-    assert_progress(err)
-    assert lab.asked(first=3) == [([7, 8], [SEED + 7, SEED + 8])]
-    assert lab.read("labels.jsonl") == lab.records(OK, asks=2)
+UNREADABLE = ["gui-labels.yaml", "gui-screens.yaml", "vlm.yaml", "frames/run.json"]
 
 
-@pytest.mark.parametrize("frames", [[], [("failed", True), ("failed", False)]])
-def test_abort_without_ok_frame(lab, frames):
-    lab.write_frames(lab.root / "frames", frames)
+@pytest.mark.parametrize("missing", UNREADABLE)
+def test_abort_on_unreadable_file(lab, missing):
+    (lab.root / missing).unlink()
+    assert assert_aborted(*lab.run()) == []
+    assert lab.fake.calls == [] and not (lab.root / "out/run.json").exists()
+
+
+def test_abort_on_unreadable_plan_shard_after_the_shards_before(lab):
+    """Plan shard k is read in the loop: shards 0-2 are labelled before shard 3 fails."""
+    (lab.root / "frames/plan/000003/shard.json").unlink()
+    assert assert_aborted(*lab.run()) == [label_bar(2)]
+    assert [n for n in lab.names() if not n.endswith(".part")] == NAMES[:3]
+    assert lab.asked() == calls()[:1]
+
+
+def test_abort_on_foreign_entry_in_plan(lab):
+    """complete_shards of {frames_dir}/plan raises."""
+    (lab.root / "frames/plan/notes").write_text("")
     assert_aborted(*lab.run())
     assert lab.fake.calls == []
 
 
-MISSING = ["frames/frames.jsonl", "frames/run.json", "yuv", "gui-labels.yaml"]
-MISSING += ["gui-screens.yaml", "vlm.yaml"]
-
-
-@pytest.mark.parametrize("missing", MISSING)
-def test_abort_on_unreadable_file(lab, missing):
-    """The spec leaves open when a .yuv is read: a bar drawn before the abort ends at the frames
-    written (here the last ok frame's .yuv is missing)."""
-    yuv = f"frames/frames/{lab.ids[OK[-1]]}.yuv"
-    (lab.root / (yuv if missing == "yuv" else missing)).unlink()
-    above = assert_aborted(*lab.run())
-    out = lab.root / "out" / "labels.jsonl"
-    written = len(jsonl(out.read_text())) if out.exists() else 0
-    assert above in ([], [label_bar(written, 7)])
-
-
 def test_runs_as_module(lab):
     """`python -m mcpref.gui.labels <config path>`, here on frames without an ok one."""
-    lab.write_frames(lab.root / "frames", [("failed", True)])
+    lab.frames(frames=[("failed", True)], shards=[[0]])
     argv = [sys.executable, "-m", "mcpref.gui.labels", lab.root / "gui-labels.yaml"]
     proc = subprocess.run(argv, capture_output=True, text=True, timeout=8, check=False)
     assert_aborted(proc.returncode, proc.stderr)
+    assert not (lab.root / "out").exists()

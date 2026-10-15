@@ -1,11 +1,10 @@
 """Interface of specs/gui-labels.md: VLM labels of the sampled GUI frames."""
 
 import argparse
-import dataclasses
+import json
 import sys
-from collections import Counter
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -18,27 +17,24 @@ from mcpref.gui.label_files import (
     INVALID,
     NO_ANSWER,
     OTHER,
-    check_rerun,
-    finished,
+    frame_counts,
     frame_size,
-    ok_frames,
+    resume,
     rgb_view,
     sha256,
     shown,
-    write_outputs,
+    write_labels,
+    write_run,
+    write_summary,
+    yuv_path,
 )
 from mcpref.gui.screens import ScreenClass, load_screens
+from mcpref.shards.store import complete_shards
 from mcpref.vlm.client import VLMConfig, ask_many
 from mcpref.vlm.client import load_config as load_vlm_config
+from mcpref.vpt.plan import read_shard
 
 QUOTES = "`'\""
-INVENTORY = {"inventory", "inventory_book"}
-VPT_PAIRS = {
-    "inventory_flag_true": (True, True),
-    "inventory_flag_false": (True, False),
-    "other_flag_true": (False, True),
-    "other_flag_false": (False, False),
-}
 
 
 @dataclass(frozen=True)
@@ -53,7 +49,6 @@ class GuiLabelsConfig:
     class_line: str
     other_description: str
     seed: int
-    batch: int
     out_dir: str
 
 
@@ -91,16 +86,6 @@ def parse(answer: str | None, names: Sequence[str]) -> str:
     return s if s in names else INVALID
 
 
-def vpt_check(records: list[dict], flags: dict[str, bool]) -> dict[str, int]:
-    """(5): counts of (y_f in {inventory, inventory_book}, g_f) over class labels."""
-    pairs = Counter(
-        (r["label"] in INVENTORY, flags[r["id"]])
-        for r in records
-        if r["label"] not in (INVALID, NO_ANSWER)
-    )
-    return {key: pairs[pair] for key, pair in VPT_PAIRS.items()}
-
-
 def hashes(cfg: GuiLabelsConfig, config_path: Path) -> dict[str, str]:
     """(4): SHA-256 of the config, of configs/vlm.yaml and of the catalogue file."""
     return {
@@ -110,52 +95,91 @@ def hashes(cfg: GuiLabelsConfig, config_path: Path) -> dict[str, str]:
     }
 
 
-def ask_batch(
+def check_rerun(cfg: GuiLabelsConfig, header: dict) -> None:
+    """(4): an existing {out_dir}/run.json must hold the same SHA-256 values (compared
+    first, in order) and the same fingerprint of the frames."""
+    path = REPO / cfg.out_dir / "run.json"
+    if not path.exists():
+        return
+    stored = json.loads(path.read_text())
+    for key, value in header["sha256"].items():
+        if stored["sha256"][key] != value:
+            raise RuntimeError(f"{path} holds another SHA-256 of {key}")
+    if stored["frames"] != header["frames"]:
+        changed = f"{cfg.frames_dir} changed since labelling started"
+        raise RuntimeError(f"{changed}; delete {cfg.out_dir}")
+
+
+def ask_shard(
     cfg: GuiLabelsConfig,
     vlm: VLMConfig,
     classes: Sequence[ScreenClass],
     size: tuple[int, int],
-    batch: list[tuple[int, dict]],
+    shard: dict,
+    start: int,
 ) -> list[dict]:
-    """(1)-(4): one `ask_many` call; records `id`, `seed`, `answer`, `label`."""
+    """(1)-(4): one `ask_many` call for the `ok` frames of a plan shard whose first frame
+    has position `start` (none without them); their label records."""
     frames_dir = REPO / cfg.frames_dir
-    seeds = [cfg.seed + position for position, _ in batch]
-    prompts = [prompt(cfg, classes, rgb_view(frames_dir, f, size)) for _, f in batch]
+    frames = enumerate(shard["frames"], start)
+    ok = [(p, f) for p, f in frames if yuv_path(frames_dir, f).exists()]
+    if not ok:
+        return []
+    seeds = [cfg.seed + position for position, _ in ok]
+    prompts = [prompt(cfg, classes, rgb_view(frames_dir, f, size)) for _, f in ok]
     answers = ask_many(prompts, seeds, vlm)
     names = [c.name for c in classes] + [OTHER]
     return [
-        {"id": f["id"], "seed": seed, "answer": a, "label": parse(a, names)}
-        for (_, f), seed, a in zip(batch, seeds, answers)
+        {
+            "id": f["id"],
+            "seed": seed,
+            "answer": a,
+            "label": parse(a, names),
+            "gui_inventory": f["line"]["isGuiInventory"],
+        }
+        for (_, f), seed, a in zip(ok, seeds, answers)
     ]
 
 
-def run(cfg: GuiLabelsConfig, config_path: Path) -> None:
-    """Behaviour (1)-(5): label the frames still to label, batch by batch; bar `label`."""
-    frames_dir, out = REPO / cfg.frames_dir, REPO / cfg.out_dir
-    header = {"config": dataclasses.asdict(cfg), "sha256": hashes(cfg, config_path)}
-    check_rerun(out / "run.json", header["sha256"])
-    classes = list(load_screens(REPO / cfg.screens).values())
-    vlm, _ = load_vlm_config(REPO / cfg.vlm)
-    size, ok = frame_size(frames_dir), ok_frames(frames_dir)
-    if not ok:
-        raise RuntimeError(f"no ok frame in {frames_dir / 'frames.jsonl'}")
-    flags = {f["id"]: f["line"]["isGuiInventory"] for _, f in ok}
-    first = prompt(cfg, classes, rgb_view(frames_dir, ok[0][1], size))
-    header["prompt"] = shown(first)
-    done = finished(out)
-    labelled = {i for i, r in done.items() if r["label"] != NO_ANSWER}
-    todo = [(position, f) for position, f in ok if f["id"] not in labelled]
-    if not todo:
+def label(
+    cfg: GuiLabelsConfig,
+    vlm: VLMConfig,
+    classes: Sequence[ScreenClass],
+    H: int,
+    n_ok: int,
+) -> None:
+    """(4): label shards h, ..., H - 1, one per plan shard; bar `label`."""
+    frames_dir, labels_dir = REPO / cfg.frames_dir, REPO / cfg.out_dir / "labels"
+    h = complete_shards(labels_dir)
+    if h == H:
         print("label: already done", file=sys.stderr)
         return
-    out.mkdir(parents=True, exist_ok=True)
-    with tqdm(total=len(todo), desc="label", unit="frame") as bar:
-        for start in range(0, len(todo), cfg.batch):
-            batch = todo[start : start + cfg.batch]
-            done.update((r["id"], r) for r in ask_batch(cfg, vlm, classes, size, batch))
-            records = [done[f["id"]] for _, f in ok if f["id"] in done]
-            write_outputs(out, header, records, vpt_check(records, flags))
-            bar.update(len(batch))
+    initial, end = resume(labels_dir, h)
+    size = frame_size(frames_dir)
+    with tqdm(total=n_ok, initial=initial, desc="label", unit="frame") as bar:
+        for k in range(h, H):
+            shard = read_shard(frames_dir / "plan", k)
+            records = ask_shard(cfg, vlm, classes, size, shard, end)
+            end += len(shard["frames"])
+            write_labels(labels_dir, k, records, end)
+            bar.update(len(records))
+
+
+def run(cfg: GuiLabelsConfig, config_path: Path) -> None:
+    """Behaviour (4), (4'): the checks, run.json (frames: the fingerprint), the label
+    shards, summary.json."""
+    frames_dir, out = REPO / cfg.frames_dir, REPO / cfg.out_dir
+    counts = frame_counts(frames_dir)
+    H = complete_shards(frames_dir / "plan")
+    header = {"config": asdict(cfg), "sha256": hashes(cfg, config_path)}
+    header["frames"] = {"shards": H, **counts}
+    check_rerun(cfg, header)
+    classes = list(load_screens(REPO / cfg.screens).values())
+    header["prompt"] = shown(prompt(cfg, classes, np.empty(0, np.uint8)))
+    write_run(out, header)
+    vlm, _ = load_vlm_config(REPO / cfg.vlm)
+    label(cfg, vlm, classes, H, counts["ok"])
+    write_summary(out, H)
 
 
 def main(argv: Sequence[str]) -> int:
