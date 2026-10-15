@@ -10,6 +10,7 @@ A finding is a place where two different implementations both satisfy the text. 
 - every symbol is in Notation; every equation has a source;
 - consumed and produced artifacts and functions match the specs of neighbouring blocks;
 - the library mapping matches the library source at the pinned version;
+- every dataset the block builds or reads, intermediate ones included, is in Interface Datasets; an interrupted run at any point loses at most the shards in work;
 - no hidden choice: "e.g.", "typically", "or similar", "some", "standard".
 
 Report one item per finding: location (section / Eq.), the two implementations, the question for the user. No findings → say so explicitly.

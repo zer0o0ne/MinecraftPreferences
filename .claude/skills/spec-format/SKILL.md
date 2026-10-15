@@ -27,6 +27,8 @@ Index ranges, boundaries, reductions, stop-grad and sampling are written out, ne
 - `def f(a: T, ...) -> R` — each argument as a Notation symbol; the result as an equation number.
 - Consumes: <artifact path and format | function> from <block spec>
 - Produces: <artifact path and format> for <block spec>
+- Datasets (AGENTS.md Code): `<path>` — item; shard file format; items per shard (config field, or fixed by the format); written when; state saved with a shard; what a rerun keeps and how it continues; readers
+- Checkpoints (AGENTS.md Code): `<path>` — every N steps (config field); contents; how a rerun continues
 - Progress bars (AGENTS.md Code): `<desc>` (unit) — loop; total; advanced when / by; postfix or none; line when there is nothing to do
 
 ## Library mapping

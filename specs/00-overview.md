@@ -89,6 +89,7 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 24 | f3-overlay — debug-overlay detector on frame 0 of an episode | P1, P2 data | 20 | `specs/f3-overlay.md` |
 | 25 | perception-data — pipeline over whole VPT episodes (download, two decodes, classifier calls, sampling, storage, rerun); `collect_perception_pretrain_data.sh` with the classifier | P1 | 21, 22, 24 | `specs/perception-data.md` |
 | 26 | action-mask — the mask of $A$ per state, masking as much as possible (unsupported shift / double clicks, …) | P5, R1 | 21 | [U] 2026-10-15 |
+| 27 | shards — on-disk shards of every dataset: atomic, durable, in order (AGENTS.md Code, Data) | all data stages | — | `specs/shards.md` |
 
 ## Package map
 Filled as block specs are approved: subpackage → stage(s) → spec.
@@ -101,3 +102,4 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `stacking` → GUI-recognition experiment → `specs/gui-stack.md`
 - `http` → shared HTTP retries (textures, VPT downloads, VLM client) → the retry rules of `specs/vlm-client.md` (6), `specs/gui-screens.md`, `specs/vpt-gui-frames.md`
 - `cli` → shared one-line failure messages of the command-line entry points
+- `shards` → every block that builds or reads a dataset → `specs/shards.md`
