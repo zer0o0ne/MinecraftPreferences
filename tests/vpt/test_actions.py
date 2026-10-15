@@ -34,8 +34,8 @@ RIDING = [
 def test_world_actions_in_spec_order():
     assert WORLD_ACTIONS == (*MOVES, "jump", *("jump_" + m for m in MOVES), "sneak",
                              "turn_left", "turn_right", "turn_up", "turn_down", "attack", "use",
-                             "hotbar_left", "hotbar_right", "open_inventory")  # fmt: skip
-    assert len(WORLD_ACTIONS) == 27
+                             *(f"hotbar_{i}" for i in range(1, 10)), "open_inventory")  # fmt: skip
+    assert len(WORLD_ACTIONS) == 34
 
 
 def test_segment_is_frozen_with_spec_fields():
@@ -101,20 +101,26 @@ def test_gui_line_ends_every_run(gui):
     ]
 
 
-# (5): delta = (h1 - h0) mod 9; delta right if delta <= 4, else 9 - delta left.
-@pytest.mark.parametrize("h0, h1, action, n", [(0, 8, "hotbar_left", 1), (0, 4, "hotbar_right", 4),
-                         (0, 5, "hotbar_left", 4), (8, 0, "hotbar_right", 1),
-                         (3, 1, "hotbar_left", 2), (1, 7, "hotbar_left", 3),
-                         (6, 1, "hotbar_right", 4)])  # fmt: skip
-def test_hotbar(h0, h1, action, n):
-    assert (
-        segments(episode("- - -", hotbar=[h0, h0, h1]), r_min=3)
-        == [S(action, 1, 1)] * n
-    )
+# (5): one segment hotbar_<h1 + 1> per change, whatever the number of slots jumped.
+@pytest.mark.parametrize("h0, h1, action", [(8, 0, "hotbar_1"), (3, 1, "hotbar_2"),
+                         (0, 2, "hotbar_3"), (7, 3, "hotbar_4"), (0, 4, "hotbar_5"),
+                         (0, 5, "hotbar_6"), (2, 6, "hotbar_7"), (1, 7, "hotbar_8"),
+                         (0, 8, "hotbar_9")])  # fmt: skip
+def test_hotbar(h0, h1, action):
+    assert segments(episode("- - -", hotbar=[h0, h0, h1]), r_min=3) == [S(action, 1, 1)]
+
+
+def test_hotbar_change_on_every_line():
+    lines = episode("- - - - -", hotbar=[0, 1, 2, 2, 0])
+    assert segments(lines, r_min=3) == [
+        S("hotbar_2", 0, 0),
+        S("hotbar_3", 1, 1),
+        S("hotbar_1", 3, 3),
+    ]
 
 
 @pytest.mark.parametrize("tokens, expected", [("# -", []), ("@ -", []),
-                         ("- #", [S("hotbar_right", 0, 0)]), ("- -", [S("hotbar_right", 0, 0)])])  # fmt: skip
+                         ("- #", [S("hotbar_5", 0, 0)]), ("- -", [S("hotbar_5", 0, 0)])])  # fmt: skip
 def test_hotbar_needs_a_world_line(tokens, expected):
     assert segments(episode(tokens, hotbar=[3, 4]), r_min=3) == expected
 
@@ -132,7 +138,7 @@ def test_order_by_first_line_then_channel():
     assert segments(lines, r_min=1) == [
         S("use", 0, 1), S("forward", 1, 2), S("attack", 2, 2), S("open_inventory", 3, 3),
         S("forward", 4, 4), S("sneak", 4, 4), S("attack", 4, 4), S("use", 4, 4),
-        S("hotbar_left", 4, 4),
+        S("hotbar_9", 4, 4),
     ]  # fmt: skip
 
 

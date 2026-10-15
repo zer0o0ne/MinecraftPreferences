@@ -43,15 +43,11 @@ def test_cut_lines_are_not_in_the_interval():
 
 
 def test_actions_in_the_order_of_segs_then_yaw_then_pitch():
-    segs = [
-        S("use", 6, 6),
-        S("forward", 4, 5),
-        S("hotbar_right", 5, 5),
-        S("hotbar_right", 5, 5),
-    ]
+    segs = [S("use", 6, 6), S("forward", 4, 5), S("hotbar_3", 5, 5), S("attack", 4, 5),
+            S("attack", 6, 7)]  # fmt: skip
     lines = flat(9, yaw=[0, 0, 0, 0, 0, 0, -10, -20, -20], pitch=[0] * 8 + [10])
     found = interval_actions(segs, lines, 4, 8, (), 10.0)
-    assert found == ["use", "forward", "hotbar_right", "hotbar_right", LEFT, LEFT, DOWN]
+    assert found == ["use", "forward", "hotbar_3", "attack", "attack", LEFT, LEFT, DOWN]
 
 
 # (7): wrap(x) = x - 360 ceil((x - 180) / 360); n = floor(|sum| / rho + 1/2).

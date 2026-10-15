@@ -1,12 +1,12 @@
 """Notation of specs/gui-stack.md: configs/gui-stack.yaml."""
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from pathlib import Path
 
 import torch
 import yaml
 
-from mcpref import REPO
+from mcpref import config_mapping, repo_path
 
 
 @dataclass(frozen=True)
@@ -23,24 +23,6 @@ class GuiStackConfig:
     seed: int
     device: torch.device
     out_dir: Path
-
-
-def mapping(raw: object, path: Path) -> dict:
-    """Notation: a YAML mapping with exactly the fields of GuiStackConfig."""
-    names = [f.name for f in fields(GuiStackConfig)]
-    keys = raw if isinstance(raw, dict) else {}
-    missing = [n for n in names if n not in keys]
-    unknown = [k for k in keys if k not in names]
-    if missing or unknown:
-        raise ValueError(f"{path}: missing keys {missing}, unknown keys {unknown}")
-    return keys
-
-
-def repo_path(name: str, value: object) -> Path:
-    """Notation: a path string, resolved against the repository root."""
-    if isinstance(value, str):
-        return REPO / value
-    raise ValueError(f"{name} {value!r} is not a path string")
 
 
 def real(name: str, value: object) -> float:
@@ -91,7 +73,7 @@ def check(cfg: GuiStackConfig) -> None:
 
 def load_config(path: Path) -> GuiStackConfig:
     """Interface: the YAML file loaded into GuiStackConfig; violated constraints raise."""
-    raw = mapping(yaml.safe_load(path.read_text()), path)
+    raw = config_mapping(yaml.safe_load(path.read_text()), path, GuiStackConfig)
     paths = {k: repo_path(k, raw[k]) for k in ("masks_dir", "out_dir")}
     reals = {k: real(k, raw[k]) for k in ("l2", "lr", "adam_eps")}
     read = {"betas": betas(raw["betas"]), "device": device(raw["device"])}

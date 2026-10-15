@@ -1,0 +1,61 @@
+# specs/perception-data.md: PerceptionDataConfig. Paths relative to the repository root.
+index_urls:
+  "6xx": "https://openaipublic.blob.core.windows.net/minecraft-rl/snapshots/all_6xx_Jun_29.json"
+  "7xx": "https://openaipublic.blob.core.windows.net/minecraft-rl/snapshots/all_7xx_Apr_6.json"
+  "8xx": "https://openaipublic.blob.core.windows.net/minecraft-rl/snapshots/all_8xx_Jun_29.json"
+  "9xx": "https://openaipublic.blob.core.windows.net/minecraft-rl/snapshots/all_9xx_Jun_29.json"
+  "10xx": "https://openaipublic.blob.core.windows.net/minecraft-rl/snapshots/all_10xx_Jun_29.json"
+x_ms_version: "2019-12-12"
+min_version: "6.12"
+required_options:
+  guiScale: 2
+  fullscreen: false
+  framebufferWidth: 1280
+  framebufferHeight: 720
+  lang: "en_us"
+  forceUnicodeFont: false
+  resourcePacks: "[]"
+  autoJump: false
+  toggleCrouch: false
+  touchscreen: false
+  key_key.forward: "key.keyboard.w"
+  key_key.back: "key.keyboard.s"
+  key_key.left: "key.keyboard.a"
+  key_key.right: "key.keyboard.d"
+  key_key.jump: "key.keyboard.space"
+  key_key.inventory: "key.keyboard.e"
+  key_key.drop: "key.keyboard.q"
+  key_key.swapOffhand: "key.keyboard.f"
+  key_key.togglePerspective: "key.keyboard.f5"
+  key_key.sneak: "key.keyboard.left.shift"
+  key_key.attack: "key.mouse.left"
+  key_key.use: "key.mouse.right"
+  key_key.hotbar.1: "key.keyboard.1"
+  key_key.hotbar.2: "key.keyboard.2"
+  key_key.hotbar.3: "key.keyboard.3"
+  key_key.hotbar.4: "key.keyboard.4"
+  key_key.hotbar.5: "key.keyboard.5"
+  key_key.hotbar.6: "key.keyboard.6"
+  key_key.hotbar.7: "key.keyboard.7"
+  key_key.hotbar.8: "key.keyboard.8"
+  key_key.hotbar.9: "key.keyboard.9"
+  key_key.pickItem: "key.mouse.middle"
+width: 640
+height: 360
+fetch_streams: 8
+http_timeout: 60
+http_retries: 3
+retry_delay: 10
+ffmpeg: "/usr/bin/ffmpeg"
+ffmpeg_timeout: 600
+clips: "configs/clips.yaml"
+screens: "configs/gui-screens.yaml"
+gui_actions: "configs/vpt-gui-actions.yaml"
+overlay: "configs/f3-overlay.yaml"
+states: 16
+per_episode: 10
+n_clips: 10000
+seed: 0
+workers: 4
+classifier_batch: 64
+out_dir: "data/perception"

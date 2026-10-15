@@ -9,7 +9,17 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from mcpref.vpt.channels import MOVES, Segment, grown, keys, passes, segments, world
+from mcpref import number, positive_int
+from mcpref.vpt.channels import (
+    MOVES,
+    Segment,
+    grown,
+    keys,
+    passes,
+    presses,
+    segments,
+    world,
+)
 
 __all__ = [
     "WORLD_ACTIONS",
@@ -27,7 +37,8 @@ __all__ = [
 WORLD_ACTIONS = (
     *MOVES.values(),
     *("sneak", "turn_left", "turn_right", "turn_up", "turn_down", "attack", "use"),
-    *("hotbar_left", "hotbar_right", "open_inventory"),
+    *(f"hotbar_{i}" for i in range(1, 10)),
+    "open_inventory",
 )
 RIDING = frozenset(
     f"minecraft.custom:minecraft.{m}_one_cm"
@@ -47,11 +58,11 @@ class ActionsConfig:
 def load_config(path: Path) -> ActionsConfig:
     """Interface: the YAML file loaded into ActionsConfig; violated constraints raise."""
     cfg = ActionsConfig(**yaml.safe_load(path.read_text()))
-    if type(cfg.turn_deg) not in (int, float) or not float(cfg.turn_deg) > 0:
-        raise ValueError(f"turn_deg {cfg.turn_deg!r} is not a number > 0")
-    if type(cfg.r_min) is not int or cfg.r_min < 1:
-        raise ValueError(f"r_min {cfg.r_min!r} is not an integer >= 1")
-    return replace(cfg, turn_deg=float(cfg.turn_deg))
+    turn_deg = number("turn_deg", cfg.turn_deg)
+    if not turn_deg > 0:
+        raise ValueError(f"turn_deg {turn_deg!r} is not > 0")
+    positive_int("r_min", cfg.r_min)
+    return replace(cfg, turn_deg=turn_deg)
 
 
 def wrap(x: float) -> float:
@@ -120,12 +131,8 @@ def counts(frames: list[int], n: int) -> list[int]:
 def mode_frames(lines: Sequence[Mapping], start: tuple[bool, bool, int]) -> np.ndarray:
     """Interface (9): Omega_t = O_t or H_t or V_t != 0, t = 0..T-1."""
     o0, h0, v0 = start
-    hud = [
-        k + 2 for k, x in enumerate(lines) if world(x) and "f1" in keys(x, "newKeys")
-    ]
-    view = [
-        k + 1 for k, x in enumerate(lines) if passes(x) and "f5" in keys(x, "newKeys")
-    ]
+    hud = [k + 2 for k in presses(lines, "f1")]
+    view = [k + 1 for k in presses(lines, "f5")]
     n = len(lines)
     modes = zip(counts(overlay_toggles(lines), n), counts(hud, n), counts(view, n))
     omega = [

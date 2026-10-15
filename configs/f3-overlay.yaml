@@ -1,0 +1,7 @@
+# specs/f3-overlay.md: OverlayConfig. Paths relative to the repository root.
+screens: "configs/gui-screens.yaml"
+prefix: "Minecraft 1.16.5 ("
+text_luma: {normal: 208.38, dimmed: 73.7}
+tolerance: {normal: 24, dimmed: 8}
+box_max: {normal: 160.1, dimmed: 63.4}
+threshold: 0.75

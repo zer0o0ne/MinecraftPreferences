@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from mcpref import REPO
 from mcpref.cli.failure import FAILURES, failed
-from mcpref.vpt.config import GuiFramesConfig, load_config
+from mcpref.vpt.config import GuiFramesConfig, check_rerun, load_config, write_run
 from mcpref.vpt.downloads import download_indices, fetch
 from mcpref.vpt.episodes import (
     EpisodeRecord,
@@ -74,21 +74,6 @@ def extract_all(
         finally:
             threads.shutdown(cancel_futures=True)
     return statuses
-
-
-def check_rerun(path: Path, header: dict) -> None:
-    """(d): an existing run.json must hold the same config and index ETags."""
-    if not path.exists():
-        return
-    previous = json.loads(path.read_text())
-    same = json.dumps(previous["config"]) == json.dumps(header["config"])
-    if not same or previous["index_etags"] != header["index_etags"]:
-        raise RuntimeError(f"{path} holds another config or other index ETags")
-
-
-def write_run(out: Path, run: dict) -> None:
-    """Behaviour: run.json, the header before planning, completed with the counts."""
-    (out / "run.json").write_text(json.dumps(run, indent=2) + "\n")
 
 
 def frame_record(frame: PlannedFrame, status: str) -> dict:

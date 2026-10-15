@@ -1,14 +1,17 @@
-"""(1)-(3) of specs/vpt-gui-frames.md: eligible frames, episode reasons, the plan."""
+"""(1)-(3) of specs/vpt-gui-frames.md: eligible frames, episode reasons, the plan; the
+reasons without `no_gui` and the draw without the frames, shared with
+specs/perception-data.md (1)."""
 
 import json
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from functools import partial
 from pathlib import PurePosixPath
 from typing import NamedTuple
 
 import numpy as np
 from tqdm import tqdm
 
-from mcpref.vpt.config import GuiFramesConfig
+from mcpref.vpt.config import Access, GuiFramesConfig
 
 Fetch = Callable[[str], bytes | None]
 
@@ -74,60 +77,90 @@ def version_of(relpath: str) -> str:
     return PurePosixPath(relpath).parts[1]
 
 
-def examine(
-    cfg: GuiFramesConfig, basedir: str, relpath: str, fetch: Fetch
-) -> tuple[str | None, Mapping | None, list | None]:
-    """(2): the reason of e (checks in order), then its options and lines once parsed."""
+def episode_name(relpath: str) -> str:
+    """Interface: <version>_<stem>, the start of an episode's ids and file names."""
+    return f"{version_of(relpath)}_{PurePosixPath(relpath).stem}"
+
+
+class Examined(NamedTuple):
+    """(2) without `no_gui`: the reason, then the options file and the .jsonl, raw and
+    parsed, as far as they were read and parsed."""
+
+    reason: str | None
+    options_file: bytes | None
+    options: Mapping | None
+    jsonl: bytes | None
+    lines: list | None
+
+
+def examine(cfg: Access, fetch: Fetch, basedir: str, relpath: str) -> Examined:
+    """(2) without `no_gui`: the reason of e (checks in order), then what was read."""
     if not version_ok(version_of(relpath), cfg.min_version):
-        return "version", None, None
+        return Examined("version", None, None, None, None)
     stem = basedir + relpath.removesuffix(".mp4")
-    options = fetch(stem + "-options.json")
-    lines = None if options is None else fetch(stem + ".jsonl")
-    if options is None or lines is None:
-        return "missing", None, None
-    if not options or not lines:
-        return "empty", None, None
+    options_file = fetch(stem + "-options.json")
+    jsonl = None if options_file is None else fetch(stem + ".jsonl")
+    if options_file is None or jsonl is None:
+        return Examined("missing", None, None, None, None)
+    if not options_file or not jsonl:
+        return Examined("empty", None, None, None, None)
     try:
-        options, lines = json.loads(options), json_lines(lines)
+        options, lines = json.loads(options_file), json_lines(jsonl)
     except ValueError:
-        return "malformed", None, None
-    if not options_ok(options, cfg.required_options):
-        return "options", options, lines
-    return ("no_gui" if not eligible_frames(lines) else None), options, lines
+        return Examined("malformed", options_file, None, None, None)
+    reason = None if options_ok(options, cfg.required_options) else "options"
+    return Examined(reason, options_file, options, jsonl, lines)
+
+
+def examine_gui(
+    cfg: GuiFramesConfig, fetch: Fetch, basedir: str, relpath: str
+) -> Examined:
+    """(2): the shared reasons, then `no_gui` (F_e empty)."""
+    examined = examine(cfg, fetch, basedir, relpath)
+    if examined.reason is None and not eligible_frames(examined.lines):
+        return examined._replace(reason="no_gui")
+    return examined
 
 
 def planned(
     subset: str, relpath: str, i: int, lines: Sequence[Mapping]
 ) -> PlannedFrame:
     """Interface: the PlannedFrame of frame i, id <version>_<stem>_<i>."""
-    version, stem = version_of(relpath), PurePosixPath(relpath).stem
-    pair = (lines[i - 1], lines[i])
-    return PlannedFrame(f"{version}_{stem}_{i}", subset, relpath, version, i, pair)
+    name, pair = f"{episode_name(relpath)}_{i}", (lines[i - 1], lines[i])
+    return PlannedFrame(name, subset, relpath, version_of(relpath), i, pair)
 
 
 def draw(
+    rng: np.random.Generator,
+    indices: Mapping[str, tuple[str, list[str]]],
+    examine: Callable[[str, str], Examined],
+) -> Iterator[tuple[str, str, Examined]]:
+    """(3) without the frames, indices[s] = (basedir, pool): a subset s with a non-empty
+    pool, its episodes popped and examined until one is valid or the pool is empty."""
+    while active := [s for s, (_, pool) in indices.items() if pool]:
+        s = active[rng.integers(len(active))]
+        basedir, pool = indices[s]
+        while pool:
+            relpath = pool.pop(rng.integers(len(pool)))
+            examined = examine(basedir, relpath)
+            yield s, relpath, examined
+            if examined.reason is None:
+                break
+
+
+def take(
     cfg: GuiFramesConfig,
     rng: np.random.Generator,
     subset: str,
-    fetch: Fetch,
+    relpath: str,
+    lines: Sequence[Mapping],
     left: int,
-    basedir: str,
-    pool: list[str],
-) -> Iterator[tuple[EpisodeRecord, list[PlannedFrame]]]:
-    """(3) within subset s: episodes popped until one is valid or the pool is empty,
-    each with the frames taken from it (none from an invalid one)."""
-    while pool:
-        relpath = pool.pop(rng.integers(len(pool)))
-        reason, options, lines = examine(cfg, basedir, relpath, fetch)
-        episode = EpisodeRecord(subset, relpath, reason, options)
-        if reason is not None:
-            yield episode, []
-            continue
-        eligible = eligible_frames(lines)
-        r = min(cfg.per_episode, len(eligible), left)
-        chosen = rng.choice(eligible, size=r, replace=False, shuffle=True)
-        yield episode, [planned(subset, relpath, int(i), lines) for i in chosen]
-        return
+) -> list[PlannedFrame]:
+    """(3): r = min(m, |F_e|, N - planned) frames of a valid e, without replacement."""
+    eligible = eligible_frames(lines)
+    r = min(cfg.per_episode, len(eligible), left)
+    chosen = rng.choice(eligible, size=r, replace=False, shuffle=True)
+    return [planned(subset, relpath, int(i), lines) for i in chosen]
 
 
 def plan(
@@ -136,18 +169,16 @@ def plan(
     """(3): subset, episodes, frames, drawn by one Generator(PCG64(seed)); bar `plan`."""
     rng = np.random.Generator(np.random.PCG64(cfg.seed))
     indices = {s: index(fetch(url)) for s, url in cfg.index_urls.items()}
+    drawn = draw(rng, indices, partial(examine_gui, cfg, fetch))
     frames, episodes = [], []
     with tqdm(total=cfg.n_frames, desc="plan", unit="frame") as bar:
         bar.set_postfix_str(f"{len(episodes)} episodes")
-        while len(frames) < cfg.n_frames:
-            active = [s for s, (_, pool) in indices.items() if pool]
-            if not active:
-                break
-            s = active[rng.integers(len(active))]
+        while len(frames) < cfg.n_frames and (e := next(drawn, None)) is not None:
+            subset, relpath, (reason, _, options, _, lines) = e
+            episodes.append(EpisodeRecord(subset, relpath, reason, options))
             left = cfg.n_frames - len(frames)
-            for episode, taken in draw(cfg, rng, s, fetch, left, *indices[s]):
-                episodes.append(episode)
-                frames += taken
-                bar.update(len(taken))
-                bar.set_postfix_str(f"{len(episodes)} episodes")
+            taken = [] if reason else take(cfg, rng, subset, relpath, lines, left)
+            frames += taken
+            bar.update(len(taken))
+            bar.set_postfix_str(f"{len(episodes)} episodes")
     return frames, episodes

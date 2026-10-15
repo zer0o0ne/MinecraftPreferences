@@ -126,13 +126,9 @@ def segments(lines, r_min: int) -> list:
                 out += [(p2, c, v[k], q2) for p2, q2 in pieces(k, q, effect, r_min)]
             k = q + 1
     for k in range(len(lines) - 1):
-        d = (lines[k + 1]["hotbar"] - lines[k]["hotbar"]) % 9
-        if world(lines[k]) and d:
-            out += (
-                [(k, 4, "hotbar_right", k)] * d
-                if d <= 4
-                else [(k, 4, "hotbar_left", k)] * (9 - d)
-            )
+        h0, h1 = lines[k]["hotbar"], lines[k + 1]["hotbar"]
+        if world(lines[k]) and h1 != h0:
+            out.append((k, 4, f"hotbar_{h1 + 1}", k))
     out += [(k, 5, "open_inventory", k) for k, ln in enumerate(lines)
             if world(ln) and has(ln, "e", "newKeys")]  # fmt: skip
     return [(a, p, q) for p, _, a, q in sorted(out, key=lambda s: s[:2])]
@@ -170,7 +166,7 @@ def modes(lines, start) -> list:
             eta = False
         if world(ln) and has(ln, "f1", "newKeys"):
             toggles["H"][k + 2] += 1
-        if passes[k] and has(ln, "f5", "newKeys"):
+        if world(ln) and has(ln, "f5", "newKeys"):
             toggles["V"][k + 1] += 1
     (o, h, v), out = start, []
     for t in range(n):

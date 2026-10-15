@@ -18,7 +18,7 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 - $\alpha \in \mathbb{R}^D_{>0}$ — per-coordinate metric weights (the user's $a_i$) (Q PER-2); $d_\alpha^2(z, z') = \sum_i \alpha_i^2 (z_i - z'_i)^2$. METRA geometry holds in the coordinates $\alpha \odot z$, the norm bound for $z$.
 - $c$ — norm bound of $z$ (example: 1).
 - $P$ — preference network; $P(x, y) = (p_\succ, p_{cmp})$: probability that $x$ is preferred to $y$, probability that $x, y$ are comparable; $x, y$ are latent histories.
-- $A$ — discrete action set (Q ACT, versions 1 and 2): 27 world actions (`WORLD_ACTIONS` of `specs/vpt-actions.md`); in a GUI, close plus left / right click on element $i = 1..n_{max}$ of the recognised screen; masked by GUI state, screen type and pitch; a screen that is not recognised is closed at once (Q ACT-19). An action holds its input until its effect completes, at most $\Delta$, and continues without release while chosen again (Q G-13); $\pi$ learns to lower the logits of masked actions (Q POL-7).
+- $A$ — discrete action set (Q ACT, versions 1 and 2): 34 world actions (`WORLD_ACTIONS` of `specs/vpt-actions.md`) and 361 GUI actions (`gui_action_names` of `specs/vpt-gui-actions.md`: close, left, right, shift and double click on element $i = 1..n_{max}$ of the recognised screen), 395 in all; masked by GUI state, screen type and pitch; a screen that is not recognised is closed at once (Q ACT-19). An action holds its input until its effect completes, at most $\Delta$, and continues without release while chosen again (Q G-13); $\pi$ learns to lower the logits of masked actions (Q POL-7).
 - $\pi$ — policy; $\pi(\cdot \mid z\text{-history})$ — probabilities over $A$; $\widehat{\Delta z}(a)$, $a \in A$ — predicted latent shift of each action (output $|A| \times D$).
 - $\Delta z_t = z_{t+1} - z_t$ — actual latent shift.
 - $\mathcal{M}$ — memory of past states (Q MEM-1, MEM-2); $\mathcal{T}$ — stored MCTS trees.
@@ -83,17 +83,21 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 18 | gui-masks — six mask variants, template classifier, agreement with VLM labels, cross-fitted features; later rebuilt on engine frames | GX experiment, then 14 | 15, 16, 17 | GX |
 | 19 | gui-stack — MLP over the mask features of block 18 | GX experiment | 18 | GX |
 | 20 | vpt-actions — legal world actions of $A$ per interval of a VPT episode, modes, exclusions | P1, P2, P5 data | — | `specs/vpt-actions.md` |
-| 21 | vpt-gui-actions — GUI lines of a VPT episode: recognition, clicks → elements, close, cut spans | P1, P2, P5 data | 18 or 19, 20 | ACT-19, ACT-20 |
-| 22 | perception-data — `collect_perception_pretrain_data.sh`: episodes, state grid, frames with all meta, $n$ per interval, masks, F3 detector on frame 0 | P1 | 20, 21 | G-12, D |
-| 23 | preference-pool — `collect_preferences_pretrain_data.sh`: pool of histories, pair graph; then block 4 adds the VLM labels | P2 | 22, 0 | VLM |
+| 21 | vpt-gui-actions — GUI lines of a VPT episode: clicks → elements (left, right, shift, double), close, digit chains, cut spans; classes from a pluggable classifier | P1, P2, P5 data | 15, 20 | `specs/vpt-gui-actions.md` |
+| 22 | clips — grid of elementary states, interval validity, sampling of non-overlapping clips | P1, P2 data | 20, 21 | `specs/clips.md` |
+| 23 | preference-pool — `collect_preferences_pretrain_data.sh`: clips of $k_P + k_\phi - 1$ states, pairs within one game world (not necessarily one episode), then block 4 adds the VLM labels | P2 | 22, 24, 25, 0 | VLM |
+| 24 | f3-overlay — debug-overlay detector on frame 0 of an episode | P1, P2 data | 20 | `specs/f3-overlay.md` |
+| 25 | perception-data — pipeline over whole VPT episodes (download, two decodes, classifier calls, sampling, storage, rerun); `collect_perception_pretrain_data.sh` with the classifier | P1 | 21, 22, 24 | `specs/perception-data.md` |
+| 26 | action-mask — the mask of $A$ per state, masking as much as possible (unsupported shift / double clicks, …) | P5, R1 | 21 | [U] 2026-10-15 |
 
 ## Package map
 Filled as block specs are approved: subpackage → stage(s) → spec.
 - `vlm` → P2 (later R-stage labelling) → `specs/vlm-client.md`
 - `scripts/`, `pyproject.toml`, `uv.lock`, `configs/spark-env.yaml` → all → `specs/spark-env.md`
 - `vpt` → GUI-recognition experiment, P1, P2, P5 data → `specs/vpt-gui-frames.md`, `specs/vpt-actions.md`
-- `gui` → GUI-recognition experiment, env, human-click mapping → `specs/gui-screens.md` (data: `configs/gui-screens.yaml`), `specs/gui-labels.md`
-- `recognition` → GUI-recognition experiment, later env → `specs/gui-masks.md`
+- `gui` → GUI-recognition experiment, env, human-click mapping, P1, P2, P5 data → `specs/gui-screens.md` (data: `configs/gui-screens.yaml`), `specs/gui-labels.md`, `specs/vpt-gui-actions.md`
+- `recognition` → GUI-recognition experiment, P1, P2 data, later env → `specs/gui-masks.md`, `specs/f3-overlay.md`
+- `clips` → P1, P2 data → `specs/clips.md`, `specs/perception-data.md`
 - `stacking` → GUI-recognition experiment → `specs/gui-stack.md`
 - `http` → shared HTTP retries (textures, VPT downloads, VLM client) → the retry rules of `specs/vlm-client.md` (6), `specs/gui-screens.md`, `specs/vpt-gui-frames.md`
 - `cli` → shared one-line failure messages of the command-line entry points

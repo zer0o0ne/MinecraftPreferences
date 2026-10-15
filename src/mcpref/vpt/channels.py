@@ -50,6 +50,11 @@ def keys(line: Mapping, field: str) -> set[str]:
     return {k.removeprefix("key.keyboard.") for k in line["keyboard"][field]}
 
 
+def presses(lines: Sequence[Mapping], key: str) -> list[int]:
+    """(6), (9): the lines k with W_k and `key` in N_k."""
+    return [k for k, x in enumerate(lines) if world(x) and key in keys(x, "newKeys")]
+
+
 def move_input(line: Mapping) -> tuple[int, int, int]:
     """(1): (f_k, r_k, j_k)."""
     held = keys(line, "keys")
@@ -147,25 +152,17 @@ def run_segments(values: list, effects: Sequence[bool], r_min: int) -> list[Segm
 
 
 def hotbar_segments(lines: Sequence[Mapping]) -> list[Segment]:
-    """(5): delta = (h_{k+1} - h_k) mod 9 right steps if delta <= 4, else 9 - delta left."""
-    segs = []
-    for k, (line, after) in enumerate(itertools.pairwise(lines)):
-        if world(line) and after["hotbar"] != line["hotbar"]:
-            delta = (after["hotbar"] - line["hotbar"]) % 9
-            if delta <= 4:
-                segs += [Segment("hotbar_right", k, k)] * delta
-            else:
-                segs += [Segment("hotbar_left", k, k)] * (9 - delta)
-    return segs
+    """(5): (hotbar_<h_{k+1} + 1>, k, k) for W_k and h_{k+1} != h_k."""
+    return [
+        Segment(f"hotbar_{after['hotbar'] + 1}", k, k)
+        for k, (line, after) in enumerate(itertools.pairwise(lines))
+        if world(line) and after["hotbar"] != line["hotbar"]
+    ]
 
 
 def inventory_segments(lines: Sequence[Mapping]) -> list[Segment]:
     """(6): (open_inventory, k, k) for W_k and e in N_k."""
-    return [
-        Segment("open_inventory", k, k)
-        for k, line in enumerate(lines)
-        if world(line) and "e" in keys(line, "newKeys")
-    ]
+    return [Segment("open_inventory", k, k) for k in presses(lines, "e")]
 
 
 def segments(lines: Sequence[Mapping], r_min: int) -> list[Segment]:

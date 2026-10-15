@@ -51,11 +51,16 @@ CASES = [  # (tokens, start, Omega)
     ("- @:f1 - - -", OFF, "FFFFF"),
     ("- #:f1 - - -", OFF, "FFFFF"),
     ("- - f1 -", OFF, "FFFF"),
+    ("- f3 f3+f1 f3 - - -", OFF, "FFFFTTT"),  # F1 is no combo key: both modes switch
     ("- f1 - -", (False, True, 0), "TTTF"),
-    # F5 in a screen passing events steps the view at frame k + 1, modulo 3.
+    # F5 on a world line steps the view at frame k + 1, modulo 3; a container screen, the
+    # player inventory included, consumes it.
     ("- f5 - f5 - f5 - -", OFF, "FFTTTTFF"),
-    ("- @:f5 - -", OFF, "FFTT"),
+    ("- @:f5 - -", OFF, "FFFF"),
     ("- #:f5 - -", OFF, "FFFF"),
+    ("- @:f5 f5 - -", OFF, "FFFFF"),  # held from the GUI into the world: no new press
+    ("- f5 @ @", OFF, "FFTT"),  # the step stands when a GUI opens on the next line
+    ("- f3 f3+f5 f3 - - -", OFF, "FFFTTTT"),  # F5 is no combo key: both modes switch
     ("f5 f5 f5", OFF, "FTT"),
     ("- f5 - f5 -", (False, False, 1), "TTTTF"),
     ("- f5 - -", (False, False, 2), "TTFF"),

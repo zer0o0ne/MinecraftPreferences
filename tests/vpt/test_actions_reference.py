@@ -9,6 +9,7 @@ from actions_reference import foreign, interval, modes, riding
 from actions_reference import segments as reference_segments
 
 from mcpref.vpt.actions import (
+    WORLD_ACTIONS,
     Segment,
     foreign_lines,
     interval_actions,
@@ -70,7 +71,7 @@ def test_segments_match_reference(r_min):
     for seed in range(N_EPISODES):
         lines = random_episode(seed, MOVE_KEYS)
         found = segments(lines, r_min=r_min)
-        assert all(type(s) is Segment for s in found)
+        assert all(type(s) is Segment and s.action in WORLD_ACTIONS for s in found)
         assert as_tuples(found) == reference_segments(lines, r_min), f"seed {seed}"
 
 
@@ -84,9 +85,8 @@ def test_interval_actions_match_reference(turn_deg):
         b = int(rng.integers(a + 1, min(a + 13, T)))
         cut = {k for k in range(a - 2, b + 2) if rng.random() < 0.2}
         expected = interval(as_tuples(segs), lines, a, b, cut, turn_deg)
-        assert interval_actions(segs, lines, a, b, cut, turn_deg) == expected, (
-            f"seed {seed}"
-        )
+        found = interval_actions(segs, lines, a, b, cut, turn_deg)
+        assert found == expected and set(found) <= set(WORLD_ACTIONS), f"seed {seed}"
 
 
 @pytest.mark.parametrize("family", list(MODE_KEYS))

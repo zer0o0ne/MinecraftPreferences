@@ -1,8 +1,11 @@
-"""(4), (c), (e) of specs/vpt-gui-frames.md: frames extracted and decoded by ffmpeg."""
+"""(4), (c), (e) of specs/vpt-gui-frames.md: frames extracted and decoded by ffmpeg;
+the whole-episode decode of (2) of specs/perception-data.md."""
 
 import subprocess
 import sys
 import tempfile
+import threading
+from collections.abc import Container
 from functools import partial
 from pathlib import Path
 from typing import BinaryIO
@@ -10,7 +13,7 @@ from typing import BinaryIO
 from tqdm import tqdm
 
 from mcpref.http.retry import retried
-from mcpref.vpt.config import GuiFramesConfig
+from mcpref.vpt.config import Access, GuiFramesConfig
 
 
 def frame_time(i: int, fps: int) -> str:
@@ -29,7 +32,7 @@ def ffmpeg_command(cfg: GuiFramesConfig, url: str, i: int, out: Path) -> list[st
     )
 
 
-def frame_bytes(cfg: GuiFramesConfig) -> int:
+def frame_bytes(cfg: Access) -> int:
     """(c): bytes of one raw yuv420p frame, width x height x 3 / 2."""
     return cfg.width * cfg.height * 3 // 2
 
@@ -85,3 +88,36 @@ def decode(cfg: GuiFramesConfig, video: Path) -> dict[int, bytes]:
     if proc.returncode != 0:
         raise RuntimeError(f"exit code {proc.returncode} of the sequential decode")
     return frames
+
+
+def episode_command(cfg: Access, video: Path) -> list[str]:
+    """(2) of specs/perception-data.md: every decoded frame of `video` once, raw yuv420p,
+    to stdout."""
+    return (
+        [cfg.ffmpeg, "-nostdin", "-loglevel", "error", "-i", str(video)]
+        + ["-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "yuv420p"]
+        + ["pipe:1"]
+    )
+
+
+def decode_episode(
+    cfg: Access, video: Path, n: int, keep: Container[int], timeout: float
+) -> dict[int, bytes] | None:
+    """(2) of specs/perception-data.md: one whole decode, the frames i in `keep`; None
+    unless it ends within `timeout` s with exit code 0 and exactly n frames."""
+    size, frames, i = frame_bytes(cfg), {}, 0
+    with tempfile.TemporaryFile() as stderr:
+        cmd = episode_command(cfg, video)
+        with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=stderr) as proc:
+            timer = threading.Timer(timeout, proc.kill)
+            timer.start()
+            try:
+                while len(buf := proc.stdout.read(size)) == size:
+                    if i in keep:
+                        frames[i] = buf
+                    i += 1
+                proc.wait()
+            finally:
+                timer.cancel()
+        show(stderr)
+    return frames if proc.returncode == 0 and i == n and not buf else None

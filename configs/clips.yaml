@@ -1,0 +1,3 @@
+# specs/clips.md: ClipsConfig. Paths relative to the repository root.
+delta: 20
+actions: "configs/vpt-actions.yaml"
