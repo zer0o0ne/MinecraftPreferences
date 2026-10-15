@@ -8,17 +8,17 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 - Every input of the preference network is encoded by the current perception.
 - Pretraining uses the VPT dataset and VLM labels; RL uses the environment, the networks and the memory (Q G-4).
 - Data and environment: the original VPT recordings (640×360, every tick) plus BASALT 2022; RL and new human recordings in the MineStudio simulator (MC 1.16.5). Python 3.10.
-- One agent step = one action of $A$, whatever its duration in ticks (Q ACT-2).
+- Elementary states are a fixed $\Delta$ ticks apart; the agent acts once per $\Delta$; human data carries, per interval, the number $n$ of legal actions of $A$ made in it, and only sequences with $n \ge 1$ in every interval are used (Q G-12, G-13, G-14).
 - Every exact number (hyperparameters, thresholds, API constants) is a config field (Q G-11).
 
 ## Shared notation
 - $o_t$ — state at step $t$: frame + meta (inventory, position, …) (Q D-7, D-8).
-- $h_t$ — window of past states at a stride over a span ending at $t$, e.g. every 3rd frame over the last 30 (Q G-2, G-9).
+- $h_t$ — window of consecutive elementary states, $\Delta$ ticks apart, ending at $t$ (Q G-12).
 - $\phi$ — perception; $z_t = \phi(h_t) \in \mathbb{R}^D$ — internal (latent) state.
 - $\alpha \in \mathbb{R}^D_{>0}$ — per-coordinate metric weights (the user's $a_i$) (Q PER-2); $d_\alpha^2(z, z') = \sum_i \alpha_i^2 (z_i - z'_i)^2$. METRA geometry holds in the coordinates $\alpha \odot z$, the norm bound for $z$.
 - $c$ — norm bound of $z$ (example: 1).
 - $P$ — preference network; $P(x, y) = (p_\succ, p_{cmp})$: probability that $x$ is preferred to $y$, probability that $x, y$ are comparable; $x, y$ are latent histories.
-- $A$ — discrete action set (version 1 in Q ACT): 18 world actions; in a GUI, close plus left / right click on element $i = 1..n_{max}$ of the recognised screen; masked by GUI state, screen type and pitch. Every action runs until its effect completes (or a tick limit) and cannot be interrupted.
+- $A$ — discrete action set (Q ACT, versions 1 and 2): 27 world actions (`WORLD_ACTIONS` of `specs/vpt-actions.md`); in a GUI, close plus left / right click on element $i = 1..n_{max}$ of the recognised screen; masked by GUI state, screen type and pitch; a screen that is not recognised is closed at once (Q ACT-19). An action holds its input until its effect completes, at most $\Delta$, and continues without release while chosen again (Q G-13); $\pi$ learns to lower the logits of masked actions (Q POL-7).
 - $\pi$ — policy; $\pi(\cdot \mid z\text{-history})$ — probabilities over $A$; $\widehat{\Delta z}(a)$, $a \in A$ — predicted latent shift of each action (output $|A| \times D$).
 - $\Delta z_t = z_{t+1} - z_t$ — actual latent shift.
 - $\mathcal{M}$ — memory of past states (Q MEM-1, MEM-2); $\mathcal{T}$ — stored MCTS trees.
@@ -32,7 +32,7 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 | $\pi$ policy | last $k_\pi$ latent states | probabilities over $A$, $\widehat{\Delta z}(a)$ for every $a \in A$ | P5 (action + shift regression), R4 (PPO) |
 
 ## Pretraining (VPT dataset)
-- **P1 Perception.** Random dataset pairs $(h_t, h_{t+1})$ around one action. Loss: maximise $d_\alpha(z_t, z_{t+1})$ subject to $d_\alpha^2 \le 1$ via METRA's dual variable, only on transitions that changed something (meta differs or the pixel difference exceeds a threshold); unchanged transitions are dropped (Q PER-8), plus $\beta_c \max(0, \lVert z \rVert_2 - c)^2$ for both $z_t, z_{t+1}$. Large $\alpha_i$ allow long chains along coordinate $i$ inside the ball.
+- **P1 Perception.** Random dataset pairs $(h_t, h_{t+\Delta})$, with the number $n$ of legal actions of every interval (Q G-12, PER-9). Loss: maximise $d_\alpha(z_t, z_{t+1})$ subject to $d_\alpha^2 \le 1$ via METRA's dual variable, only on transitions that changed something (meta differs or the pixel difference exceeds a threshold); unchanged transitions are dropped (Q PER-8), plus $\beta_c \max(0, \lVert z \rVert_2 - c)^2$ for both $z_t, z_{t+1}$. Large $\alpha_i$ allow long chains along coordinate $i$ inside the ball.
 - **P2 VLM labels.** A random pool of dataset states; each is linked at random to several others of the pool; while there are many components and few cycles, random edges between components are added (Q VLM-2). `Qwen3-VL-30B-A3B-Instruct-FP8`, served on an NVIDIA DGX Spark (`specs/vlm-client.md`), gets each state as several screenshots plus the dataset info (inventory, …) and answers: first preferred, second preferred, or refuses to compare (Q VLM-*).
 - **P3 Correction.** VLM labels → preference graph → $C$ → training labels (Q ACY-*).
 - **P4 Preference.** Inputs: $\phi$ (from P1) applied to each state with its history. Targets: the labels from P3 for both outputs.
@@ -82,12 +82,16 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 17 | gui-labels — screen type of each sampled frame by the VLM | GX experiment | 0, 15, 16 | GX |
 | 18 | gui-masks — six mask variants, template classifier, agreement with VLM labels, cross-fitted features; later rebuilt on engine frames | GX experiment, then 14 | 15, 16, 17 | GX |
 | 19 | gui-stack — MLP over the mask features of block 18 | GX experiment | 18 | GX |
+| 20 | vpt-actions — legal world actions of $A$ per interval of a VPT episode, modes, exclusions | P1, P2, P5 data | — | `specs/vpt-actions.md` |
+| 21 | vpt-gui-actions — GUI lines of a VPT episode: recognition, clicks → elements, close, cut spans | P1, P2, P5 data | 18 or 19, 20 | ACT-19, ACT-20 |
+| 22 | perception-data — `collect_perception_pretrain_data.sh`: episodes, state grid, frames with all meta, $n$ per interval, masks, F3 detector on frame 0 | P1 | 20, 21 | G-12, D |
+| 23 | preference-pool — `collect_preferences_pretrain_data.sh`: pool of histories, pair graph; then block 4 adds the VLM labels | P2 | 22, 0 | VLM |
 
 ## Package map
 Filled as block specs are approved: subpackage → stage(s) → spec.
 - `vlm` → P2 (later R-stage labelling) → `specs/vlm-client.md`
 - `scripts/`, `pyproject.toml`, `uv.lock`, `configs/spark-env.yaml` → all → `specs/spark-env.md`
-- `vpt` → GUI-recognition experiment (later P1, P5 data) → `specs/vpt-gui-frames.md`
+- `vpt` → GUI-recognition experiment, P1, P2, P5 data → `specs/vpt-gui-frames.md`, `specs/vpt-actions.md`
 - `gui` → GUI-recognition experiment, env, human-click mapping → `specs/gui-screens.md` (data: `configs/gui-screens.yaml`), `specs/gui-labels.md`
 - `recognition` → GUI-recognition experiment, later env → `specs/gui-masks.md`
 - `stacking` → GUI-recognition experiment → `specs/gui-stack.md`

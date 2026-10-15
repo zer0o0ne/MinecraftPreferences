@@ -14,7 +14,7 @@ Over the block's code and every `src/` module it touches:
 3. Split functions and files over the AGENTS.md soft limits along the math: one function per equation or term.
 4. Keep an abstraction only if it removes more code than it adds or names a spec concept.
 5. Enforce the remaining AGENTS.md Code rules: names, docstrings, comments.
-6. `uv run ruff format`, `uv run ruff check --fix`; the block's own tests (both tiers) and `uv run pytest` (fast tier) must pass.
+6. `uv run ruff check --fix`, then `uv run ruff format` (a fix can break the layout); the block's own tests (both tiers) and `uv run pytest` (fast tier) must pass.
 
 Never fix math: report a suspected spec deviation instead.
 Report: what was removed, merged or split and why; line count before → after; suspected deviations.
