@@ -6,7 +6,7 @@ ctl["frame_size"] bytes) to stdout as ctl["behaviours"][stem][attempt] says (def
 "ok" every frame; "short" without the last frame; "long" with the last frame twice;
 "partial" with the last half frame missing; "exit1" every frame and exit code 1; "slow"
 every frame after ctl["sleep"] s. First writes ctl["stderr"][stem][attempt] (hex) to
-stderr, if any. Logs the start (with argv) and the end of each run."""
+stderr, if any. Logs the start (with argv and pid) and the end of each run."""
 
 import json
 import os
@@ -45,7 +45,8 @@ def main(ctl_path: str, log_path: str, *argv: str) -> int:
     k = attempt(log_path, key)
     plan, noise = ctl["behaviours"].get(key, []), ctl["stderr"].get(key, [])
     behaviour = plan[k] if k < len(plan) else "ok"
-    log(log_path, {"event": "start", "key": key, "argv": list(argv), "t": time.time()})
+    record = {"event": "start", "key": key, "argv": list(argv), "t": time.time()}
+    log(log_path, record | {"pid": os.getpid()})
     if k < len(noise):
         sys.stderr.buffer.write(bytes.fromhex(noise[k]))
         sys.stderr.buffer.flush()

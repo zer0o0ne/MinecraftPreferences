@@ -1,62 +1,56 @@
-"""Interface Produces, (5)-(7) of specs/perception-data.md: records, staged and
-committed files, the replay of the committed episodes."""
+"""Interface Datasets of specs/perception-data.md: records, staged clips, the shards of
+(6) and the continuation (7)."""
 
-import dataclasses
 import json
 import shutil
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+import sys
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
+from tqdm import tqdm
 
 from mcpref.clips.sample import Clip
-from mcpref.gui.label_files import read_jsonl, sha256
-from mcpref.vpt.episodes import Examined, episode_name, version_of
+from mcpref.shards.store import complete_shards, shard_path, write_shard
+from mcpref.vpt.episodes import episode_name, version_of
+from mcpref.vpt.plan import generator
 
+Pools = dict[str, tuple[str, list[str]]]
 RECORD = ("subset", "relpath", "reason", "options", "starts_session")
 RECORD += ("overlay_start", "valid_starts", "clips")
-PROCESSED = (None, "video", "no_clip")
 
 
-@dataclass(frozen=True)
-class Episode:
-    """(6): episode r ready to commit: its record (`clips` set at the commit), options
-    file to store or None, the records of its staged clips in the order taken."""
-
-    r: int
-    record: dict
-    options_file: bytes | None
-    clips: list[dict]
+def json_bytes(value: object) -> bytes:
+    """Notation: a JSON file of this block, json.dumps(value, indent=2) + newline."""
+    return (json.dumps(value, indent=2) + "\n").encode()
 
 
-def run_header(
-    cfg: object, files: Mapping[str, Path], etags: dict, classifier_id: str
-) -> dict:
-    """(7): the config as written, the index ETags, the SHA-256 of `files`, gamma_id."""
-    hashes = {k: sha256(path) for k, path in files.items()}
-    header = {"config": dataclasses.asdict(cfg), "index_etags": etags, "sha256": hashes}
-    return header | {"classifier": classifier_id}
+def read_json(path: Path) -> object:
+    """Notation: a JSON file of this block read with json.loads."""
+    return json.loads(path.read_bytes())
 
 
-def episode_record(subset: str, relpath: str, reason: str | None, **computed) -> dict:
-    """Interface episodes.jsonl: a record, every field null unless computed."""
+def remove(path: Path) -> None:
+    """(6), (8): staging/ or staging/<k>/ removed, if present."""
+    if path.exists():
+        shutil.rmtree(path)
+
+
+def record(subset: str, relpath: str, reason: str | None, **computed) -> dict:
+    """Interface records.json: a record, every field null unless computed."""
     fields = {"subset": subset, "relpath": relpath, "reason": reason} | computed
     return dict.fromkeys(RECORD) | fields
-
-
-def clip_id(relpath: str, first: int) -> str:
-    """Interface clips.jsonl: id = <version>_<stem>_<first state line>."""
-    return f"{episode_name(relpath)}_{first}"
 
 
 def clip_record(
     subset: str, relpath: str, clip: Clip, classes: Mapping[int, str]
 ) -> dict:
-    """Interface clips.jsonl: a clip's record; per state its class, null when its GUI
-    flag is false."""
+    """Interface clip.json: id = <version>_<stem>_<first state line>; per state its
+    class, null when its GUI flag is false."""
     return {
-        "id": clip_id(relpath, clip.states[0]),
+        "id": f"{episode_name(relpath)}_{clip.states[0]}",
         "subset": subset,
         "relpath": relpath,
         "version": version_of(relpath),
@@ -69,10 +63,9 @@ def clip_record(
     }
 
 
-def staging(out: Path, r: int) -> Path:
-    """(2), (5): {out_dir}/staging/<r>, the staged clips of the episode drawn at r
-    (its video: staging/<r>.mp4)."""
-    return out / "staging" / str(r)
+def staging(out: Path, k: int) -> Path:
+    """(2), (5): {out_dir}/staging/<k>, the staged clips of draw k (its video: <k>.mp4)."""
+    return out / "staging" / str(k)
 
 
 def line_starts(jsonl: bytes) -> list[int]:
@@ -84,93 +77,82 @@ def line_starts(jsonl: bytes) -> list[int]:
 
 def stage_clips(
     out: Path,
-    r: int,
+    k: int,
+    subset: str,
     relpath: str,
     clips: Sequence[Clip],
     frames: Mapping[int, bytes],
     jsonl: bytes,
-) -> None:
-    """(5): per clip, frames.yuv (its state frames in state order) and lines.jsonl (the
-    lines of its span as in J_e, each with its \\n) under staging/<r>/<id>.part."""
+    classes: Mapping[int, str],
+) -> list[str]:
+    """(5): per clip, frames.yuv (its state frames in state order), lines.jsonl (the lines
+    of its span as in J_e) and clip.json under staging/<k>/<id>.part/; the ids in order."""
     starts = line_starts(jsonl)
+    ids = []
     for c in clips:
-        part = staging(out, r) / f"{clip_id(relpath, c.states[0])}.part"
+        row = clip_record(subset, relpath, c, classes)
+        part = staging(out, k) / f"{row['id']}.part"
         part.mkdir(parents=True)
         (part / "frames.yuv").write_bytes(b"".join(frames[t] for t in c.states))
-        span = jsonl[starts[c.states[0]] : starts[c.states[-1] + 1]]
-        (part / "lines.jsonl").write_bytes(span)
+        (part / "lines.jsonl").write_bytes(
+            jsonl[starts[c.states[0]] : starts[c.states[-1] + 1]]
+        )
+        (part / "clip.json").write_bytes(json_bytes(row))
+        ids.append(row["id"])
+    return ids
 
 
-def remove(path: Path) -> None:
-    """(5)-(7): a staging directory removed, if present."""
-    if path.exists():
-        shutil.rmtree(path)
+def write_draw(
+    out: Path,
+    k: int,
+    records: list[dict],
+    options: Mapping[str, bytes],
+    state: dict,
+    ids: Sequence[str],
+) -> None:
+    """(6): shard k by write_shard: records.json, state.json, options/<name>.json, the
+    clips `ids` renamed from staging into clips/<id>/; then staging/<k>/ removed."""
+    with write_shard(out / "shards", k) as staged:
+        (staged / "records.json").write_bytes(json_bytes(records))
+        (staged / "state.json").write_bytes(json_bytes(state))
+        for name, data in options.items():
+            (staged / "options").mkdir(exist_ok=True)
+            (staged / "options" / f"{name}.json").write_bytes(data)
+        for i in ids:
+            (staged / "clips").mkdir(exist_ok=True)
+            (staging(out, k) / f"{i}.part").rename(staged / "clips" / i)
+    remove(staging(out, k))
 
 
-def append(path: Path, records: Sequence[dict]) -> None:
-    """(6): records appended as JSON lines; the file closed (flushed)."""
-    with path.open("a") as f:
-        f.write("".join(json.dumps(record) + "\n" for record in records))
+class Resumed(NamedTuple):
+    """(7): h; each pool without the relpaths of its subset's records in shards
+    0..h-1; g; c; the reasons of those records (null as "null")."""
+
+    h: int
+    pools: Pools
+    g: np.random.Generator
+    clips: int
+    reasons: Counter
 
 
-def store_options(out: Path, relpath: str, options_file: bytes) -> None:
-    """Interface: options/<version>_<stem>-options.json, byte-identical."""
-    path = out / "options" / f"{episode_name(relpath)}-options.json"
-    path.parent.mkdir(exist_ok=True)
-    path.write_bytes(options_file)
-
-
-def commit(out: Path, ep: Episode, left: int) -> dict:
-    """(6): the options file, the first `left` clips moved to clips/ and appended to
-    clips.jsonl, the record listing their ids (returned); the staging of r removed."""
-    taken = ep.clips[:left]
-    if ep.options_file is not None:
-        store_options(out, ep.record["relpath"], ep.options_file)
-    (out / "clips").mkdir(exist_ok=True)
-    for c in taken:
-        (staging(out, ep.r) / f"{c['id']}.part").rename(out / "clips" / c["id"])
-    append(out / "clips.jsonl", taken)
-    ids = [c["id"] for c in taken] if ep.record["reason"] is None else None
-    record = ep.record | {"clips": ids}
-    append(out / "episodes.jsonl", [record])
-    remove(staging(out, ep.r))
-    return record
-
-
-def replay(out: Path) -> list[dict]:
-    """(7): the committed records of episodes.jsonl; clips.jsonl and clips/ cut to their
-    clips (a commit interrupted before its record); staging emptied."""
-    path, clips = out / "episodes.jsonl", out / "clips.jsonl"
-    records = read_jsonl(path) if path.exists() else []
-    ids = {i for record in records for i in record["clips"] or ()}
-    if clips.exists():
-        lines = clips.read_bytes().splitlines(keepends=True)
-        clips.write_bytes(b"".join(x for x in lines if json.loads(x)["id"] in ids))
-    if (out / "clips").exists():
-        for d in (out / "clips").iterdir():
-            if d.name not in ids:
-                shutil.rmtree(d)
-    remove(out / "staging")
-    return records
-
-
-def committed_clips(records: Sequence[dict]) -> int:
-    """(6): c, the clips committed with the records."""
-    return sum(len(record["clips"] or ()) for record in records)
-
-
-def replayed(
-    records: Sequence[dict], examine: Callable[[str, str], Examined]
-) -> Callable[[str, str], Examined]:
-    """(7): `examine` answering the first len(records) draws with the recorded reasons,
-    nothing fetched; `video`, `no_clip` and null were valid for the plan."""
-    recorded = iter(records)
-
-    def examined(basedir: str, relpath: str) -> Examined:
-        record = next(recorded, None)
-        if record is None:
-            return examine(basedir, relpath)
-        reason = None if record["reason"] in PROCESSED else record["reason"]
-        return Examined(reason, None, None, None, None)
-
-    return examined
+def resume(shards: Path, seed: int, pools: Pools) -> Resumed:
+    """(7): the h complete shards read one at a time, bar `resume`; g by `generator`, set
+    to the state stored with shard h - 1, or Generator(PCG64(seed)) when h = 0."""
+    h = complete_shards(shards)
+    if h == 0:
+        print("resume: nothing to do", file=sys.stderr)
+        return Resumed(0, pools, generator(seed, None), 0, Counter())
+    taken, reasons = set(), Counter()
+    with tqdm(total=h, desc="resume", unit="shard") as bar:
+        for k in range(h):
+            for r in read_json(shard_path(shards, k) / "records.json"):
+                taken.add((r["subset"], r["relpath"]))
+                reasons[r["reason"] or "null"] += 1
+            bar.update(1)
+    state = read_json(shard_path(shards, h - 1) / "state.json")
+    left = {
+        s: (basedir, [r for r in pool if (s, r) not in taken])
+        for s, (basedir, pool) in pools.items()
+    }
+    g = generator(seed, state["generator"])
+    return Resumed(h, left, g, state["clips"], reasons)

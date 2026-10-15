@@ -1,49 +1,36 @@
-"""(1), (6)-(8) of specs/perception-data.md: config, plan, commits, rerun, failures."""
+"""Config, (0), (8) of specs/perception-data.md and the run: the indices, run.json and
+the rerun check; (1), (6), (9) in plan.py, (7) in store.py."""
 
-import itertools
+import dataclasses
+import json
 import math
 import sys
-from collections import Counter, deque
-from collections.abc import Iterator
-from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 
 import httpx
-import numpy as np
 import yaml
 from tqdm import tqdm
 
 from mcpref import REPO, config_mapping, number, repo_path
-from mcpref.clips.config import load_config as load_clips_config
-from mcpref.clips.episode import Classify, Drawn, Pipeline, process, serialised
-from mcpref.clips.store import (
-    Episode,
-    commit,
-    committed_clips,
-    episode_record,
-    remove,
-    replay,
-    replayed,
-    run_header,
-)
-from mcpref.gui.actions import load_config as load_gui_actions_config
-from mcpref.gui.screens import load_screens
-from mcpref.recognition.debug_overlay import load_config as load_overlay_config
-from mcpref.recognition.debug_overlay import overlay_font, overlay_masks
-from mcpref.vpt.actions import load_config as load_actions_config
-from mcpref.vpt.config import check_rerun, write_run
-from mcpref.vpt.downloads import download_indices, fetch
-from mcpref.vpt.episodes import draw, examine, index
+from mcpref.clips.episode import Classify, Pipeline
+from mcpref.clips.plan import pipeline, write_shards
+from mcpref.clips.store import Pools, json_bytes, read_json, remove, resume
+from mcpref.gui.label_files import sha256
+from mcpref.shards.store import make_dirs, write_file
+from mcpref.vpt.downloads import download
+from mcpref.vpt.episodes import index
 
 ANY, POSITIVE = (-math.inf, math.inf), (1, math.inf)
 INTEGERS = {"width": ANY, "height": ANY, "fetch_streams": (1, 20), "http_retries": ANY}
 INTEGERS |= {"states": (2, math.inf), "per_episode": POSITIVE, "n_clips": POSITIVE}
 INTEGERS |= {"seed": (0, 2**32 - 1), "workers": POSITIVE, "classifier_batch": POSITIVE}
 DURATIONS = ("http_timeout", "retry_delay", "ffmpeg_timeout")
+STRINGS = ("x_ms_version", "min_version", "ffmpeg")
 CONFIGS = ("clips", "screens", "gui_actions", "overlay")
-PATHS = (*CONFIGS, "out_dir")
+SCALARS = (str, int, float, bool, type(None))
+OUTPUT_FIELDS = ("index_urls", "min_version", "required_options", "width", "height")
+OUTPUT_FIELDS += (*CONFIGS, "states", "per_episode", "n_clips", "seed")
 
 
 @dataclass(frozen=True)
@@ -83,118 +70,116 @@ def integer(name: str, value: object, low: float, high: float) -> int:
     return value
 
 
+def string(name: str, value: object) -> str:
+    """Notation: a string."""
+    if type(value) is not str:
+        raise ValueError(f"{name} {value!r} is not a string")
+    return value
+
+
+def mapping(name: str, value: object, types: tuple[type, ...], non_empty: bool) -> dict:
+    """Notation: a mapping of strings to values of `types`, non-empty if required."""
+    if not (
+        type(value) is dict
+        and (value or not non_empty)
+        and all(type(k) is str and type(v) in types for k, v in value.items())
+    ):
+        raise ValueError(f"{name} {value!r} is not a mapping of strings to {types}")
+    return value
+
+
 def load_config(path: Path) -> PerceptionDataConfig:
     """Interface: the YAML file, validated, into PerceptionDataConfig as written."""
     raw = config_mapping(yaml.safe_load(path.read_text()), path, PerceptionDataConfig)
+    mapping("index_urls", raw["index_urls"], (str,), True)
+    mapping("required_options", raw["required_options"], SCALARS, False)
     for k, bounds in INTEGERS.items():
         integer(k, raw[k], *bounds)
     for k in DURATIONS:
         number(k, raw[k])
-    for k in PATHS:
+    for k in STRINGS:
+        string(k, raw[k])
+    for k in (*CONFIGS, "out_dir"):
         repo_path(k, raw[k])
     return PerceptionDataConfig(**raw)
 
 
-def pipeline(cfg: PerceptionDataConfig, classify: Classify) -> Pipeline:
-    """(2)-(5): the configs named by cfg, the catalogue, P and Q of the overlay."""
-    clips = load_clips_config(REPO / cfg.clips)
-    overlay = load_overlay_config(REPO / cfg.overlay)
-    masks = overlay_masks(overlay_font(overlay), overlay.prefix, cfg.width, cfg.height)
-    actions = load_actions_config(clips.actions)
-    screens = load_screens(REPO / cfg.screens)
-    double_click_ms = load_gui_actions_config(REPO / cfg.gui_actions).double_click_ms
-    out, classify = REPO / cfg.out_dir, serialised(classify)
-    return Pipeline(
-        cfg, out, clips, actions, screens, double_click_ms, overlay, masks, classify
+def run_header(pipe: Pipeline, classifier_id: str) -> dict:
+    """(8): the config as written, the SHA-256 of the named files, gamma_id."""
+    named = {k: REPO / getattr(pipe.cfg, k) for k in CONFIGS}
+    files = {"actions": pipe.clips.actions} | named
+    files |= {"overlay_screens": pipe.overlay.screens}
+    hashes = {k: sha256(path) for k, path in files.items()}
+    config = dataclasses.asdict(pipe.cfg)
+    return {"config": config, "sha256": hashes, "classifier": classifier_id}
+
+
+def check_rerun(path: Path, header: dict) -> None:
+    """(8): an existing run.json must hold this run's output fields, hashes and gamma_id,
+    each compared as JSON text."""
+    if not path.exists():
+        return
+    old = read_json(path)
+    pairs = [(k, old["config"][k], header["config"][k]) for k in OUTPUT_FIELDS]
+    pairs += [(f"sha256.{k}", old["sha256"][k], v) for k, v in header["sha256"].items()]
+    pairs += [("classifier", old["classifier"], header["classifier"])]
+    names = [k for k, a, b in pairs if json.dumps(a) != json.dumps(b)]
+    if names:
+        raise RuntimeError(f"{path} holds other values of {names}")
+
+
+def is_index(body: bytes) -> bool:
+    """(0): the body is a JSON object with a string basedir and a list relpaths."""
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return False
+    return (
+        isinstance(data, dict)
+        and isinstance(data.get("basedir"), str)
+        and isinstance(data.get("relpaths"), list)
     )
 
 
-def hashed_files(pipe: Pipeline) -> dict[str, Path]:
-    """(7): the files whose SHA-256 run.json holds."""
-    named = {k: REPO / getattr(pipe.cfg, k) for k in CONFIGS}
-    overlay_screens = {"overlay_screens": pipe.overlay.screens}
-    return {"actions": pipe.clips.actions} | named | overlay_screens
-
-
-def drawn(
-    cfg: PerceptionDataConfig, client: httpx.Client, indices: dict, records: list[dict]
-) -> Iterator[Drawn]:
-    """(1), (7): the draws of Generator(PCG64(seed)) with their positions r, after the
-    committed episodes, whose draws are replayed."""
-    fresh = partial(examine, cfg, partial(fetch, client, cfg))
-    rng = np.random.Generator(np.random.PCG64(cfg.seed))
-    draws = enumerate(draw(rng, indices, replayed(records, fresh)))
-    for r, (subset, relpath, ex) in itertools.islice(draws, len(records), None):
-        yield Drawn(r, subset, indices[subset][0] + relpath, relpath, ex)
-
-
-def schedule(pipe: Pipeline, threads: ThreadPoolExecutor, d: Drawn) -> Future:
-    """(1), (6): a valid episode submitted for (2)-(5); else a completed future of its
-    record (options for the reason `options`) with its options file when read."""
-    reason, options_file, options, _, _ = d.examined
-    if reason is None:
-        return threads.submit(process, pipe, d)
-    record = episode_record(d.subset, d.relpath, reason, options=options)
-    future = Future()
-    future.set_result(Episode(d.r, record, options_file, []))
-    return future
-
-
-def in_order(
-    pipe: Pipeline, draws: Iterator[Drawn], threads: ThreadPoolExecutor
-) -> Iterator[Episode]:
-    """(6): the drawn episodes in draw order, with up to `workers` valid ones processed
-    ahead of the one to commit."""
-    pending = deque()
-    for d in draws:
-        valid = d.examined.reason is None
-        while valid and sum(v for _, v in pending) >= pipe.cfg.workers:
-            yield pending.popleft()[0].result()
-        pending.append((schedule(pipe, threads, d), valid))
-        while pending and pending[0][0].done():
-            yield pending.popleft()[0].result()
-    while pending:
-        yield pending.popleft()[0].result()
-
-
-def commit_all(pipe: Pipeline, draws: Iterator[Drawn], records: list[dict]) -> None:
-    """(6), (8): episodes committed in draw order until N clips, appended to `records`;
-    bar `collect` enclosing the pool; nothing left (N committed, no draw left): a line."""
-    cfg, c = pipe.cfg, committed_clips(records)
-    if c >= cfg.n_clips or (first := next(draws, None)) is None:
-        print("collect: already done", file=sys.stderr)
+def store_indices(client: httpx.Client, cfg: PerceptionDataConfig, d: Path) -> None:
+    """(0): each index without a stored file in d downloaded by `download` (one GET with
+    its retries; a status other than 2xx aborts), in config order, checked and written by
+    write_file; bar `indices`."""
+    make_dirs(d)
+    missing = [s for s in cfg.index_urls if not (d / f"{s}.json").exists()]
+    if not missing:
+        print("indices: already done", file=sys.stderr)
         return
-    with tqdm(total=cfg.n_clips, initial=c, desc="collect", unit="clip") as bar:
-        bar.set_postfix_str(f"{len(records)} episodes")
-        threads = ThreadPoolExecutor(cfg.workers)
-        try:
-            for episode in in_order(pipe, itertools.chain([first], draws), threads):
-                records.append(commit(pipe.out, episode, cfg.n_clips - c))
-                k = committed_clips(records[-1:])
-                c += k
-                bar.update(k)
-                bar.set_postfix_str(f"{len(records)} episodes")
-                if c >= cfg.n_clips:
-                    break
-        finally:
-            threads.shutdown(cancel_futures=True)
+    with tqdm(total=len(missing), desc="indices", unit="file") as bar:
+        for s in missing:
+            url = cfg.index_urls[s]
+            body = download(client, cfg, url).content
+            if not is_index(body):
+                raise ValueError(
+                    f"{url}: not a JSON object with a string basedir and a list relpaths"
+                )
+            write_file(d / f"{s}.json", body)
+            bar.update(1)
+
+
+def initial_pools(cfg: PerceptionDataConfig, d: Path) -> Pools:
+    """Notation: per subset, in config order, its basedir and initial pool, from the
+    index stored in d."""
+    return {s: index((d / f"{s}.json").read_bytes()) for s in cfg.index_urls}
 
 
 def collect(cfg: PerceptionDataConfig, classify: Classify, classifier_id: str) -> None:
-    """Interface: (1), (6)-(8): run.json, the plan replayed and continued, episodes
-    committed until N clips; the counts in run.json at the end."""
+    """Interface: (8) run.json checked and written, staging removed, (0) the indices,
+    (7) the complete shards read, (1), (6) the plan continued, the counts added."""
     pipe = pipeline(cfg, classify)
-    out = pipe.out
-    with httpx.Client(headers={"x-ms-version": cfg.x_ms_version}) as client:
-        responses = dict(download_indices(client, cfg))
-        etags = {s: response.headers.get("ETag") for s, response in responses.items()}
-        header = run_header(cfg, hashed_files(pipe), etags, classifier_id)
-        check_rerun(out / "run.json", header)
-        out.mkdir(parents=True, exist_ok=True)
-        write_run(out, header)
-        records = replay(out)
-        indices = {s: index(response.content) for s, response in responses.items()}
-        commit_all(pipe, drawn(cfg, client, indices, records), records)
+    out, header = pipe.out, run_header(pipe, classifier_id)
+    check_rerun(out / "run.json", header)
+    write_file(out / "run.json", json_bytes(header))
     remove(out / "staging")
-    reasons = Counter(record["reason"] for record in records)
-    write_run(out, header | {"episodes": reasons, "clips": committed_clips(records)})
+    with httpx.Client(headers={"x-ms-version": cfg.x_ms_version}) as client:
+        store_indices(client, cfg, out / "indices")
+        pools = initial_pools(cfg, out / "indices")
+        c, reasons = write_shards(pipe, client, resume(out / "shards", cfg.seed, pools))
+    remove(out / "staging")
+    counts = {"episodes": dict(reasons), "clips": c}
+    write_file(out / "run.json", json_bytes(header | counts))

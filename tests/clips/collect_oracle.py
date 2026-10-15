@@ -1,9 +1,9 @@
-"""Naive transcription of specs/perception-data.md (1)-(6) on the episodes of
-collect_world.py: the plan with the reasons, each episode's work (2)-(5) and the commits.
-The functions the block composes (specs/vpt-actions.md, vpt-gui-actions.md, clips.md,
-f3-overlay.md) are transcribed only for what those episodes contain: world lines hold W
-(one move value; no effect, hotbar change, yaw turn, F1, F5 or F3 combo), presses only
-over slot 1 of `inv` and `box`, the overlay box of frame 0 of a uniform luma."""
+"""Naive transcription of (2)-(5) of specs/perception-data.md, a candidate's work, on the
+episodes of collect_world.py. The functions the block composes (specs/vpt-actions.md,
+vpt-gui-actions.md, clips.md, f3-overlay.md) are transcribed only for what those episodes
+contain: world lines hold W (one move value; no effect, hotbar change, yaw turn, F1, F5 or
+F3 combo), presses only over slot 1 of `inv` and `box`, the overlay box of frame 0 of a
+uniform luma."""
 
 from dataclasses import dataclass, field
 
@@ -14,11 +14,11 @@ NO_ELEMENT = ("other", "pause")  # e_t is none; a span whose first frame is one 
 
 @dataclass
 class Work:
-    """The work of one valid episode drawn at position r; `f`: every config value."""
+    """The work of the candidate of draw k; `f`: every config value."""
 
     ep: Ep
     f: dict
-    r: int
+    k: int
     cls: dict = field(default_factory=dict)  # frame -> class
     calls: list = field(default_factory=list)  # frames of each classifier call
 

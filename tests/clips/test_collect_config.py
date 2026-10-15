@@ -104,3 +104,26 @@ def test_approved_config_has_starting_values(repo):
     assert {k: getattr(cfg, k) for k in STARTING} == STARTING
     for name, rel in (PATHS | {"out_dir": "data/perception"}).items():
         assert Path(repo, getattr(cfg, name)).resolve() == (repo / rel).resolve()
+
+
+@pytest.mark.parametrize(
+    "name, value",
+    [("index_urls", {}), ("index_urls", ["http://h/i6"]), ("index_urls", {"6xx": 1}),
+     ("index_urls", {"6xx": None}), ("index_urls", {6: "http://h/i6"}), ("index_urls", "x"),
+     ("required_options", ["guiScale"]), ("required_options", {"guiScale": [2]}),
+     ("required_options", {"guiScale": {"v": 2}}), ("required_options", {2: 2}),
+     ("x_ms_version", 20191212), ("min_version", 6.12), ("min_version", None),
+     ("ffmpeg", None), ("clips", 1), ("screens", None), ("gui_actions", ["a"]),
+     ("overlay", 2), ("out_dir", None)],
+)  # fmt: skip
+def test_strings_and_mappings_are_checked(tmp_path, name, value):
+    with pytest.raises(ValueError):
+        load_config(write(tmp_path, **{name: value}))
+
+
+def test_required_options_take_every_json_scalar(tmp_path):
+    scalars = {"a": "x", "b": 2, "c": 2.5, "d": True, "e": None}
+    assert (
+        load_config(write(tmp_path, required_options=scalars)).required_options
+        == scalars
+    )

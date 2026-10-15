@@ -1,103 +1,141 @@
-"""(6)-(8) of specs/perception-data.md: outputs independent of `workers`; run.json before
-planning; the cleanup of what no record lists; the rerun abort on any change of run.json's
-inputs. Interruptions: test_collect_interrupt.py; a rerun with nothing left to do:
-test_collect_bars.py."""
+"""(8) of specs/perception-data.md: run.json written before (0); a rerun aborts, changing
+nothing, when an output field (as JSON text), a hash or the classifier's id differs from
+run.json, with the names in order; the other fields may differ and are recorded."""
 
-import json
+import shutil
 
 import pytest
+import yaml
 
-from .collect_site import assert_outputs
-
-
-def use_out(site, name: str) -> None:
-    site.out = site.tmp / name
-    site.fields["out_dir"] = site.rel(site.out)
+from .collect_out import assert_outputs
+from .collect_site import HASHED
 
 
-@pytest.mark.parametrize("cut", [False, True])
-def test_outputs_do_not_depend_on_workers(site, cut):
-    n = site.cut() if cut else 100
-    trees = {}
-    for workers in (1, 3):
-        use_out(site, f"out{workers}")
-        site.run(workers=workers, n_clips=n)
-        trees[workers] = site.tree()
-        run = json.loads(trees[workers].pop("run.json"))
-        assert run["config"].pop("workers") == workers
-        assert run["config"].pop("out_dir") == site.fields["out_dir"]
-        trees[workers]["run.json"] = run
-    assert trees[1] == trees[3]
-    assert_outputs(site, site.expected(n_clips=n))
+def assert_untouched_abort(site, names: list, before: dict, asked: int, decoded: int, gamma) -> None:  # fmt: skip
+    """RuntimeError(f"{path} holds other values of {names}"), path = out_dir/run.json;
+    nothing written, asked, decoded or classified."""
+    assert type(site.error) is RuntimeError
+    path, sep, tail = str(site.error).rpartition(" holds other values of ")
+    assert sep and tail == str(names), str(site.error)
+    assert (site.repo / path).resolve() == (site.out / "run.json").resolve()
+    assert site.raw() == before and len(site.server.requests) == asked
+    assert len(site.decodes()) == decoded and gamma.calls == []
 
 
-def test_rerun_removes_what_no_record_lists(site):
-    site.run()
-    before = site.tree()
-    rows = site.read_jsonl("clips.jsonl")
-    stray = dict(rows[0], id="9.9_zz_0")
-    with open(site.out / "clips.jsonl", "a") as f:
-        f.write(json.dumps(stray) + "\n")
-    for name in (
-        "clips/9.9_zz_0/frames.yuv",
-        "staging/3.mp4",
-        "staging/3/x.part/frames.yuv",
-    ):
-        (site.out / name).parent.mkdir(parents=True, exist_ok=True)
-        (site.out / name).write_bytes(b"stray")
-    (site.out / "clips/9.9_zz_1").mkdir()
-    site.run()
-    assert site.tree() == before and not (site.out / "clips/9.9_zz_1").exists()
-    assert_outputs(site, site.expected())
+def rerun_aborts(site, names: list, gid: str = "fake-gamma-1", **changes) -> None:
+    before, asked, decoded = site.raw(), len(site.server.requests), len(site.decodes())
+    gamma = site.aborted(gid=gid, **changes)
+    assert_untouched_abort(site, names, before, asked, decoded, gamma)
 
 
-CHANGES = [
-    ("config", {"seed": 1}), ("config", {"workers": 2}), ("config", {"n_clips": 99}),
-    ("config", {"classifier_batch": 3}), ("config", {"ffmpeg_timeout": 4.0}),
-    ("file", "clips"), ("file", "actions"), ("file", "screens"), ("file", "gui_actions"),
-    ("file", "overlay"), ("file", "overlay_screens"), ("gamma", "fake-gamma-2"),
-    ("etag", "0x8DA5AB90A1B2FFF"), ("etag", None),
-]  # fmt: skip
+def copy(site, name: str) -> str:
+    """The path, relative to the repository root, of a copy of the config `name`."""
+    dst = site.paths[name].with_name(f"{name}-copy.yaml")
+    shutil.copyfile(site.paths[name], dst)
+    return site.rel(dst)
 
 
-@pytest.mark.parametrize("kind, change", CHANGES)
-def test_rerun_with_any_input_changed_aborts_untouched(site, kind, change):
+@pytest.fixture
+def ran(site):
+    """A site after a run aborted in draw 2 (two shards written)."""
+    site.aborted(site.failing_gamma(2))
+    assert len(site.complete()) == 2
+    return site
+
+
+def reordered(mapping: dict) -> dict:
+    return dict(reversed(mapping.items()))
+
+
+@pytest.mark.parametrize(
+    "name, change",
+    [
+        ("index_urls", lambda s: s.fields["index_urls"] | {"9xx": s.host + "/idx/9xx.json?v=2"}),
+        ("index_urls", lambda s: reordered(s.fields["index_urls"])),  # same mapping
+        ("min_version", lambda s: "6.13"),
+        ("required_options", lambda s: s.fields["required_options"] | {"fov": 0.5}),
+        ("required_options", lambda s: reordered(s.fields["required_options"])),
+        ("required_options", lambda s: s.fields["required_options"] | {"guiScale": 2.0}),
+        ("width", lambda s: 10), ("height", lambda s: 14),
+        ("clips", lambda s: copy(s, "clips")), ("screens", lambda s: copy(s, "screens")),
+        ("gui_actions", lambda s: copy(s, "gui_actions")),
+        ("overlay", lambda s: copy(s, "overlay")),
+        ("states", lambda s: 4), ("per_episode", lambda s: 3), ("n_clips", lambda s: 99),
+        ("seed", lambda s: 1),
+    ],
+)  # fmt: skip
+def test_output_field_changed_aborts_untouched(ran, name, change):
+    """Compared as JSON text: a reordered mapping and 2.0 for 2 differ; a copied config
+    file differs in its path only."""
+    rerun_aborts(ran, [name], **{name: change(ran)})
+
+
+@pytest.mark.parametrize("name", HASHED)
+def test_hashed_file_changed_aborts_untouched(ran, name):
+    with open(ran.paths[name], "a") as f:
+        f.write("# changed\n")
+    path = ran.paths["perception-data"]
+    before, asked, decoded = ran.raw(), len(ran.server.requests), len(ran.decodes())
+    gamma = ran.aborted(path=path)
+    assert_untouched_abort(ran, [f"sha256.{name}"], before, asked, decoded, gamma)
+
+
+def test_classifier_changed_aborts_untouched(ran):
+    rerun_aborts(ran, ["classifier"], gid="fake-gamma-2")
+
+
+def test_names_are_the_fields_then_the_hashes_then_the_classifier(ran):
+    ran.sub["threshold"] = 0.5  # the overlay config: sha256.overlay
+    rerun_aborts(ran, ["seed", "sha256.overlay", "classifier"], gid="g2", seed=3)
+
+
+def test_complete_run_aborts_on_a_change(site):
     site.run(n_clips=3)
-    before, decoded = site.tree(), len(site.decodes())
-    path = site.config(**({"n_clips": 3} | (change if kind == "config" else {})))
-    if kind == "file":
-        with open(site.paths[change], "a") as f:
-            f.write("# changed\n")
-    if kind == "etag":
-        site.etags["7xx"] = change
-    gamma = site.aborted(path=path, gid=change if kind == "gamma" else "fake-gamma-1")
-    assert site.tree() == before
-    assert gamma.calls == [] and len(site.decodes()) == decoded
+    assert site.completed()
+    rerun_aborts(site, ["n_clips"], n_clips=4)
 
 
-def test_config_compared_as_its_mapping(site):
-    """A comment in the block's own config leaves its mapping: the rerun does no work."""
-    site.run(n_clips=3)
-    before, path = site.tree(), site.config(n_clips=3)
-    with open(path, "a") as f:
-        f.write("# a comment\n")
-    gamma = site.collect(path)
-    assert site.tree() == before and gamma.calls == []
-
-
-def test_run_json_is_written_before_planning(site):
-    """An HTTP failure after the retries on the first file fetched aborts the run; run.json
-    holds the config, the ETags, the hashes and gamma's id, without counts."""
-    first = next(r for r in site.expected().records if r["reason"] != "version")
-    path = site.path(first["subset"], first["relpath"], "-options.json")
-    site.faults[site.head(path)] = [503] * 5
+def test_early_abort_keeps_run_json_for_the_check(site):
+    """run.json is written before (0): a run aborted at the first index leaves it, without
+    counts, and the next run is checked against it."""
+    site.indices["6xx"] = None
     site.aborted()
-    run = site.run_json()
-    assert set(run) == {"config", "index_etags", "sha256", "classifier"}
-    assert run["classifier"] == "fake-gamma-1" and run["index_etags"] == site.etags
-    assert site.asked(path) == [site.head(path)] * 2  # http_retries = 1
-    site.faults.clear()
-    gamma = site.aborted(gid="another gamma")
-    assert gamma.calls == [] and site.run_json() == run
-    site.run()
-    assert_outputs(site, site.expected())
+    assert site.run_json() == site.expected_run()
+    del site.indices["6xx"]
+    rerun_aborts(site, ["classifier"], gid="another")
+
+
+def other_ffmpeg(site) -> str:
+    dst = site.tmp / "bin" / "ffmpeg"
+    dst.parent.mkdir()
+    shutil.copy2(site.ffmpeg, dst)
+    return str(dst)
+
+
+@pytest.mark.parametrize(
+    "name, change",
+    [
+        ("x_ms_version", lambda s: "2020-04-08"), ("fetch_streams", lambda s: 2),
+        ("http_timeout", lambda s: 3), ("http_retries", lambda s: 0),
+        ("retry_delay", lambda s: 0.01), ("ffmpeg", other_ffmpeg),
+        ("ffmpeg_timeout", lambda s: 4.5), ("workers", lambda s: 2),
+        ("classifier_batch", lambda s: 3), ("out_dir", lambda s: str(s.out)),
+    ],
+)  # fmt: skip
+def test_other_fields_may_differ(ran, name, change):
+    """The continuation ends as the uninterrupted run; run.json records the new value."""
+    value = change(ran)
+    ran.run(**{name: value})
+    assert_outputs(ran, ran.expected())
+    assert ran.run_json()["config"][name] == value
+
+
+def test_config_compared_by_values_not_by_text(ran):
+    """The block's config rewritten with its fields in reverse order, a comment, other
+    spacing: no abort."""
+    path = ran.config()
+    doc = yaml.safe_load(path.read_text())
+    text = yaml.safe_dump(dict(reversed(doc.items())), sort_keys=False, indent=4)
+    path.write_text("# rewritten\n" + text)
+    ran.collect(path)
+    assert_outputs(ran, ran.expected())

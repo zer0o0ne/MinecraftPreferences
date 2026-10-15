@@ -58,7 +58,9 @@ def jsonl(script: str, session: bool) -> bytes:
 
 
 def options(**changes) -> bytes:
-    return json.dumps(REQUIRED | {"fov": 0.5} | changes, indent=1).encode()
+    """`lastServer` is not ASCII: a JSON file of the block escapes it."""
+    other = {"fov": 0.5, "lastServer": "café"}
+    return json.dumps(REQUIRED | other | changes, indent=1).encode()
 
 
 def frame(stem: str, t: int, overlay: bool) -> bytes:

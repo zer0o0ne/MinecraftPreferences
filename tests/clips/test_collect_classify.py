@@ -11,7 +11,7 @@ from .collect_world import Ep
 
 @pytest.mark.parametrize("batch", [1, 2, 3, 64])
 def test_calls_are_the_needed_then_the_state_chunks(site, batch):
-    """One worker: per committed episode, exactly the calls of the transcription."""
+    """One worker: per candidate, exactly the calls of the transcription."""
     gamma = site.run(classifier_batch=batch)
     ex = site.expected(classifier_batch=batch)
     assert gamma.bad == []
@@ -25,8 +25,8 @@ def test_each_frame_is_classified_at_most_once_with_three_workers(site):
         frames = [t for c in calls for t in c]
         assert len(frames) == len(set(frames)), stem
     assert all(1 <= len(c) <= 2 for c in gamma.calls)
-    committed = {s: c for s, c in site.expected().calls.items() if c}
-    assert {s: gamma.by_stem()[s] for s in committed} == committed
+    written = {s: c for s, c in site.expected().calls.items() if c}
+    assert {s: gamma.by_stem()[s] for s in written} == written
 
 
 def test_calls_are_serialised_across_workers(site):
@@ -46,12 +46,12 @@ def test_classifier_gets_the_rgb_view_of_each_frame(make_site):
 
 def rejecting(cls: str) -> dict:
     """`wwwwii` (delta 2, 3 states): starts p = 0 (states 0, 2, 4; frame 4 answered `cls`)
-    and p = 1 (states 1, 3, 5; frame 5 is the span's first frame u)."""
+    and p = 1 (states 1, 3, 5; frame 5 is the span's first frame u); draw 0."""
     return {"6xx": [Ep("data/7.0/a.mp4", "wwwwii", classes={4: cls})]}
 
 
 def first_draw(seed: int) -> int:
-    """The first position the episode generator (draw position 0) picks among 2 starts."""
+    """The first position the episode generator of draw 0 picks among 2 starts."""
     return int(np.random.Generator(np.random.PCG64([seed, 1, 0])).integers(2))
 
 
@@ -60,10 +60,10 @@ def test_accept_rejects_a_clip_with_an_excluded_state(make_site, cls):
     seed = next(s for s in range(100) if first_draw(s) == 0)
     site = make_site(episodes=rejecting(cls))
     gamma = site.run(seed=seed)
-    (record,) = site.read_jsonl("episodes.jsonl")
+    (record,) = site.records()
     assert record["valid_starts"] == 2 and record["clips"] == ["7.0_a_1"]
     assert gamma.by_stem() == {"a": [[5], [4]]}  # needed u = 5; p = 0 rejected; p = 1
-    (row,) = site.read_jsonl("clips.jsonl")
+    (row,) = site.rows()
     assert row["states"] == [1, 3, 5] and row["classes"] == [None, None, "inv"]
 
 
@@ -71,7 +71,7 @@ def test_overlapping_start_taken_first_needs_no_rejection(make_site):
     seed = next(s for s in range(100) if first_draw(s) == 1)
     site = make_site(episodes=rejecting("other"))
     gamma = site.run(seed=seed)
-    assert site.read_jsonl("episodes.jsonl")[0]["clips"] == ["7.0_a_1"]
+    assert site.records()[0]["clips"] == ["7.0_a_1"]
     assert gamma.by_stem() == {"a": [[5]]}
 
 
@@ -80,12 +80,12 @@ def test_every_clip_rejected_is_no_clip(make_site):
     eps = {"6xx": [Ep("data/7.0/r.mp4", "wiiwiiwiiw", classes={1: "other", 4: "other", 7: "other"})]}  # fmt: skip
     site = make_site(episodes=eps)
     gamma = site.run()
-    (record,) = site.read_jsonl("episodes.jsonl")
+    (record,) = site.records()
     assert record["reason"] == "no_clip" and record["valid_starts"] == 2
     assert record["overlay_start"] is False and record["clips"] is None
     calls = gamma.by_stem()["r"]
     assert calls[:2] == [[2, 5], [8]] and sorted(calls[2:]) == [[4], [7]]
-    assert site.tree("clips") == {}
+    assert not [p for p in site.raw("shards") if "/clips/" in p]
 
 
 @pytest.mark.parametrize(
@@ -110,7 +110,7 @@ def test_state_flags_and_classes_of_the_only_clip(make_site, script, gui, classe
     """T = 5: the one start p = 0 (states 0, 2, 4); its GUI states classified once."""
     site = make_site(episodes={"6xx": [Ep("data/7.0/a.mp4", script)]})
     gamma = site.run()
-    (row,) = site.read_jsonl("clips.jsonl")
+    (row,) = site.rows()
     assert (
         row["states"] == [0, 2, 4] and row["gui"] == gui and row["classes"] == classes
     )

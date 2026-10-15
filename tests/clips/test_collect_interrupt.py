@@ -1,110 +1,156 @@
-"""(6)-(8) of specs/perception-data.md: a rerun after an interruption (an abort by gamma,
-a rename failing inside a commit, a kill at each step of a commit) replays the committed
-episodes without fetching, decoding or classifying them, removes what no record lists,
-empties staging and ends as the uninterrupted run."""
+"""(6), (7), (9) of specs/perception-data.md: runs interrupted before, inside and after the
+write of a shard (the classifier, a fetch or a storage call raising; a kill) keep the
+complete shards; the continuation draws on from the last one without redoing its work and
+ends with the shards of an uninterrupted run."""
 
 import json
+import os
 import shutil
 
 import pytest
 
-from .collect_site import assert_outputs
+from .collect_gamma import Classifier
+from .collect_out import assert_outputs
+from .collect_site import asked_files
 
-STAGES = ("options", "one clip", "all clips", "record")  # steps of a commit, (6)
-
-
-def stem(record: dict) -> str:
-    return record["relpath"].split("/")[2].removesuffix(".mp4")
+K = 2  # seed 0: draw 2 pops old6 (version), then a6 (two clips); draws 0, 1 have candidates
 
 
-def test_rerun_after_an_abort_replays_and_continues(site):
-    """gamma raises at its first call for the third episode that calls it."""
-    site.aborted(site.failing_gamma())
-    records = site.read_jsonl("episodes.jsonl")
-    assert not site.completed() and len(records) >= 3
-    assert records == site.expected().records[: len(records)]
+def names(k: int) -> list[str]:
+    return [f"{j:06d}" for j in range(k)]
+
+
+def continued(site, h: int) -> Classifier:
+    """Continues the interrupted run: it ends as the uninterrupted one, without a request,
+    decode or classification for an episode of shards 0..h-1; returns the classifier."""
+    ex = site.expected()
     asked, decoded = len(site.server.requests), len(site.decodes())
     gamma = site.run()
-    assert_outputs(site, site.expected())
-    again = [r.path for r in site.server.requests[asked:]]
-    for s in map(stem, records):
-        assert not [p for p in again if f"/{s}." in p or f"/{s}-" in p], s
-        assert s not in {d["key"] for d in site.decodes()[decoded:]}
-        assert s not in gamma.by_stem()
+    assert_outputs(site, ex)
+    done = [r for s in ex.shards[:h] for r in s.records]
+    assert asked_files(site, [r["relpath"] for r in done], asked) == []
+    stems = {r["relpath"].split("/")[2][:-4] for r in done}
+    assert not stems & (
+        {d["key"] for d in site.decodes()[decoded:]} | set(gamma.by_stem())
+    )
+    return gamma
 
 
-def keep_only(site, records: list, ids: list, options: set) -> None:
-    """Keeps the lines of `records` (byte for byte), the clips `ids` and the options files
-    of the stems `options`; run.json loses its counts."""
-    for name, n in (("episodes.jsonl", len(records)), ("clips.jsonl", len(ids))):
-        text = (site.out / name).read_text()
-        (site.out / name).write_text("".join(text.splitlines(keepends=True)[:n]))
-    for path in (site.out / "clips").iterdir():
-        if path.name not in ids:
-            shutil.rmtree(path)
-    for path in (site.out / "options").iterdir():
-        if path.name.split("_", 1)[1].removesuffix("-options.json") not in options:
-            path.unlink()
+@pytest.mark.parametrize("workers", [1, 3])
+def test_classifier_raising_in_a_draw(site, workers):
+    """A worker's exception is raised once shards 0..k-1 are written; the continuation
+    redoes draw k."""
+    gamma = site.aborted(site.failing_gamma(K), workers=workers)
+    assert site.error is gamma.raised and not site.completed()
+    assert site.complete() == names(K)
+    assert "a6" in continued(site, K).by_stem()
+
+
+@pytest.mark.parametrize("workers", [1, 3])
+def test_video_fetch_failing_in_a_draw(site, workers):
+    """HTTP 503 on the HEAD of a6's video after the retries, in its worker."""
+    path = site.path("data/6.12/a6.mp4", ".mp4")
+    site.faults[site.head(path)] = [503] * 2
+    site.aborted(workers=workers)
+    assert site.asked(path) == [site.head(path)] * 2 and site.complete() == names(K)
+    site.faults.clear()
+    assert "a6" in continued(site, K).by_stem()
+
+
+@pytest.mark.parametrize("workers", [1, 3])
+def test_planner_fetch_failing_in_a_draw(site, workers):
+    """HTTP 503 on the options file of b7 (draw 3) after the retries: raised by the planner
+    at once; with one worker shards 0..2 are written before draw 3 starts."""
+    path = site.path("data/7.1/b7.mp4", "-options.json")
+    site.faults[site.head(path)] = [503] * 2
+    site.aborted(workers=workers)
+    h = len(site.complete())
+    assert site.complete() == names(h) and h <= 3 and (h == 3 or workers > 1)
+    site.faults.clear()
+    continued(site, h)
+
+
+def fail_fsync(monkeypatch, when) -> list:
+    """os.fsync raises OSError at its first call on a path for which `when` holds; returns
+    the exceptions raised."""
+    real, raised = os.fsync, []
+
+    def fsync(fd):
+        path = os.readlink(f"/proc/self/fd/{fd}")
+        if not raised and when(path):
+            raised.append(OSError(28, "No space left on device", path))
+            raise raised[-1]
+        return real(fd)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    return raised
+
+
+@pytest.mark.parametrize("workers", [1, 3])
+@pytest.mark.parametrize(
+    "file", ["records.json", "state.json", "options", "frames.yuv"]
+)
+def test_storage_failing_inside_a_shard_write(site, monkeypatch, workers, file):
+    """The sync of a file of staged shard k raises: shards 0..k-1 stay, the staged shard
+    is left; the continuation writes shard k again."""
+    staged = str((site.out / "shards" / f"{K:06d}.part").resolve())
+    raised = fail_fsync(monkeypatch, lambda p: p.startswith(staged + "/") and file in p)
+    site.aborted(workers=workers)
+    assert site.error is raised[0]
+    assert site.shard_names() == names(K) + [f"{K:06d}.part"]
+    assert "a6" in continued(site, K).by_stem()
+
+
+@pytest.mark.parametrize("workers", [1, 3])
+def test_storage_failing_after_a_shard_write(site, monkeypatch, workers):
+    """The sync of shards/ after the rename of shard k raises: shard k is complete; the
+    continuation starts with draw k + 1."""
+    shards = site.out.resolve() / "shards"
+    raised = fail_fsync(monkeypatch, lambda p: p == str(shards) and (shards / f"{K:06d}").is_dir())  # fmt: skip
+    site.aborted(workers=workers)
+    assert site.error is raised[0] and site.complete() == names(K + 1)
+    gamma = continued(site, K + 1)
+    assert "a6" not in gamma.by_stem()
+
+
+def killed(site, h: int) -> None:
+    """Turns the outputs of a complete run into what a kill inside the write of shard h
+    leaves: shards 0..h-1, a staged shard h, staging with a video and a clip of draw h,
+    run.json without counts."""
+    root = site.out / "shards"
+    for name in site.shard_names()[h:]:
+        shutil.move(root / name, root / f"{name}.gone")
+    shutil.move(root / f"{h:06d}.gone", root / f"{h:06d}.part")
+    for path in root.glob("*.gone"):
+        shutil.rmtree(path)
+    (root / f"{h:06d}.part" / "records.json").write_text("[")
+    (site.out / "staging" / str(h) / "6.12_a6_5.part").mkdir(parents=True)
+    (site.out / "staging" / str(h) / "6.12_a6_5.part" / "frames.yuv").write_bytes(b"x")
+    (site.out / "staging" / f"{h}.mp4").write_bytes(b"FAKEMP4 a6\n")
     run = site.run_json()
     del run["episodes"], run["clips"]
     (site.out / "run.json").write_text(json.dumps(run))
 
 
-def killed_in_commit(site, ex, stage: str) -> int:
-    """Turns the outputs of a complete run into those of a run killed inside the commit
-    of the first episode with two clips, after `stage`: its clips not yet renamed and a
-    later video lie in staging. Returns the episode's draw position k."""
-    k = next(i for i, r in enumerate(ex.records) if r["clips"] and len(r["clips"]) == 2)
-    renamed = {"options": 0, "one clip": 1}.get(stage, 2)
-    clips = ex.records[k]["clips"]
-    ids = [i for r in ex.records[:k] for i in r["clips"] or []] + clips[:renamed]
-    records = ex.records[: k + (stage == "record")]
-    keep_only(site, records, ids, {stem(r) for r in ex.records[: k + 1]})
-    staging = site.out / "staging"
-    for clip in clips[renamed:]:
-        (staging / str(k) / f"{clip}.part").mkdir(parents=True)
-        (staging / str(k) / f"{clip}.part" / "frames.yuv").write_bytes(b"x")
-    staging.mkdir(exist_ok=True)
-    (staging / f"{k + 1}.mp4").write_bytes(b"FAKEMP4 later\n")
-    return k
-
-
-@pytest.mark.parametrize("stage", STAGES)
-def test_rerun_after_a_kill_inside_a_commit(site, stage):
-    """The committed episodes are not decoded or classified again; the interrupted one is,
-    unless its record was written."""
+@pytest.mark.parametrize("h", [0, 1, K, 10])
+def test_continuation_after_a_kill(site, h):
     site.run()
-    ex = site.expected()
-    k = killed_in_commit(site, ex, stage)
-    decoded = len(site.decodes())
+    killed(site, h)
+    assert not site.completed()
+    continued(site, h)
+
+
+def test_continuation_of_a_complete_run_does_nothing(site):
+    site.run()
+    before, asked = site.raw(), len(site.server.requests)
     gamma = site.run()
-    assert_outputs(site, ex)
-    again = {d["key"] for d in site.decodes()[decoded:]} | set(gamma.by_stem())
-    committed = {stem(r) for r in ex.records[: k + (stage == "record")]}
-    assert not again & committed
-    assert (stem(ex.records[k]) in again) == (stage != "record")
+    assert site.raw() == before and gamma.calls == [] and len(site.server.requests) == asked  # fmt: skip
 
 
-def test_rerun_after_a_rename_fails_in_a_commit(site):
-    """clips/ read-only: the first commit with clips writes the options file, fails to
-    rename its first clip from staging/<r>/<id>.part and writes no record."""
-    ex = site.expected()
-    k = next(i for i, r in enumerate(ex.records) if r["clips"])
-    version = ex.records[k]["relpath"].split("/")[1]
-    (site.out / "clips").mkdir(parents=True)
-    (site.out / "clips").chmod(0o555)
-    try:
-        site.aborted()
-    finally:
-        (site.out / "clips").chmod(0o755)
-    assert site.read_jsonl("episodes.jsonl") == ex.records[:k] and not site.completed()
-    assert f"options/{version}_{stem(ex.records[k])}-options.json" in site.tree()
-    assert site.tree("clips") == {}
-    staged = {
-        f"staging/{k}/{c}.part/{name}": ex.files[f"clips/{c}/{name}"]
-        for c in ex.records[k]["clips"]
-        for name in ("frames.yuv", "lines.jsonl")
-    }
-    assert staged.items() <= site.tree("staging").items()
-    site.run()
-    assert_outputs(site, ex)
+def test_continuation_after_two_interruptions(site):
+    """Aborted in draw 1, then in draw 4, then continued."""
+    site.aborted(site.failing_gamma(1))
+    assert site.complete() == names(1)
+    site.aborted(site.failing_gamma(4), workers=3)
+    assert site.complete() == names(4)
+    continued(site, 4)

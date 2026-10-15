@@ -1,120 +1,90 @@
-"""(1) of specs/perception-data.md: the plan, the reasons and the records of
-episodes.jsonl (draw order, nulls per reason), the cut at N."""
+"""(1), (6) of specs/perception-data.md: the draws and the reasons, one shard per draw
+(several popped episodes, an empty pool without a candidate, a candidate ending its draw
+whatever its reason), the generator state stored with each shard, the cut at N."""
 
+import numpy as np
 import pytest
 
-from .collect_world import BAD_JSONL, EPISODES, Ep, options
+from .collect_out import assert_outputs
+from .collect_world import EPISODES, Ep
 
-REASONS = (
-    "version",
-    "missing",
-    "empty",
-    "malformed",
-    "options",
-    "video",
-    "no_clip",
-    None,
-)
-FILLED = {  # Interface: the record fields that are not null, per reason
-    "version": set(), "missing": set(), "empty": set(), "malformed": set(),
-    "options": {"options"}, "video": {"options", "starts_session"},
-    "no_clip": {"options", "starts_session", "overlay_start", "valid_starts"},
-    None: {"options", "starts_session", "overlay_start", "valid_starts", "clips"},
-}  # fmt: skip
-OPTIONAL = ("options", "starts_session", "overlay_start", "valid_starts", "clips")
+
+def names(records: list) -> list[str]:
+    return [r["relpath"].split("/")[2][:-4] for r in records]
+
+
+def shards(site) -> list[list[dict]]:
+    """The records of each complete shard."""
+    tree = site.tree("shards")
+    return [tree[f"shards/{x}/records.json"] for x in site.complete()]
 
 
 def test_records_follow_the_draws_with_every_reason(site):
     site.run()
-    records = site.read_jsonl("episodes.jsonl")
-    assert records == site.expected().records
-    assert {r["reason"] for r in records} == set(REASONS)
-    assert len(records) == 13  # every pool emptied: 14 relpaths, one exact repeat
-
-
-def test_record_fields_are_null_unless_computed(site):
-    site.run()
-    for r in site.read_jsonl("episodes.jsonl"):
-        assert set(r) == {"subset", "relpath", "reason", *OPTIONAL}
-        assert {k for k in OPTIONAL if r[k] is not None} == FILLED[r["reason"]], r
+    ex = site.expected()
+    assert [x.records for x in ex.shards] == shards(site)
+    assert site.complete() == [f"{k:06d}" for k in range(11)]
+    assert (
+        len(site.records()) == 13
+    )  # every pool emptied: 14 relpaths, one exact repeat
 
 
 def test_exact_repeats_are_drawn_once(site):
     """7xx lists data/7.1/b7.mp4 twice."""
     site.run()
-    relpaths = [r["relpath"] for r in site.read_jsonl("episodes.jsonl")]
+    relpaths = [r["relpath"] for r in site.records()]
     assert relpaths.count("data/7.1/b7.mp4") == 1
     assert len(relpaths) == len(set(relpaths))
 
 
-@pytest.mark.parametrize("where", [0, 1], ids=["inside", "at_end"])
-def test_cut_at_n_commits_the_first_n_clips(site, where):
-    n = site.cut() + where
-    site.run(n_clips=n)
-    ex = site.expected(n_clips=n)
-    records, clips = site.read_jsonl("episodes.jsonl"), site.read_jsonl("clips.jsonl")
-    assert records == ex.records and clips == ex.clips and len(clips) == n
-    full = site.expected()
-    last = len(records) - 1
-    assert records[:last] == full.records[:last]  # nothing drawn after the cut
-    assert records[last]["clips"] == full.records[last]["clips"][: 1 + where]
-    assert set(site.tree("clips")) == set(ex.files) - set(site.tree("options"))
+def pops(seed: int, n: int) -> list[int]:
+    """(1) on one subset of n episodes: the pool positions popped by the first draw."""
+    g = np.random.Generator(np.random.PCG64(seed))
+    g.integers(1)
+    return [int(g.integers(m)) for m in range(n, 0, -1)]
 
 
-def test_episodes_drawn_after_the_cut_leave_nothing(site):
-    """Workers ahead of the commit: the work for later episodes is discarded."""
-    n = site.cut()
-    site.run(n_clips=n, workers=3)
-    ex = site.expected(n_clips=n)
-    assert site.read_jsonl("episodes.jsonl") == ex.records
-    files = site.tree()
-    for name in ("run.json", "episodes.jsonl", "clips.jsonl"):
-        files.pop(name)
-    assert files == ex.files
+def test_several_popped_episodes_in_one_shard(make_site):
+    """One subset [x (version), m (missing), a (valid)]: a seed whose first draw pops `a`
+    last; one shard holds the three records in pop order, a's clips and options."""
+    eps = [Ep("data/6.9/x.mp4"), Ep("data/7.0/m.mp4", options=None), Ep("data/7.0/a.mp4", "w" * 6)]  # fmt: skip
+    seed = next(s for s in range(100) if pops(s, 3)[:2] in ([0, 0], [1, 0]))
+    order = list(eps)
+    popped = [order.pop(j) for j in pops(seed, 3)]
+    site = make_site(episodes={"7xx": eps})
+    site.run(seed=seed)
+    assert site.complete() == ["000000"]
+    assert names(site.records()) == [e.stem for e in popped]
+    assert [r["reason"] for r in site.records()] == [
+        {"x": "version", "m": "missing", "a": None}[e.stem] for e in popped
+    ]
+    assert_outputs(site, site.expected(seed=seed))
 
 
-def test_version_is_decided_without_a_download(site):
+def test_draw_ending_with_an_empty_pool_has_no_candidate(make_site):
+    eps = [Ep("data/6.9/x.mp4"), Ep("data/7.0/m.mp4", options=None), Ep("data/7.0/e.mp4", jsonl=b"")]  # fmt: skip
+    site = make_site(episodes={"8xx": eps})
     site.run()
-    assert not [k for k in site.asked() if "/data/6.9/" in k[1]]
+    assert site.complete() == ["000000"]
+    assert sorted(r["reason"] for r in site.records()) == [
+        "empty",
+        "missing",
+        "version",
+    ]
+    assert set(site.raw("shards")) == {"shards/000000/records.json", "shards/000000/state.json"}  # fmt: skip
+    assert site.run_json()["clips"] == 0
+    assert_outputs(site, site.expected())
 
 
-@pytest.mark.parametrize(
-    "ep, reason",
-    [
-        (Ep("data/7.0/a.mp4", options=None), "missing"),
-        (Ep("data/7.0/a.mp4", jsonl=None), "missing"),
-        (Ep("data/7.0/a.mp4", options=b"", jsonl=None), "missing"),
-        (Ep("data/7.0/a.mp4", options=b""), "empty"),
-        (Ep("data/7.0/a.mp4", jsonl=b""), "empty"),
-        (Ep("data/7.0/a.mp4", options=b'{"guiScale": 2,'), "malformed"),
-        (Ep("data/7.0/a.mp4", jsonl=BAD_JSONL), "malformed"),
-        (Ep("data/7.0/a.mp4", options=options(autoJump=True), jsonl=b""), "empty"),
-        (Ep("data/7.0/a.mp4", options=options(guiScale=3)), "options"),
-        (Ep("data/7.0/a.mp4", options=options(**{"key_key.forward": "key.keyboard.z"})),
-         "options"),
-        (Ep("data/6.11/a.mp4", options=None), "version"),
-        (Ep("data/6.12/a.mp4", "w" * 6), None),
-    ],
-)  # fmt: skip
-def test_reasons_in_their_order(make_site, ep, reason):
-    site = make_site(episodes={"9xx": [ep]})
+def test_a_candidate_ends_its_draw_whatever_its_reason(make_site):
+    """Every episode passes the checks: one draw per episode, `video` and `no_clip` too."""
+    eps = [Ep("data/7.0/v.mp4", video=None), Ep("data/7.0/n.mp4", "wwww"), Ep("data/7.0/a.mp4", "w" * 6)]  # fmt: skip
+    site = make_site(episodes={"9xx": eps})
     site.run()
-    assert [r["reason"] for r in site.read_jsonl("episodes.jsonl")] == [reason]
-
-
-def test_required_options_and_min_version_come_from_the_config(site):
-    """min_version 8.0: every 6.x and 7.x episode is `version`; fov required: every
-    episode read in full is `options`."""
-    changes = {"min_version": "8.0",
-               "required_options": site.fields["required_options"] | {"fov": 0.25}}  # fmt: skip
-    site.run(**changes)
-    records = site.read_jsonl("episodes.jsonl")
-    assert records == site.expected(**changes).records
-    reasons = {r["relpath"]: r["reason"] for r in records}
-    for relpath, reason in reasons.items():
-        old = relpath.split("/")[1].split(".")[0] in ("6", "7")
-        assert (reason == "version") == old, relpath
-    assert reasons["data/10.0/d10.mp4"] == reasons["data/9.2/n9.mp4"] == "options"
+    assert site.complete() == ["000000", "000001", "000002"]
+    assert [len(x) for x in shards(site)] == [1, 1, 1]
+    assert sorted(map(str, (r["reason"] for r in site.records()))) == ["None", "no_clip", "video"]  # fmt: skip
+    assert_outputs(site, site.expected())
 
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
@@ -125,11 +95,58 @@ def test_subsets_and_pools_are_drawn_as_in_the_transcription(make_site, seed):
     site = make_site(episodes=eps)
     changes = {"seed": seed, "n_clips": 7, "per_episode": 1}
     site.run(**changes)
-    assert site.read_jsonl("episodes.jsonl") == site.expected(**changes).records
+    assert_outputs(site, site.expected(**changes))
 
 
-def test_options_reason_records_the_options_object(site):
+def test_state_continues_the_plan_generator(site):
+    """state.json of shard k: the generator after draw k; drawing from it gives draw k + 1's
+    subset and first pop (the pools of (7) from the records of shards 0..k)."""
     site.run()
-    (rec,) = [r for r in site.read_jsonl("episodes.jsonl") if r["reason"] == "options"]
-    assert rec["options"] == {"guiScale": 2, "autoJump": True,
-                              "key_key.forward": "key.keyboard.w", "fov": 0.5}  # fmt: skip
+    ex, tree = site.expected(), site.tree("shards")
+    pools = {s: list(dict.fromkeys(e.relpath for e in es)) for s, es in site.world.episodes.items()}  # fmt: skip
+    for k in range(len(ex.shards) - 1):
+        state = tree[f"shards/{k:06d}/state.json"]
+        assert state["clips"] == ex.shards[k].clips
+        for r in ex.shards[k].records:
+            pools[r["subset"]].remove(r["relpath"])
+        g = np.random.Generator(np.random.PCG64())
+        g.bit_generator.state = state["generator"]
+        active = [s for s in pools if pools[s]]
+        s = active[g.integers(len(active))]
+        assert ex.shards[k + 1].records[0]["relpath"] == pools[s][g.integers(len(pools[s]))]  # fmt: skip
+
+
+@pytest.mark.parametrize("where", [0, 1], ids=["inside", "at_end"])
+def test_cut_at_n_writes_the_first_n_clips(site, where):
+    """N inside the first candidate with two clips, or at its end: its shard is the last;
+    it holds the first N - c clips in the order taken."""
+    full = site.expected()
+    k = full.first(None, clips=2)
+    n = full.shards[k - 1].clips + 1 + where
+    site.run(n_clips=n)
+    ex = site.expected(n_clips=n)
+    assert_outputs(site, ex)
+    assert len(ex.shards) == k + 1 and site.run_json()["clips"] == n
+    assert (
+        site.records()[-1]["clips"] == full.shards[k].records[-1]["clips"][: 1 + where]
+    )
+    assert [x.records for x in ex.shards[:k]] == [x.records for x in full.shards[:k]]
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_episode_generator_is_keyed_by_the_draw(make_site, seed):
+    """Three candidates of `wwwwww` (starts 0, 1; one clip each), a `version` episode
+    popped before one of them: each clip starts at the first pick of
+    Generator(PCG64([seed, 1, k])) among the two starts, k its shard."""
+    eps = {"6xx": [Ep("data/6.9/x.mp4"), Ep("data/7.0/a.mp4", "w" * 6)],
+           "7xx": [Ep("data/7.0/b.mp4", "w" * 6)], "8xx": [Ep("data/7.0/c.mp4", "w" * 6)]}  # fmt: skip
+    site = make_site(episodes=eps)
+    site.run(seed=seed, per_episode=1)
+    tree, valid = site.tree("shards"), 0
+    for k, name in enumerate(site.complete()):
+        for rec in tree[f"shards/{name}/records.json"]:
+            if rec["reason"] is None:
+                pick = np.random.Generator(np.random.PCG64([seed, 1, k])).integers(2)
+                assert rec["clips"] == [f"7.0_{rec['relpath'][9]}_{pick}"], k
+                valid += 1
+    assert valid == 3

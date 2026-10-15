@@ -21,15 +21,16 @@ def rgb(frame: bytes) -> np.ndarray:
 
 class Classifier:
     """gamma: finds each frame by its RGB view and answers Ep.cls; records each call's
-    frames as (stem, t); raises `self.raised` at call `fail_at`; holds each call `pause`
-    s."""
+    frames as (stem, t); raises `self.raised` (and sets `raised_now`) at call `fail_at`
+    and at each call for the stem `fail_stem`; holds each call `pause` s."""
 
-    def __init__(self, world, fail_at: int | None = None, pause: float = 0.0):
+    def __init__(self, world, fail_at=None, pause: float = 0.0, fail_stem=None):
         eps = {e.stem: e for e in world.eps.values()}
         self.index = {rgb(fr).tobytes(): (s, t) for s, e in eps.items()
                       for t, fr in enumerate(e.frames())}  # fmt: skip
         assert len(self.index) == sum(len(e.script) + 1 for e in eps.values())
         self.eps, self.fail_at, self.pause = eps, fail_at, pause
+        self.fail_stem, self.raised_now = fail_stem, threading.Event()
         self.calls, self.bad, self.lock, self.active, self.max_active = [], [], threading.Lock(), 0, 0  # fmt: skip
 
     def __call__(self, frames: list) -> list[str]:
@@ -38,14 +39,16 @@ class Classifier:
             self.max_active = max(self.max_active, self.active)
         try:
             time.sleep(self.pause)
-            if len(self.calls) == self.fail_at:
-                self.calls.append("raised")
-                self.raised = RuntimeError("classifier broke")
-                raise self.raised
             ok = isinstance(frames, list) and frames and all(
                 isinstance(x, np.ndarray) and x.dtype == np.uint8 and x.shape == (H, W, 3)
                 for x in frames)  # fmt: skip
             ids = [self.index.get(x.tobytes()) for x in frames] if ok else [None]
+            stem = ids[0][0] if ids[0] else None
+            if len(self.calls) == self.fail_at or (stem and stem == self.fail_stem):
+                self.calls.append("raised")
+                self.raised = RuntimeError("classifier broke")
+                self.raised_now.set()
+                raise self.raised
             self.calls.append(ids)
             if None in ids:
                 self.bad.append(frames)

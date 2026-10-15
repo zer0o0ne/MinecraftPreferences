@@ -1,6 +1,7 @@
 """(4), (c), (e) of specs/vpt-gui-frames.md: frames extracted and decoded by ffmpeg;
 the whole-episode decode of (2) of specs/perception-data.md."""
 
+import signal
 import subprocess
 import sys
 import tempfile
@@ -106,12 +107,18 @@ def decode_episode(
     cfg: Access, video: Path, n: int, keep: Container[int], timeout: float
 ) -> dict[int, bytes] | None:
     """(2) of specs/perception-data.md: one whole decode, the frames i in `keep`; None
-    unless it ends within `timeout` s with exit code 0 and exactly n frames."""
-    size, frames, i = frame_bytes(cfg), {}, 0
+    unless it exits with code 0 and exactly n frames; TimeoutError when its timer killed
+    ffmpeg after `timeout` s."""
+    size, frames, i, fired = frame_bytes(cfg), {}, 0, threading.Event()
     with tempfile.TemporaryFile() as stderr:
         cmd = episode_command(cfg, video)
         with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=stderr) as proc:
-            timer = threading.Timer(timeout, proc.kill)
+
+            def kill() -> None:
+                fired.set()
+                proc.kill()
+
+            timer = threading.Timer(timeout, kill)
             timer.start()
             try:
                 while len(buf := proc.stdout.read(size)) == size:
@@ -122,4 +129,6 @@ def decode_episode(
             finally:
                 timer.cancel()
         show(stderr)
+    if fired.is_set() and proc.returncode == -signal.SIGKILL:
+        raise TimeoutError(f"decode of {video} not ended within {timeout} s")
     return frames if proc.returncode == 0 and i == n and not buf else None

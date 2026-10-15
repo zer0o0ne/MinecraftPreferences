@@ -1,151 +1,165 @@
 """Progress bars of specs/perception-data.md (Interface; AGENTS.md Progress) and the end of
-stderr on an abort ((8): the bars closed, the exception re-raised): `indices`, `collect`
-(total N, initial value, advance and postfix at each commit), `collect: already done` on a
-rerun with nothing left to do, no bar inside an episode."""
+stderr on an abort ((9): the bars closed, the exception re-raised, no message): `indices`,
+`resume`, `collect` (total N, initial c, advance and postfix per shard) and their lines."""
 
 import itertools
-import json
 
 import pytest
 from progress_bars import Bar, assert_progress, screen, states
 
 from .collect_gamma import Classifier
 
-INDICES = Bar("indices", 5, 5, "file")
+INDICES, RESUME = Bar("indices", 5, 5, "file"), "resume: nothing to do"
+IDLE = {"indices": "indices: already done", "collect": "collect: already done"}
 
 
-def collect_bar(site, n: int) -> Bar:
-    ex = site.expected(n_clips=n)
-    return Bar("collect", len(ex.clips), n, "clip", f"{len(ex.records)} episodes")
+def collect_bar(ex, n: int, upto: int | None = None) -> Bar:
+    """`collect` closed after shards 0..upto-1 of `ex` (all if None)."""
+    shards = ex.shards[:upto]
+    c = shards[-1].clips if shards else 0
+    return Bar(
+        "collect", c, n, "clip", f"{sum(len(s.records) for s in shards)} episodes"
+    )
+
+
+def resume_bar(h: int) -> Bar:
+    return Bar("resume", h, h, "shard")
 
 
 @pytest.mark.parametrize("workers", [1, 3])
 @pytest.mark.parametrize("dry", [True, False], ids=["pools_dry", "cut"])
-def test_bars_totals_and_final_counts(site, capfd, workers, dry):
-    """N = 100 ends below N (the pools run dry); the cut ends at N."""
-    n = 100 if dry else site.cut()
+def test_bars_of_a_first_run(site, capfd, workers, dry):
+    """N = 100 ends below N (the pools run dry); the cut ends at N. No other bar."""
+    n = 100 if dry else 3
     site.run(n_clips=n, workers=workers)
     out, err = capfd.readouterr()
-    assert out == "" and screen(err) == [INDICES, collect_bar(site, n)]
+    assert out == "" and screen(err) == [INDICES, RESUME, collect_bar(site.expected(n_clips=n), n)]  # fmt: skip
     assert {b.desc for b in states(err)} == {"indices", "collect"}
     assert_progress(err)
 
 
-def test_collect_bar_advances_by_the_clips_of_each_commit(site, capfd):
-    """Per committed episode: advanced by its committed clips, then postfix `<k> episodes`."""
+def shard_states(ex) -> tuple[set, set]:
+    """(n, postfix) of `collect` after each shard, and those possible in between."""
+    done = [0] + [s.clips for s in ex.shards]
+    seen = list(itertools.accumulate((len(s.records) for s in ex.shards), initial=0))
+    after = {(done[k], f"{seen[k]} episodes") for k in range(len(done))}
+    between = {(done[k + 1], f"{seen[k]} episodes") for k in range(len(ex.shards))}
+    between |= {(done[k], f"{seen[k + 1]} episodes") for k in range(len(ex.shards))}
+    return after, between
+
+
+def test_collect_bar_advances_by_the_clips_of_each_shard(site, capfd):
+    """Per shard: advanced by its clips, postfix `<E> episodes` (set at creation too)."""
     site.run()
-    records = site.expected().records
-    done = list(
-        itertools.accumulate((len(r["clips"] or []) for r in records), initial=0)
-    )
-    after = {(done[k], f"{k} episodes") for k in range(len(records) + 1)}
-    between = {(done[k + 1], f"{k} episodes") for k in range(len(records))}
+    after, between = shard_states(site.expected())
     shown = states(capfd.readouterr().err, "collect")
     assert after <= {(b.n, b.postfix) for b in shown} <= after | between | {(0, None)}
     assert {(b.total, b.unit) for b in shown} == {(100, "clip")}
 
 
-def test_rerun_bar_starts_at_the_committed_clips(site, capfd):
-    site.aborted(site.failing_gamma())
-    records = site.read_jsonl("episodes.jsonl")
-    done = sum(len(r["clips"] or []) for r in records)
+def assert_rerun_bars(err: str) -> None:
+    """Each bar drawn once: never going back, one total and unit; closed bars last."""
+    for desc in dict.fromkeys(b.desc for b in states(err)):
+        drawn = states(err, desc)
+        assert all(a.n <= b.n for a, b in itertools.pairwise(drawn)), drawn
+        assert len({(b.total, b.unit) for b in drawn}) == 1, drawn
+
+
+def test_rerun_after_an_abort(site, capfd):
+    """Aborted in draw 2: the rerun reads 2 shards (`resume`), `collect` starts at their
+    clips and episodes."""
+    site.aborted(site.failing_gamma(2))
     capfd.readouterr()
     site.run()
-    err = capfd.readouterr().err
-    shown = states(err, "collect")
-    assert shown[0].n == done and {b.n for b in shown if b.postfix is None} <= {done}
-    assert (done, f"{len(records)} episodes") in {(b.n, b.postfix) for b in shown}
-    assert all(a.n <= b.n for a, b in itertools.pairwise(shown))
-    assert screen(err) == [INDICES, collect_bar(site, 100)]
+    err, ex = capfd.readouterr().err, site.expected()
+    assert screen(err) == [IDLE["indices"], resume_bar(2), collect_bar(ex, 100)]
+    assert_rerun_bars(err)
+    resume, shown = states(err, "resume"), states(err, "collect")
+    assert resume[0].n == 0 and resume[-1] == resume_bar(2)
+    assert shown[0].n == ex.shards[1].clips and {b.n for b in shown if b.postfix is None} <= {shown[0].n}  # fmt: skip
+    assert collect_bar(ex, 100, 2) in shown
 
 
-def strip_counts(site) -> None:
-    """run.json as a run killed after its last commit leaves it."""
-    run = site.run_json()
-    del run["episodes"], run["clips"]
-    (site.out / "run.json").write_text(json.dumps(run))
-
-
-@pytest.mark.parametrize(
-    "dry, killed",
-    [(False, False), (False, True), (True, False), (True, True)],
-    ids=[
-        "n_committed",
-        "n_committed_killed",
-        "pools_exhausted",
-        "pools_exhausted_killed",
-    ],
-)
-def test_rerun_with_nothing_left_prints_already_done(site, capfd, dry, killed):
-    """N already committed, or every pool exhausted by the committed draws (N = 100: 8
-    clips); killed: run.json without counts. No bar, no work, the counts written."""
-    n = 100 if dry else site.cut()
+@pytest.mark.parametrize("dry", [True, False], ids=["pools_exhausted", "n_reached"])
+def test_rerun_with_nothing_left(site, capfd, dry):
+    """N reached, or every pool exhausted by the shards: `collect: already done`, no work,
+    the shards unchanged, the counts written."""
+    n = 100 if dry else 3
     site.run(n_clips=n)
-    before, asked = site.tree(), len(site.server.requests)
-    if killed:
-        strip_counts(site)
+    before, h = site.raw(), len(site.expected(n_clips=n).shards)
     capfd.readouterr()
     gamma = site.run(n_clips=n)
     err = capfd.readouterr().err
-    assert screen(err) == [INDICES, "collect: already done"]
+    assert screen(err) == [IDLE["indices"], resume_bar(h), IDLE["collect"]]
     assert states(err, "collect") == [] and gamma.calls == []
-    assert site.tree() == before
-    assert {r.path for r in site.server.requests[asked:]} <= {
-        f"/idx/{s}.json" for s in site.etags
-    }
+    assert site.raw() == before and site.completed()
+
+
+def test_no_subset_active_from_the_start(make_site, capfd):
+    """Empty indices: `collect: nothing to do`, no shard, the counts empty; again on a
+    rerun."""
+    site = make_site(episodes={})
+    site.run()
+    assert screen(capfd.readouterr().err) == [INDICES, RESUME, "collect: nothing to do"]
+    assert site.complete() == [] and (site.run_json()["episodes"], site.run_json()["clips"]) == ({}, 0)  # fmt: skip
+    site.run()
+    assert screen(capfd.readouterr().err) == [IDLE["indices"], RESUME, "collect: nothing to do"]  # fmt: skip
+
+
+def test_indices_bar_counts_only_the_missing_indices(site, capfd):
+    site.indices["8xx"] = None
+    site.aborted()
+    assert screen(capfd.readouterr().err) == [Bar("indices", 2, 5, "file")]
+    del site.indices["8xx"]
+    site.run()
+    assert screen(capfd.readouterr().err)[:2] == [Bar("indices", 3, 3, "file"), RESUME]
 
 
 def assert_bars_last(err: str) -> list:
-    """`collect` prints nothing below its closed bars ((8): the message is `main`'s);
+    """`collect` prints nothing below its closed bars ((9): the message is `main`'s);
     returns the lines shown."""
-    assert_progress(err)
+    assert_rerun_bars(err)
     shown = screen(err)
-    assert shown and all(isinstance(x, Bar) for x in shown), repr(err)
+    assert shown and isinstance(shown[-1], Bar), repr(err)
+    assert [x for x in shown if isinstance(x, Bar)] == [states(err, d)[-1] for d in dict.fromkeys(b.desc for b in states(err))]  # fmt: skip
     return shown
 
 
 @pytest.mark.parametrize("workers", [1, 3])
-def test_classifier_exception_closes_the_bar_and_propagates(site, capfd, workers):
-    gamma = site.aborted(Classifier(site.world, fail_at=0), workers=workers)
+@pytest.mark.parametrize("k", [0, 3])
+def test_classifier_exception_closes_the_bar_and_propagates(site, capfd, workers, k):
+    """Raised in draw k: the same exception, after shards 0..k-1."""
+    gamma = site.aborted(site.failing_gamma(k), workers=workers)
     assert site.error is gamma.raised and not site.completed()
     shown = assert_bars_last(capfd.readouterr().err)
-    assert shown == [INDICES, Bar("collect", 0, 100, "clip", "0 episodes")]
+    assert shown == [INDICES, RESUME, collect_bar(site.expected(), 100, k)]
 
 
-def test_abort_lets_the_running_episodes_finish(site):
-    """One worker, gamma raising at its first call: the running decodes end, at most one
-    more episode was started."""
-    site.aborted(Classifier(site.world, fail_at=0))
-    starts, ends = site.decodes(), site.decodes("end")
-    assert len(starts) == len(ends) and 1 <= len({d["key"] for d in starts}) <= 2
+def test_abort_lets_the_running_work_finish(site):
+    """Three workers, gamma raising at draw 0: every decode started has ended."""
+    site.aborted(Classifier(site.world, fail_at=0), workers=3)
+    assert len(site.decodes()) == len(site.decodes("end"))
 
 
 def test_http_abort_while_planning_closes_the_bars_and_propagates(site, capfd):
-    first = next(r for r in site.expected().records if r["reason"] != "version")
-    path = site.path(first["subset"], first["relpath"], ".jsonl")
+    path = site.path("data/7.1/b7.mp4", "-options.json")  # draw 3
     site.faults[site.head(path)] = [503] * 5
     site.aborted()
     assert not site.completed()
     shown = assert_bars_last(capfd.readouterr().err)
-    # when `collect` is first drawn is not fixed: before or after this first fetch
-    assert shown[0] == INDICES and [(b.desc, b.n) for b in shown[1:]] in (
-        [],
-        [("collect", 0)],
-    )
+    assert shown == [INDICES, RESUME, collect_bar(site.expected(), 100, 3)]
 
 
 def test_pass_2_failure_closes_the_bar_and_propagates(site, capfd):
-    site.behaviours = {"a6": ["ok", "exit1"]}
+    site.behaviours = {"a6": ["ok", "exit1"]}  # draw 2
     site.aborted()
-    assert not site.completed()
+    assert type(site.error) is RuntimeError and not site.completed()
     shown = assert_bars_last(capfd.readouterr().err)
-    assert shown[0] == INDICES and [b.desc for b in shown] == ["indices", "collect"]
+    assert shown == [INDICES, RESUME, collect_bar(site.expected(), 100, 2)]
 
 
-def test_rerun_abort_leaves_the_indices_bar_last(site, capfd):
+def test_rerun_check_abort_draws_no_bar(site, capfd):
     site.run(n_clips=3)
-    before = site.tree()
     capfd.readouterr()
     site.aborted(n_clips=3, seed=1)
-    assert assert_bars_last(capfd.readouterr().err) == [INDICES]
-    assert site.tree() == before
+    assert capfd.readouterr().err == ""
