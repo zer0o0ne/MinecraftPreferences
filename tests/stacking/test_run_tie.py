@@ -1,5 +1,6 @@
-"""`main` of src/mcpref/stacking/run.py against specs/gui-stack.md ((5) ties, (6) evaluation)
-on TIE_WORLD of stack_world.py, where every test frame gets p = (0, 1/2, 1/2, 0) exactly."""
+"""`main` of src/mcpref/stacking/run.py against specs/gui-stack.md ((5) ties, (6) evaluation
+accumulated over the test shards) on TIE_WORLD of stack_world.py, where every test frame gets
+p = (0, 1/2, 1/2, 0) exactly."""
 
 import math
 
@@ -8,7 +9,7 @@ import pytest
 from progress_bars import Bar, assert_progress, states
 
 from . import stack_oracle as so
-from .stack_world import LABELS, TIE_CONFIG, TIE_WORLD
+from .stack_world import LABELS, TIE_CONFIG, TIE_WORLD, reference
 
 
 def test_tie_precondition():
@@ -22,15 +23,18 @@ def test_tie_takes_the_first_label(tie_run):
     """(5): p_f = (0, 1/2, 1/2, 0) for every test frame, z = 0 whatever x; y_hat = beta, the
     first of the tied beta, gamma, not the first label of Y."""
     assert tie_run.code == 0, tie_run.err
-    records = tie_run.predictions()
-    assert [r["id"] for r in records] == TIE_WORLD.test.ids
+    shards = tie_run.predictions()
+    assert [[r["id"] for r in s] for s in shards] == [
+        s.ids for s in TIE_WORLD.parts["test"]
+    ]
+    records = [r for s in shards for r in s]
     tied = {"alpha": 0.0, "beta": 0.5, "gamma": 0.5, "other": 0.0}
     assert all(r["p"] == tied and r["predicted"] == "beta" for r in records)
 
 
 def test_tie_report_train(tie_run):
     """train: |S| = 4; L(theta_0) of the reference; L(theta_1) = log 2 (lambda = 0)."""
-    o = so.reference(TIE_WORLD, TIE_CONFIG)
+    o = reference(TIE_WORLD, TIE_CONFIG)
     train = tie_run.report()["train"]
     assert train["frames"] == 4
     assert train["per_label"] == {"alpha": 0, "beta": 2, "gamma": 2, "other": 0}

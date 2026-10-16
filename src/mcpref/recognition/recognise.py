@@ -1,22 +1,42 @@
-"""(4), (5), (14) of specs/gui-masks.md: scores, the predicted label and the features, per
-frame and over the frames of a part; bars `features train`, `score <part>`."""
+"""(S) of specs/gui-masks.md: (4), (5), (14) and the loops over frames, frame-outer, with the
+model in memory; bars `features train`, `score validation`, `thresholds`, `score test`."""
 
+import itertools
 import sys
-from collections.abc import Mapping, Sequence
+from collections import Counter
+from collections.abc import Callable, Mapping, Sequence
 from fractions import Fraction
-from pathlib import Path
+from functools import partial
+from typing import TYPE_CHECKING
 
 import numpy as np
-from tqdm import tqdm
 
-from mcpref.gui.label_files import OTHER, rgb_view
+from mcpref import REPO
+from mcpref.gui.label_files import OTHER, rgb_view, write_json
 from mcpref.recognition.drawn_masks import SCALE, edges
+from mcpref.recognition.frame_set import State, part_frames
 from mcpref.recognition.masks import Pair, distance
-from mcpref.recognition.pairs import FOLDED, Named
+from mcpref.recognition.metrics import CRITERIA, choose
+from mcpref.recognition.pairs import VARIANTS
+from mcpref.recognition.stored import (
+    ALL,
+    FEATURES,
+    PARTS,
+    THRESHOLDS,
+    Model,
+    read_part,
+    read_thresholds,
+    shard_bar,
+    write_features,
+    write_thresholds,
+)
+from mcpref.shards.store import complete_shards
 
-Scores = dict[int, list[dict[str, Fraction]]]
-Point = tuple[int, Fraction, Fraction]
+if TYPE_CHECKING:
+    from mcpref.recognition.evaluate import GuiMasksConfig
+
 Pairs = Mapping[str, Sequence[Pair]]
+BARS = ("features train", "score validation", "score test")
 
 
 def view(v: str, x: np.ndarray) -> np.ndarray:
@@ -26,7 +46,7 @@ def view(v: str, x: np.ndarray) -> np.ndarray:
 
 
 def unit(v: str) -> int:
-    """Interface: d^f is held in units of 1/1000, so the bound is 1000 tau in (4) and the
+    """Interface: d^f is held in units of 1/1000: the bound is 1000 tau in (4) and the
     quantile is divided by 1000 in (14)."""
     return SCALE if v == "f" else 1
 
@@ -36,31 +56,51 @@ def deviations(x: np.ndarray, pairs: Pairs) -> dict[str, list[np.ndarray]]:
     return {k: [distance(x[m], t[m]) for t, m in ps] for k, ps in pairs.items()}
 
 
-def best(d: Mapping[str, Sequence[np.ndarray]], bound: int) -> dict[str, Fraction]:
-    """(4): S_k = the largest c / |M| over k's pairs, c = |{p in M : d <= bound}|; classes
-    without a pair have no score."""
-    return {
-        k: max(Fraction(int(np.count_nonzero(di <= bound)), di.size) for di in ds)
+def best(
+    d: Mapping[str, Sequence[np.ndarray]], bound: int
+) -> dict[str, tuple[int, int]]:
+    """(4): (c, |M|) of the best pair of each class, the first of the largest c / |M|,
+    c = |{p in M : d <= bound}|; classes without a pair absent."""
+    cms = {
+        k: [(int(np.count_nonzero(di <= bound)), di.size) for di in ds]
         for k, ds in d.items()
-        if ds
     }
+    return {k: max(cm, key=lambda c_m: Fraction(*c_m)) for k, cm in cms.items() if cm}
 
 
-def scores(x: np.ndarray, pairs: Pairs, tau: int) -> dict[str, Fraction]:
-    """(4): S_k(x) of the best pair of each class with a template."""
+def scores(x: np.ndarray, pairs: Pairs, tau: int) -> dict[str, tuple[int, int]]:
+    """(4): class -> (c, |M|) of its best pair, classes without a pair absent."""
     return best(deviations(x, pairs), tau)
+
+
+def exact(s: Mapping[str, tuple[int, int]]) -> dict[str, Fraction]:
+    """(4): S_k = c / |M| as an exact fraction."""
+    return {k: Fraction(*c_m) for k, c_m in s.items()}
+
+
+def ranked(scores: Mapping[str, Fraction], order: Sequence[str]) -> tuple | None:
+    """(5): k*, S_k* and S_(2) (0 if only one score); ties in `order`; None: no score."""
+    present = [k for k in order if k in scores]
+    if not present:
+        return None
+    top = max(present, key=scores.__getitem__)
+    second = max((scores[k] for k in present if k != top), default=Fraction(0))
+    return top, scores[top], second
+
+
+def decide(top: tuple | None, theta: Fraction, mu: Fraction) -> str:
+    """(5): k* if S_k* >= theta and S_k* - S_(2) >= mu, else `other`."""
+    if top is None:
+        return OTHER
+    k, s, second = top
+    return k if s >= theta and s - second >= mu else OTHER
 
 
 def predict(
     scores: Mapping[str, Fraction], order: Sequence[str], theta: Fraction, mu: Fraction
 ) -> str:
-    """(5): k* if S_k* >= theta and S_k* - S_(2) >= mu, else `other`; ties: order."""
-    ranked = [k for k in order if k in scores]
-    if not ranked:
-        return OTHER
-    top = max(ranked, key=scores.__getitem__)
-    second = max((scores[k] for k in ranked if k != top), default=Fraction(0))
-    return top if scores[top] >= theta and scores[top] - second >= mu else OTHER
+    """(5): the predicted label of a frame."""
+    return decide(ranked(scores, order), theta, mu)
 
 
 def quantile(d: np.ndarray, q: float) -> float:
@@ -73,96 +113,151 @@ def pair_feature(x: np.ndarray, t: np.ndarray, m: np.ndarray, q: float) -> float
     return quantile(distance(x[m], t[m]), q)
 
 
-def columns(named: Mapping[str, Named]) -> dict[str, list[tuple[str, Pair]]]:
-    """(14): per variant, (class, pair) of each column in column order."""
+def build_pairs(model: Model, b: str) -> dict[str, Pairs]:
+    """(4), (14): per variant, class -> its pairs for the frames scored with build b:
+    (b), (c) from b (none for a class without), the others built on all of F^tr."""
+    by_v = model[ALL] | model[b]
     return {
-        v: [(k, p) for k, ps in by_class.items() for p in ps.values()]
-        for v, by_class in named.items()
+        v: {k: list(cols.values()) for k, cols in by_v[v].items()} for v in VARIANTS
     }
 
 
-def n_columns(named: Mapping[str, Named]) -> int:
-    """(14): N_C."""
-    return sum(len(c) for c in columns(named).values())
+def frame_deviations(x: np.ndarray, pairs: Mapping[str, Pairs]) -> dict:
+    """(4), (14): per variant, d^V_T of each pair of each class on frame x_f."""
+    return {v: deviations(view(v, x), pairs[v]) for v in VARIANTS}
 
 
-def train_row(
-    x: np.ndarray, cols: dict[str, list[tuple[str, Pair]]], fold: dict, q: float
-) -> list[float]:
-    """(14) for a frame of F^tr_(l): (b), (c) columns use k's fold-l pair (NaN without
-    one), the others the column's own pair."""
+def feature_row(d: Mapping, own: Mapping[str, Pairs], q: float) -> list[float]:
+    """(14): phi_f in column order (the pairs `own` built on all of F^tr); NaN for the
+    column of a class without its pair in d."""
     row = []
-    for v, vcols in cols.items():
-        xv = view(v, x)
-        for k, p in vcols:
-            p = fold[v].get(k) if v in FOLDED else p
-            row.append(np.nan if p is None else pair_feature(xv, *p, q) / unit(v))
+    for v in VARIANTS:
+        for k, ps in own[v].items():
+            ds = d[v].get(k, [])
+            row += (
+                [quantile(di, q) / unit(v) for di in ds] if ds else [np.nan] * len(ps)
+            )
     return row
 
 
-def train_features(
-    frames_dir: Path,
-    size: tuple[int, int],
-    named: Mapping[str, Named],
-    folds: Mapping[int, dict],
-    fold_of: Mapping[str, int],
-    train: Sequence[dict],
-    q: float,
-) -> np.ndarray:
-    """(14) over F^tr in order: frames x N_C, float64; bar `features train`."""
-    if not train:
-        print("features train: nothing to do", file=sys.stderr)
-        return np.zeros((0, n_columns(named)))
-    cols, rows = columns(named), []
-    with tqdm(total=len(train), desc="features train", unit="frame") as bar:
-        for f in train:
-            x = rgb_view(frames_dir, f, size)
-            rows.append(train_row(x, cols, folds[fold_of[f["relpath"]]], q))
-            bar.update()
-    return np.array(rows, dtype=np.float64)
+def tau_counts(d: Mapping, names: list[str], tau_grid: Sequence[int]) -> np.ndarray:
+    """(4) at every tau: c and |M| of the best pair, 2 x 6 x |K| x |tau_grid|, 0 without."""
+    cm = np.zeros((2, len(VARIANTS), len(names), len(tau_grid)), np.int64)
+    for i, v in enumerate(VARIANTS):
+        for t, tau in enumerate(tau_grid):
+            for k, c_m in best(d[v], tau * unit(v)).items():
+                cm[:, i, names.index(k), t] = c_m
+    return cm
 
 
-def frame_record(
-    x: np.ndarray, pairs: Pairs, v: str, tau_grid: Sequence[int], q: float
-) -> tuple[dict[int, dict[str, Fraction]], list[float]]:
-    """(4) at each tau of tau_grid and (14) with the column's own pairs, for variant v."""
-    d = deviations(view(v, x), pairs)
-    s = {tau: best(d, tau * unit(v)) for tau in tau_grid}
-    return s, [quantile(di, q) / unit(v) for ds in d.values() for di in ds]
+def frame_preds(d: Mapping, chosen: Mapping, names: list[str]) -> list[list[str]]:
+    """(4), (5) at each variant's chosen point of each threshold choice: 6 x 2."""
+    return [
+        [
+            predict(exact(best(d[v], tau * unit(v))), names, theta, mu)
+            for tau, theta, mu in (chosen[v][c] for c in CRITERIA)
+        ]
+        for v in VARIANTS
+    ]
 
 
-def part_scores(
-    frames_dir: Path,
-    size: tuple[int, int],
-    tau_grid: Sequence[int],
-    named: Mapping[str, Named],
-    frames: Sequence[dict],
-    part: str,
-    q: float,
-) -> tuple[dict[str, Scores], np.ndarray]:
-    """(4) per variant and tau, (14) per frame of `part` in order (frames x N_C); bar
-    `score <part>`."""
-    if not frames:
-        print(f"score {part}: nothing to do", file=sys.stderr)
-        empty = {v: {tau: [] for tau in tau_grid} for v in named}
-        return empty, np.zeros((0, n_columns(named)))
-    recs = {v: [] for v in named}
-    total = len(named) * len(frames)
-    with tqdm(total=total, desc=f"score {part}", unit="frame") as bar:
-        for v, by_class in named.items():
-            pairs = {k: list(ps.values()) for k, ps in by_class.items()}
+def train_row(
+    x: np.ndarray, f: dict, pairs: Mapping, fold_of: Mapping, q: float
+) -> dict:
+    """(14) for a frame of F^tr_(l), l = the fold of its episode."""
+    d = frame_deviations(x, pairs[f"fold{fold_of[f['episode']]}"])
+    return {"x": feature_row(d, pairs[ALL], q)}
+
+
+def validation_row(
+    x: np.ndarray, f: dict, own: Mapping, cfg: "GuiMasksConfig", names: list[str]
+) -> dict:
+    """(4) at every tau of tau_grid, and (14), for a frame of F^va."""
+    d = frame_deviations(x, own)
+    cm = tau_counts(d, names, cfg.tau_grid)
+    return {"x": feature_row(d, own, cfg.feature_quantile), "c": cm[0], "m": cm[1]}
+
+
+def test_row(
+    x: np.ndarray, f: dict, own: Mapping, q: float, names: list[str], chosen: Mapping
+) -> dict:
+    """(4), (5) at the chosen points, and (14), for a frame of F^te."""
+    d = frame_deviations(x, own)
+    return {"x": feature_row(d, own, q), "pred": frame_preds(d, chosen, names)}
+
+
+def score_part(
+    cfg: "GuiMasksConfig", state: State, part: int, row: Callable, shapes: Mapping
+) -> None:
+    """(S): the features shards of a part, one per index shard, each frame read once;
+    bar of the part."""
+    out = REPO / cfg.out_dir
+    directory, n = out / FEATURES / PARTS[part], [c[part] for c in state.counts]
+    h = complete_shards(directory)
+    with shard_bar(BARS[part], len(n), h, sum(n), sum(n[:h]), "frame") as update:
+        for s in range(h, len(n)):
+            frames, rows = part_frames(out, s, part), []
             for f in frames:
-                x = rgb_view(frames_dir, f, size)
-                recs[v].append(frame_record(x, pairs, v, tau_grid, q))
-                bar.update()
-    s = {
-        v: {tau: [r[tau] for r, _ in rs] for tau in tau_grid} for v, rs in recs.items()
-    }
-    x = [np.array([row for _, row in rs], dtype=np.float64) for rs in recs.values()]
-    return s, np.hstack(x)
+                rows.append(row(rgb_view(REPO / cfg.frames_dir, f, state.size), f))
+                update()
+            write_features(directory, s, frames, rows, shapes)
 
 
-def predictions(s: Scores, point: Point, order: Sequence[str]) -> list[str]:
-    """(5) at the grid point (tau, theta, mu), for each scored frame in order."""
-    tau, theta, mu = point
-    return [predict(x, order, theta, mu) for x in s[tau]]
+def tops(c: np.ndarray, m: np.ndarray, names: list[str]) -> list[tuple | None]:
+    """(5) at every tau: k*, S_k*, S_(2) from the stored c, |M| (|K| x |tau_grid|)."""
+    by_tau = (zip(names, c[:, t].tolist(), m[:, t].tolist()) for t in range(c.shape[1]))
+    return [ranked(exact({k: cm for k, *cm in s if cm[1]}), names) for s in by_tau]
+
+
+def tally_grid(
+    acc: list[list[Counter]], z: Mapping, cfg: "GuiMasksConfig", names: list[str]
+) -> None:
+    """(6): adds one validation shard: per variant and grid point (tau outermost, mu
+    innermost), the frames per (y, y_hat), y_hat by (5) from the stored c, |M|."""
+    grid = list(
+        itertools.product(range(len(cfg.tau_grid)), cfg.theta_grid, cfg.mu_grid)
+    )
+    for y, c, m in zip(z["y"].tolist(), z["c"], z["m"]):
+        for acc_v, c_v, m_v in zip(acc, c, m):
+            top = tops(c_v, m_v, names)
+            for p, (t, theta, mu) in enumerate(grid):
+                acc_v[p][y, decide(top[t], theta, mu)] += 1
+
+
+def thresholds(cfg: "GuiMasksConfig", state: State, raw: Mapping) -> dict:
+    """(6) from the validation shards read one at a time, written to thresholds.json and
+    read from it; bar `thresholds`."""
+    path = REPO / cfg.out_dir / THRESHOLDS
+    if path.exists():
+        print("thresholds: already done", file=sys.stderr)
+        return read_thresholds(path)
+    points = list(itertools.product(cfg.tau_grid, raw["theta_grid"], raw["mu_grid"]))
+    acc = [[Counter() for _ in points] for _ in VARIANTS]
+    tally = partial(tally_grid, acc, cfg=cfg, names=state.names)
+    read_part(REPO / cfg.out_dir, 1, state.counts, "thresholds", tally)
+    chosen = [{c: points[p] for c, p in choose(a).items()} for a in acc]
+    write_thresholds(path, dict(zip(VARIANTS, chosen)))
+    return read_thresholds(path)
+
+
+def score(cfg: "GuiMasksConfig", state: State, model: Model, raw: Mapping) -> dict:
+    """(S): features/header.json, then the parts train, validation (and (6)), test;
+    returns the chosen points of (6)."""
+    out, names, q = REPO / cfg.out_dir, state.names, cfg.feature_quantile
+    pairs = {b: build_pairs(model, b) for b in model}
+    own = pairs[ALL]
+    columns = [
+        f"{v}/{c}" for v in VARIANTS for cs in model[ALL][v].values() for c in cs
+    ]
+    header = {"columns": columns, "labels": [*names, OTHER]}
+    write_json(out / FEATURES / "header.json", header)
+    x = {"x": ((len(columns),), np.float64)}
+    row = partial(train_row, pairs=pairs, fold_of=state.fold_of, q=q)
+    score_part(cfg, state, 0, row, x)
+    cm = ((len(VARIANTS), len(names), len(cfg.tau_grid)), np.int64)
+    row = partial(validation_row, own=own, cfg=cfg, names=names)
+    score_part(cfg, state, 1, row, x | {"c": cm, "m": cm})
+    chosen = thresholds(cfg, state, raw)
+    row = partial(test_row, own=own, q=q, names=names, chosen=chosen)
+    score_part(cfg, state, 2, row, x | {"pred": ((len(VARIANTS), len(CRITERIA)), str)})
+    return chosen

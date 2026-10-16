@@ -5,7 +5,9 @@ l2: 0.0001
 lr: 0.01
 betas: [0.9, 0.999]
 adam_eps: 1.0e-8
-steps: 2000
+epochs: 50
+batch: 32
+checkpoint_steps: 500
 seed: 0
 device: "cpu"
 out_dir: "data/gui_stack"

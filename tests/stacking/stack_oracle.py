@@ -1,4 +1,4 @@
-"""Naive float64 references for specs/gui-stack.md (Notation, (1)-(4)) and gui-masks (8):
+"""Naive float64 references for specs/gui-stack.md (Notation, (1)-(3')) and gui-masks (8):
 loops and numpy, nothing from src/."""
 
 import math
@@ -9,15 +9,15 @@ import torch
 
 
 def moments(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """mu_i: mean of the non-NaN values of column i; s_i: 0 if they are all equal, else
-    their population standard deviation."""
+    """mu_i: mean of the non-NaN values of column i, 0 when there is none; s_i: 0 if they are
+    all equal (or none), else their population standard deviation."""
     mu, s = [], []
     for col in x.T:
         vals = [float(v) for v in col if not math.isnan(v)]
-        m = sum(vals) / len(vals)
-        spread = math.sqrt(sum((v - m) ** 2 for v in vals) / len(vals))
+        m = math.fsum(vals) / len(vals) if vals else 0.0
+        spread = math.sqrt(math.fsum((v - m) ** 2 for v in vals) / max(len(vals), 1))
         mu.append(m)
-        s.append(0.0 if len(set(vals)) == 1 else spread)
+        s.append(0.0 if len(set(vals)) <= 1 else spread)
     return np.array(mu), np.array(s)
 
 
@@ -62,39 +62,37 @@ def weights(y: list) -> np.ndarray:
     return np.array([1 / list(y).count(v) for v in y])
 
 
-def loss(theta: list, z: np.ndarray, y: list, w: np.ndarray, l2: float) -> float:
-    """(3): weighted mean of -log p(y_f | z_f), normalised by sum w, plus L2 on W1, W2."""
+def penalty(theta: list, l2: float) -> float:
+    """lambda (||W1||_F^2 + ||W2||_F^2)."""
+    return l2 * ((theta[0] ** 2).sum() + (theta[2] ** 2).sum())
+
+
+def weighted_nll(theta: list, z: np.ndarray, y: list, w: np.ndarray) -> float:
+    """sum_f w_f (-log p(y_f | z_f)), log p by log-softmax over Y."""
     lp = log_softmax(logits(theta, z))
-    data = sum(w[f] * -lp[f, y[f]] for f in range(len(y))) / sum(w)
-    return data + l2 * ((theta[0] ** 2).sum() + (theta[2] ** 2).sum())
+    return sum(w[f] * -lp[f, y[f]] for f in range(len(y)))
 
 
-def gradient(theta: list, z: np.ndarray, y: list, w: np.ndarray, l2: float) -> list:
-    """Gradient of (3) by hand: dL/dl_f = w_f / sum(w) (p_f - onehot(y_f)), back through (1)."""
+def loss(theta: list, z: np.ndarray, y: list, w: np.ndarray, l2: float) -> float:
+    """(3) over the frames given (all of S)."""
+    return weighted_nll(theta, z, y, w) / sum(w) + penalty(theta, l2)
+
+
+def loss_batch(theta, z, y, w, w_total: float, m: int, l2: float) -> float:
+    """(3') over the frames given (a mini-batch): M sum_B w (-log p) / sum_S w + L2."""
+    return m * weighted_nll(theta, z, y, w) / w_total + penalty(theta, l2)
+
+
+def gradient(theta: list, z, y: list, w: np.ndarray, coef: float, l2: float) -> list:
+    """Gradient of coef sum_f w_f (-log p(y_f | z_f)) + L2 by hand: dl_f = coef w_f
+    (p_f - onehot(y_f)), back through (1); coef = 1 / sum w for (3), M / sum_S w for (3')."""
     w1, b1, w2, b2 = theta
     a = z @ w1.T + b1
     h = np.maximum(a, 0)
     p = np.exp(log_softmax(h @ w2.T + b2))
-    dl = (w / w.sum())[:, None] * (p - np.eye(len(b2))[list(y)])
+    dl = coef * w[:, None] * (p - np.eye(len(b2))[list(y)])
     da = (dl @ w2) * (a > 0)
     return [da.T @ z + 2 * l2 * w1, da.sum(0), dl.T @ h + 2 * l2 * w2, dl.sum(0)]
-
-
-def adam(theta: list, z, y, w, l2, lr, betas, eps, steps) -> list:
-    """(4): theta_1 .. theta_T of full-batch Adam from theta_0, bias-corrected as in [T]."""
-    (b1, b2), out = betas, []
-    m = [np.zeros_like(p) for p in theta]
-    v = [np.zeros_like(p) for p in theta]
-    for t in range(1, steps + 1):
-        g = gradient(theta, z, y, w, l2)
-        m = [b1 * mi + (1 - b1) * gi for mi, gi in zip(m, g)]
-        v = [b2 * vi + (1 - b2) * gi**2 for vi, gi in zip(v, g)]
-        theta = [
-            p - lr * (mi / (1 - b1**t)) / (np.sqrt(vi) / math.sqrt(1 - b2**t) + eps)
-            for p, mi, vi in zip(theta, m, v)
-        ]
-        out.append(theta)
-    return out
 
 
 def matrices(classes: list, labellers: list) -> dict:
@@ -111,18 +109,3 @@ def matrices(classes: list, labellers: list) -> dict:
                 [[float(Fraction(n, len(fk))) for n in r] for r in agree],
             )
     return out
-
-
-def reference(world, cfg: dict) -> dict:
-    """A run of specs/gui-stack.md on `world` of stack_world.py: S = train then validation
-    frames; its mu, s, z, label indices y, w; theta_0 .. theta_T of (2), (4); z of the test
-    frames."""
-    x = np.array(world.train.x + world.validation.x, dtype=np.float64)
-    y = [world.labels.index(v) for v in world.train.y + world.validation.y]
-    mu, s = moments(x)
-    z, w = standardised(x, mu, s), weights(y)
-    theta0 = init(len(world.columns), cfg["hidden"], len(world.labels), cfg["seed"])
-    args = (cfg["l2"], cfg["lr"], cfg["betas"], cfg["adam_eps"], cfg["steps"])
-    path = [theta0, *adam(theta0, z, y, w, *args)]
-    z_te = standardised(np.array(world.test.x), mu, s)
-    return {"mu": mu, "s": s, "z": z, "y": y, "w": w, "path": path, "z_te": z_te}

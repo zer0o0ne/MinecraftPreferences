@@ -1,20 +1,105 @@
 """The outputs of `main` of specs/gui-masks.md on the worlds of masks_world.py against the
-oracle of masks_expected.py: report.json, templates, report.md; features.npz in
-test_evaluate_features.py."""
+oracle of masks_expected.py: the files of {out_dir}, the template shards, thresholds.json,
+report.json, report.md; the features shards in test_evaluate_features.py."""
 
-import dataclasses
+import json
+from fractions import Fraction
 
-import masks_expected as me
 import masks_world as mw
 import numpy as np
 import pytest
-from masks_run import run_main
+from masks_run import config_of, npz, run_main
 from metrics_oracle import normal
 from PIL import Image
-from progress_bars import Bar, assert_progress, screen
 
 REPORT_KEYS = {"split", "qualified", *mw.VARIANTS, "agreement_matrices"}
 TEST_KEYS = {*mw.CRITERIA, "per_label", "confusion", "by_flag"}
+PARTS = ("train", "validation", "test")
+TEMPLATE_SETS = {"catalogue": "pairs.npz", "b": "pairs.npz", "c": "masks.npz"}
+
+
+def files(exp: dict) -> list:
+    """Produces: every file of {out_dir} after a run that exits 0."""
+    n_s = len(exp["index"])
+    out = ["run.json", "thresholds.json", "report.json", "report.md"]
+    out += [f"index/{s:06d}/index.json" for s in range(n_s)]
+    out += [f"features/{p}/{s:06d}/features.npz" for p in PARTS for s in range(n_s)]
+    out += ["features/header.json"]
+    for kind, name in TEMPLATE_SETS.items():
+        n = len(exp[f"{kind}_shards"])
+        out += [f"templates/{kind}/{s:06d}/{name}" for s in range(n)]
+    out += [
+        f"templates/{s}_{k}.png" for s in exp["images"] for k in ("template", "mask")
+    ]
+    return sorted(out)
+
+
+def test_output_files(world):
+    """Every file of Produces and nothing else: no features.npz, no staged shard."""
+    _, run, exp = world
+    found = sorted(
+        p.relative_to(run.out).as_posix() for p in run.out.rglob("*") if p.is_file()
+    )
+    assert found == files(exp)
+
+
+@pytest.mark.parametrize("kind", list(TEMPLATE_SETS))
+def test_template_shards(world, kind):
+    """templates/catalogue (class s of K: <variant>/<member>/T, M of (a), (d)-(f)),
+    templates/b (class s of Q: <build>/T, sigma, M of every build with a non-empty M),
+    templates/c (build s of all, fold0, ...: <class> -> its mask), empty .npz included;
+    T uint8 H x W x 3 (int64 H x W for (f)), sigma int16, M bool."""
+    _, run, exp = world
+    for s, want in enumerate(exp[f"{kind}_shards"]):
+        got = npz(run.out / f"templates/{kind}/{s:06d}/{TEMPLATE_SETS[kind]}")
+        assert sorted(got) == sorted(want), (kind, s)
+        for key, a in want.items():
+            assert got[key].dtype == dtype(kind, key) and got[key].shape == a.shape
+            assert np.array_equal(got[key], a), (kind, s, key)
+
+
+def dtype(kind: str, key: str):
+    """Produces: T uint8 (int64 for (f)), sigma int16, M and the (c) masks bool."""
+    if kind == "c" or key.endswith("/M"):
+        return np.dtype(bool)
+    if key.endswith("/sigma"):
+        return np.dtype(np.int16)
+    return np.dtype(np.int64 if key.startswith("f/") else np.uint8)
+
+
+def test_template_images(world):
+    """Next to each .npz, the pairs built on all of F^tr: <variant>__<member or
+    class>_template.png (RGB, alpha < 255 black; (f): 8-bit grey floor(T / 1000)) and
+    _mask.png (8-bit grey, 255 in the mask)."""
+    _, run, exp = world
+    for stem, (image, mask) in exp["images"].items():
+        template, grey = (
+            Image.open(run.out / f"templates/{stem}_{kind}.png")
+            for kind in ("template", "mask")
+        )
+        assert template.mode == ("L" if "/f__" in stem else "RGB"), stem
+        assert np.array_equal(np.asarray(template), image), stem
+        assert grey.mode == "L" and np.array_equal(np.asarray(grey) == 255, mask)
+        assert set(np.unique(np.asarray(grey))) <= {0, 255}
+
+
+def test_thresholds_json(world):
+    """(6): per variant, per threshold choice, {tau, theta, mu}, theta and mu as the strings
+    of the grids as written in the config."""
+    name, run, exp = world
+    config = config_of(name)
+    strings = {
+        g: {Fraction(t): t for t in config[g]} for g in ("theta_grid", "mu_grid")
+    }
+    want = {
+        v: {
+            c: {"tau": t["tau"], "theta": strings["theta_grid"][t["theta"]]}
+            | {"mu": strings["mu_grid"][t["mu"]]}
+            for c, t in ((c, exp[v][c]["thresholds"]) for c in mw.CRITERIA)
+        }
+        for v in mw.VARIANTS
+    }
+    assert json.loads((run.out / "thresholds.json").read_text()) == want, name
 
 
 def test_report_keys_and_qualified(world):
@@ -37,10 +122,7 @@ def test_pairs(world):
             pairs = exp["pairs"][v].get(k, {})
             sizes = sorted(int(m.sum()) for _, m in pairs.values())
             values = [sorted(x) if isinstance(x, list) else x for x in got[k].values()]
-            assert sorted(map(str, values)) == sorted(map(str, [len(pairs), sizes])), (
-                v,
-                k,
-            )
+            assert sorted(map(str, values)) == sorted(map(str, [len(pairs), sizes]))
 
 
 @pytest.mark.parametrize("variant", list(mw.VARIANTS))
@@ -50,7 +132,8 @@ def test_thresholds_and_test_metrics(world, variant, crit):
     _, run, exp = world
     got, want = run.report[variant][crit], exp[variant][crit]
     assert set(got) == {"thresholds", "test"}
-    assert got["thresholds"] == want["thresholds"]
+    t = want["thresholds"]
+    assert got["thresholds"] == {k: float(v) if k != "tau" else v for k, v in t.items()}
     assert set(got["test"]) == TEST_KEYS
     assert normal(got["test"]) == {
         k: v for k, v in want["test"].items() if k != "by_flag"
@@ -72,18 +155,17 @@ def test_agreement_matrices(world, crit):
     assert all(len(m["labellers"]) == 7 for m in shown.values())
 
 
-def test_split_frames_per_label(world):
-    """`split`: per part, frames per label of K and other, zeros included (the names of the
-    other entries of a part are not fixed by the spec)."""
+def test_split_parts(world):
+    """`split`, per part in the order train, validation, test (their names not fixed by the
+    spec): the episodes of the part (with or without labelled frames, as in `folds`), its
+    labelled frames, and its frames per label of K and other, zeros included."""
     _, run, exp = world
-    split = run.report["split"]
-    parts = [p for k, p in split.items() if k != "folds"]
-    labels = set(mw.LABELS)
-    found = [
-        [v for v in p.values() if isinstance(v, dict) and set(v) == labels]
-        for p in parts
+    parts = [p for k, p in run.report["split"].items() if k != "folds"]
+    assert [p["episodes"] for p in parts] == [
+        sum(d == i for d in exp["part"].values()) for i in range(3)
     ]
-    assert found == [[counts] for counts in exp["split"]]
+    assert [p["per_label"] for p in parts] == exp["split"]
+    assert [p["frames"] for p in parts] == [sum(c.values()) for c in exp["split"]]
 
 
 def test_split_folds(world):
@@ -92,24 +174,6 @@ def test_split_folds(world):
     _, run, exp = world
     want = [{"episodes": n, "frames": f} for n, f in exp["folds"]]
     assert run.report["split"]["folds"] == want
-
-
-def test_template_images(world):
-    """templates/<variant>/<class>[__<member>]_{template,mask}.png: RGB, alpha < 255 black
-    ((f): 8-bit grey floor(T / 1000)); 8-bit grey, 255 in the mask."""
-    _, run, exp = world
-    root = run.out / "templates"
-    files = sorted(
-        p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()
-    )
-    kinds = ("template", "mask")
-    assert files == sorted(f"{s}_{kind}.png" for s in exp["images"] for kind in kinds)
-    for stem, (image, mask) in exp["images"].items():
-        template, grey = (Image.open(root / f"{stem}_{kind}.png") for kind in kinds)
-        assert template.mode == ("L" if stem.startswith("f/") else "RGB"), stem
-        assert np.array_equal(np.asarray(template), image), stem
-        assert grey.mode == "L" and np.array_equal(np.asarray(grey) == 255, mask)
-        assert set(np.unique(np.asarray(grey))) <= {0, 255}
 
 
 def test_report_md(world):
@@ -125,46 +189,5 @@ def test_patches_per_class_up_to_the_number_of_patches(tmp_path, repo):
     config = {**mw.CONFIG, "patches_per_class": 30}
     run = run_main(tmp_path, repo, config, mw.frames())
     assert run.code == 0, run.err
-    for k in ("alpha", "delta"):
-        mask = np.asarray(Image.open(run.out / f"templates/c/{k}_mask.png"))
-        assert (mask == 255).all()
-
-
-def test_empty_catalogue(tmp_path, repo):
-    """K empty, every label `other`: the line `templates catalogue: nothing to do`, Q and (c)
-    empty, the frame bars at their totals; no class has a score, so (5) predicts `other`
-    everywhere: no template, no column, no matrix, and every grid point ties in (6)."""
-    fs = [
-        dataclasses.replace(f, label="other") if f.label in mw.CLASSES else f
-        for f in mw.frames()
-    ]
-    tr, va, te = me.labelled(fs, me.parts(fs, mw.CONFIG))
-    run = run_main(tmp_path, repo, mw.CONFIG, fs, catalogue={})
-    assert run.code == 0, run.err
-    idle = ("templates catalogue", "templates b", "templates c")
-    drawn = [
-        ("features train", len(tr), "frame"),
-        ("score validation", 6 * len(va), "frame"),
-    ]
-    drawn += [("thresholds", 6 * 27, "point"), ("score test", 6 * len(te), "frame")]
-    assert screen(run.err) == [f"{d}: nothing to do" for d in idle] + [
-        Bar(d, n, n, unit) for d, n, unit in drawn
-    ]
-    assert_progress(run.err)
-    first = {"tau": 12, "theta": 0.9, "mu": 0.0}
-    assert run.report["qualified"] == []
-    for v in mw.VARIANTS:
-        assert run.report[v]["pairs"] == {}
-        for crit in mw.CRITERIA:
-            assert run.report[v][crit]["thresholds"] == first
-            assert run.report[v][crit]["test"]["agreement"] == 1.0
-    assert run.report["agreement_matrices"] == {crit: {} for crit in mw.CRITERIA}
-    assert not [p for p in (run.out / "templates").rglob("*") if p.is_file()]
-    with np.load(run.out / "features.npz", allow_pickle=False) as z:
-        assert z["columns"].shape == (0,) and list(z["labels"]) == ["other"]
-        assert z["train_x"].shape == (len(tr), 0)
-        assert all(
-            set(z[f"test_pred_{v}_{c}"]) == {"other"}
-            for v in mw.VARIANTS
-            for c in mw.CRITERIA
-        )
+    masks = npz(run.out / "templates/c/000000/masks.npz")
+    assert sorted(masks) == ["alpha", "delta"] and all(m.all() for m in masks.values())

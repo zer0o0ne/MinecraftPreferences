@@ -10,12 +10,13 @@ import torch
 
 from mcpref.stacking.config import GuiStackConfig, load_config
 
-NAMES = {"masks_dir", "hidden", "l2", "lr", "betas", "adam_eps", "steps", "seed", "device",
-         "out_dir"}  # fmt: skip
+NAMES = {"masks_dir", "hidden", "l2", "lr", "betas", "adam_eps", "epochs", "batch",
+         "checkpoint_steps", "seed", "device", "out_dir"}  # fmt: skip
 VALID = {  # YAML lines of a valid config
     "masks_dir": '"m/features"', "hidden": "3", "l2": "0", "lr": "0.5",
-    "betas": "[0, 0.999]", "adam_eps": "1e-8", "steps": "1", "seed": "18446744073709551615",
-    "device": '"cpu"', "out_dir": '"o/stack"',
+    "betas": "[0, 0.999]", "adam_eps": "1e-8", "epochs": "1", "batch": "1",
+    "checkpoint_steps": "1", "seed": "18446744073709551615", "device": '"cpu"',
+    "out_dir": '"o/stack"',
 }  # fmt: skip
 
 
@@ -31,8 +32,9 @@ def test_reads_every_field(tmp_path, repo, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cfg = load(tmp_path)
     assert {f.name for f in dataclasses.fields(GuiStackConfig)} == NAMES
-    assert (cfg.hidden, cfg.steps, cfg.seed) == (3, 1, 2**64 - 1)
-    assert all(type(v) is int for v in (cfg.hidden, cfg.steps, cfg.seed))
+    ints = (cfg.hidden, cfg.epochs, cfg.batch, cfg.checkpoint_steps, cfg.seed)
+    assert ints == (3, 1, 1, 1, 2**64 - 1)
+    assert all(type(v) is int for v in ints)
     assert (cfg.l2, cfg.lr, cfg.adam_eps) == (0.0, 0.5, 1e-8)
     assert all(type(v) is float for v in (cfg.l2, cfg.lr, cfg.adam_eps, *cfg.betas))
     assert list(cfg.betas) == [0.0, 0.999]
@@ -40,7 +42,7 @@ def test_reads_every_field(tmp_path, repo, monkeypatch):
     assert Path(repo, cfg.masks_dir) == repo / "m/features"
     assert Path(repo, cfg.out_dir) == repo / "o/stack"
     with pytest.raises(dataclasses.FrozenInstanceError):
-        cfg.steps = 2
+        cfg.epochs = 2
 
 
 def test_floats_read_from_strings(tmp_path):
@@ -68,8 +70,15 @@ BAD = {
     "hidden a boolean": {"hidden": "true"},
     "hidden a float": {"hidden": "3.0"},
     "hidden a string": {"hidden": '"3"'},
-    "steps 0": {"steps": "0"},
-    "steps a boolean": {"steps": "true"},
+    "epochs 0": {"epochs": "0"},
+    "epochs a boolean": {"epochs": "true"},
+    "epochs a float": {"epochs": "2.0"},
+    "batch 0": {"batch": "0"},
+    "batch a boolean": {"batch": "true"},
+    "batch a string": {"batch": '"32"'},
+    "checkpoint_steps 0": {"checkpoint_steps": "0"},
+    "checkpoint_steps negative": {"checkpoint_steps": "-500"},
+    "checkpoint_steps a boolean": {"checkpoint_steps": "false"},
     "seed negative": {"seed": "-1"},
     "seed 2^64": {"seed": "18446744073709551616"},
     "seed a boolean": {"seed": "false"},
@@ -96,11 +105,20 @@ def test_violated_constraints_raise_value_error(tmp_path, changes):
 
 def test_approved_config_has_starting_values(repo):
     cfg = load_config(repo / "configs/gui-stack.yaml")
-    got = {
-        k: getattr(cfg, k) for k in ("hidden", "l2", "lr", "adam_eps", "steps", "seed")
-    }
-    assert got == {"hidden": 64, "l2": 1e-4, "lr": 0.01, "adam_eps": 1e-8, "steps": 2000,
-                   "seed": 0}  # fmt: skip
+    names = (
+        "hidden",
+        "l2",
+        "lr",
+        "adam_eps",
+        "epochs",
+        "batch",
+        "checkpoint_steps",
+        "seed",
+    )
+    assert {k: getattr(cfg, k) for k in names} == {
+        "hidden": 64, "l2": 1e-4, "lr": 0.01, "adam_eps": 1e-8, "epochs": 50, "batch": 32,
+        "checkpoint_steps": 500, "seed": 0,
+    }  # fmt: skip
     assert list(cfg.betas) == [0.9, 0.999]
     assert torch.device(cfg.device) == torch.device("cpu")
     assert Path(repo, cfg.masks_dir) == repo / "data/gui_masks"

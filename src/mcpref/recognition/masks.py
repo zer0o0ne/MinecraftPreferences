@@ -1,6 +1,6 @@
 """(1)-(3) of specs/gui-masks.md: template and mask pairs of variants (a), (b), (c)."""
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
 import numpy as np
@@ -99,35 +99,34 @@ def texture_pairs(
     return list(member_pairs(cls, textures_dir, width, height).values())
 
 
-def block_pair(frames: Sequence[np.ndarray], rows: slice, q: float) -> Pair:
-    """(2) on one row block: lower-median template and spread quantile."""
-    x = np.stack([f[rows] for f in frames])
+def block_pair(x: np.ndarray, q: float) -> Pair:
+    """(2) on one row block of a build's frames: lower-median template and spread sigma_k."""
     template = np.quantile(x, 0.5, axis=0, method="inverted_cdf")
     spread = np.quantile(distance(x, template), q, axis=0, method="inverted_cdf")
     return template, spread
 
 
-def row_starts(height: int, chunk_rows: int) -> range:
-    """(2): first rows of the row blocks of `chunk_rows` rows."""
-    return range(0, height, chunk_rows)
-
-
-def variance_pair(
-    frames: Sequence[np.ndarray],
+def variance_pairs(
+    blocks: Iterable[tuple[int, np.ndarray]],
+    builds: Mapping[str, np.ndarray],
     q: float,
     s_max: int,
-    chunk_rows: int,
+    height: int,
     step: Callable[[], None],
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """(2): variant (b) template (uint8), spread sigma_k, mask sigma_k <= s_max;
-    step() after each row block."""
-    blocks = []
-    for r in row_starts(frames[0].shape[0], chunk_rows):
-        blocks.append(block_pair(frames, slice(r, r + chunk_rows), q))
+) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """(2) of one class: build -> template (uint8), spread sigma_k, mask sigma_k <= s_max,
+    each H x W, every build from the same row block (r0, frames x rows x W x 3); step()
+    after each row block."""
+    built = {}
+    for r0, x in blocks:
+        for b, selected in builds.items():
+            rows = block_pair(x[selected], q)
+            if b not in built:
+                built[b] = [np.zeros((height, *a.shape[1:]), a.dtype) for a in rows]
+            for full, a in zip(built[b], rows):
+                full[r0 : r0 + len(a)] = a
         step()
-    template = np.concatenate([t for t, _ in blocks])
-    spread = np.concatenate([s for _, s in blocks])
-    return template, spread, spread <= s_max
+    return {b: (t, s, s <= s_max) for b, (t, s) in built.items()}
 
 
 def patch_means(a: np.ndarray, patch: int) -> np.ndarray:

@@ -17,29 +17,41 @@ T = np.array(
 ALL = np.ones((1, 4), dtype=bool)
 
 
-TAUS = [(0, Fr(1, 4)), (3, Fr(1, 4)), (4, Fr(2, 4)), (254, Fr(2, 4)), (255, Fr(1))]
+TAUS = [(0, 1), (3, 1), (4, 2), (254, 2), (255, 4)]  # tau, c of the 4 pixels
 
 
-@pytest.mark.parametrize("tau, s", TAUS)
-def test_score_tau_inclusive_without_wraparound(tau, s):
-    """(4): d = 255, 255 (|0 - 255|, not 1), 4 (max over channels), 0; c counts d <= tau."""
-    got = scores(X, {"k": [(T, ALL)]}, tau)
-    assert got == {"k": s} and isinstance(got["k"], Fr)
+@pytest.mark.parametrize("tau, c", TAUS)
+def test_score_tau_inclusive_without_wraparound(tau, c):
+    """(4): d = 255, 255 (|0 - 255|, not 1), 4 (max over channels), 0; c counts d <= tau;
+    the result is (c, |M|), not reduced."""
+    assert scores(X, {"k": [(T, ALL)]}, tau) == {"k": (c, 4)}
 
 
 def test_score_best_pair_by_ratio_not_count():
     """(4): pair 1 matches 2 of its 4 pixels at tau 4 (2/4); pair 2 its 1 pixel (1/1), pixels
-    outside its mask ignored; S is that of the best pair, in either order."""
+    outside its mask ignored; the best pair's (c, |M|), in either order."""
     one = np.array([[False, False, True, False]])
     for pairs in ([(T, ALL), (T, one)], [(T, one), (T, ALL)]):
-        assert scores(X, {"k": pairs}, 4) == {"k": Fr(1)}
-    assert scores(X, {"k": [(T, ~one)]}, 4) == {"k": Fr(1, 3)}
+        assert scores(X, {"k": pairs}, 4) == {"k": (1, 1)}
+    assert scores(X, {"k": [(T, ~one)]}, 4) == {"k": (1, 3)}
+
+
+HALF = np.array([[True, False, False, True]])  # d = 255, 0: c = 1 of 2 at tau 4
+
+
+def test_score_first_best_pair_on_ties():
+    """(4): 2/4 and 1/2 tie exactly; the first in the class's list gives (c, |M|); a later
+    strictly better pair wins."""
+    assert scores(X, {"k": [(T, ALL), (T, HALF)]}, 4) == {"k": (2, 4)}
+    assert scores(X, {"k": [(T, HALF), (T, ALL)]}, 4) == {"k": (1, 2)}
+    three = np.array([[False, True, True, True]])  # d = 255, 4, 0: 2/3
+    assert scores(X, {"k": [(T, HALF), (T, ALL), (T, three)]}, 4) == {"k": (2, 3)}
 
 
 def test_score_classes_without_template():
     """(4): a class without a pair has no score."""
     got = scores(X, {"a": [], "b": [(T, ALL)], "c": []}, 0)
-    assert got == {"b": Fr(1, 4)}
+    assert got == {"b": (1, 4)}
     assert scores(X, {"a": []}, 0) == {}
 
 
@@ -82,14 +94,14 @@ def one_channel(values: list) -> np.ndarray:
 
 E_X = one_channel([255000, 0, 123456, 7])
 E_T = one_channel([250000, 1000, 120456, 7])  # |d| = 5000, 1000, 3000, 0
-BOUNDS = [(2999, Fr(2, 4)), (3000, Fr(3, 4)), (3001, Fr(3, 4)), (5000, Fr(1))]
+BOUNDS = [(2999, 2), (3000, 3), (3001, 3), (5000, 4)]  # bound, c of the 4 pixels
 
 
-@pytest.mark.parametrize("bound, s", BOUNDS)
-def test_score_one_channel_edges_at_1000_tau(bound, s):
+@pytest.mark.parametrize("bound, c", BOUNDS)
+def test_score_one_channel_edges_at_1000_tau(bound, c):
     """(4), (12) for (f): one-channel int64 E arrays far above 255, the bound 1000 tau
     (tau = 3: 3000 counts, 2999 does not), |0 - 1000| counted both ways."""
-    assert scores(E_X, {"k": [(E_T, ALL)]}, bound) == {"k": s}
+    assert scores(E_X, {"k": [(E_T, ALL)]}, bound) == {"k": (c, 4)}
 
 
 PIXELS = [  # (x, t, in mask): d = max over channels of |x - t|

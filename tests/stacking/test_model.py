@@ -1,5 +1,5 @@
-"""src/mcpref/stacking/model.py against specs/gui-stack.md (Notation: mu, s, z; (1)-(3)),
-with the float64 references of stack_oracle.py."""
+"""src/mcpref/stacking/model.py against specs/gui-stack.md ((1), (2), (3'), (5)), with the
+float64 references of stack_oracle.py."""
 
 import math
 
@@ -8,54 +8,30 @@ import pytest
 import torch
 from torch.testing import assert_close
 
-from mcpref.stacking.model import (
-    init_params,
-    logits,
-    loss,
-    moments,
-    standardised,
-)
+from mcpref.stacking.model import init_params, logits, loss, probabilities
 
 from . import stack_oracle as so
-from .stack_world import tiny_case
 
 CPU = torch.device("cpu")
-NAN = float("nan")
-X = np.array(  # S x C: NaN; [1, 3] (population std 1); 0.1 three times; a single value
-    [[1.0, NAN, 0.1, 5.0], [3.0, 2.0, 0.1, NAN], [NAN, 4.0, 0.1, NAN]]
-)
 
 
 def t64(a) -> torch.Tensor:
     return torch.tensor(np.asarray(a), dtype=torch.float64)
 
 
-def test_moments_hand_case():
-    """mu over the non-NaN values; s population (divisor = count); a constant column s = 0
-    exactly, though numpy.nanstd of 0.1, 0.1, 0.1 is not 0."""
-    assert np.nanstd(X[:, 2]) != 0
-    mu, s = moments(X)
-    assert_close(t64(mu), t64([2.0, 3.0, 0.1, 5.0]))
-    assert s.tolist() == [1.0, 1.0, 0.0, 0.0]
+def t32(a) -> torch.Tensor:
+    return torch.tensor(np.asarray(a), dtype=torch.float32)
 
 
-def test_moments_naive_reference():
-    rng = np.random.default_rng(0)
-    x = rng.normal(size=(9, 5)) * 3 + 1
-    x[rng.random(x.shape) < 0.3] = NAN
-    x[:, 4] = 0.7
-    got, want = moments(x), so.moments(x)
-    assert_close(t64(got[0]), t64(want[0]))
-    assert_close(t64(got[1]), t64(want[1]))
-    assert got[1][4] == 0.0
-
-
-def test_standardised_hand_case():
-    """z = (x - mu) / s; 0 where x is NaN (the mean) or s = 0, whatever x is there."""
-    mu, s = np.array([2.0, 3.0, 0.1, 5.0]), np.array([0.5, 1.0, 0.0, 0.0])
-    x = np.array([[4.0, NAN, 0.7, 9.0], [NAN, 1.0, NAN, 5.0], [1.0, 3.0, 0.1, -2.0]])
-    want = [[4.0, 0.0, 0.0, 0.0], [0.0, -2.0, 0.0, 0.0], [-2.0, 0.0, 0.0, 0.0]]
-    assert np.asarray(standardised(x, mu, s), dtype=np.float64).tolist() == want
+def tiny_case(seed: int) -> tuple:
+    """C = 3, H = 4, |Y| = 4: theta and z of 7 frames (float32 values as float64), label
+    indices y with label 1 absent, w_f = 1 / n_{y_f} (sum 3)."""
+    rng = np.random.default_rng(seed)
+    shapes = ((4, 3), (4,), (4, 4), (4,))
+    theta = [rng.normal(size=s).astype(np.float32).astype(np.float64) for s in shapes]
+    z = rng.normal(size=(7, 3)).astype(np.float32).astype(np.float64)
+    y = [0, 2, 0, 3, 0, 2, 3]
+    return theta, z, y, so.weights(y)
 
 
 SIZES = [(3, 4, 5, 0), (1, 1, 2, 3), (6, 2, 3, 2**64 - 1)]  # C, H, |Y|, seed
@@ -121,33 +97,53 @@ def test_logits_naive_reference():
     assert_close(logits([t64(p) for p in theta], t64(z)), t64(so.logits(theta, z)))
 
 
+BATCH = [1, 3, 5]  # labels 2, 3, 2: label 0 of S absent from the mini-batch
+
+
 @pytest.mark.parametrize("l2", [0.0, 0.3])
-def test_loss_naive_reference(l2):
-    """(3) with a label absent from S, sum w = 3 (not 1, not |S|): the weighted mean over
-    softmax over all of Y, plus l2 (||W1||^2 + ||W2||^2)."""
+def test_loss_mini_batch_naive_reference(l2):
+    """(3') in float32: M sum_B w_f (-log p(y_f | z_f)) / sum_S w_f + L2, softmax over all of
+    Y, with M = 4 and sum_S w = 3 (not sum_B w, not |B|), within a relative 1e-5."""
     theta, z, y, w = tiny_case(2)
-    got = loss([t64(p) for p in theta], t64(z), torch.tensor(y), t64(w), l2)
-    assert_close(got, torch.tensor(so.loss(theta, z, y, w, l2), dtype=torch.float64))
+    yb = [y[f] for f in BATCH]
+    got = loss([t32(p) for p in theta], t32(z[BATCH]), torch.tensor(yb), t32(w[BATCH]),
+               3.0, 4, l2)  # fmt: skip
+    want = so.loss_batch(theta, z[BATCH], yb, w[BATCH], 3.0, 4, l2)
+    assert got.item() == pytest.approx(want, rel=1e-5)
+
+
+@pytest.mark.parametrize("l2", [0.0, 0.3])
+def test_loss_epoch_mean_is_full_loss(l2):
+    """(3'): at a fixed theta, its mean over the M = 4 mini-batches of an epoch (shards of
+    frames 0-3 and 4-6, B = 2; one-label mini-batches included) is (3) over S."""
+    theta, z, y, w = tiny_case(3)
+    batches = [[2, 0], [3, 1], [6, 4], [5]]
+    losses = [
+        loss([t32(p) for p in theta], t32(z[b]), torch.tensor([y[f] for f in b]),
+             t32(w[b]), 3.0, 4, l2).item()
+        for b in batches
+    ]  # fmt: skip
+    assert np.mean(losses) == pytest.approx(so.loss(theta, z, y, w, l2), rel=1e-5)
 
 
 def test_loss_gradient_naive_reference():
-    """(3): the autograd gradient equals the hand gradient of stack_oracle.py."""
-    theta, z, y, w = tiny_case(3)
+    """(3'): the autograd gradient equals the hand gradient (coefficient M / sum_S w)."""
+    theta, z, y, w = tiny_case(4)
     params = [t64(p).requires_grad_() for p in theta]
-    got = torch.autograd.grad(
-        loss(params, t64(z), torch.tensor(y), t64(w), 0.2), params
-    )
-    for g, want in zip(got, so.gradient(theta, z, y, w, 0.2)):
+    yb = [y[f] for f in BATCH]
+    value = loss(params, t64(z[BATCH]), torch.tensor(yb), t64(w[BATCH]), 3.0, 4, 0.2)
+    got = torch.autograd.grad(value, params)
+    for g, want in zip(got, so.gradient(theta, z[BATCH], yb, w[BATCH], 4 / 3.0, 0.2)):
         assert_close(g, t64(want))
 
 
 def test_l2_term_on_weights_only():
-    """(3): L(l2) - L(0) = l2 (||W1||^2 + ||W2||^2); its gradient 2 l2 W1, 0, 2 l2 W2, 0."""
-    theta, z, y, w = tiny_case(4)
+    """(3'): L(l2) - L(0) = l2 (||W1||^2 + ||W2||^2); its gradient 2 l2 W1, 0, 2 l2 W2, 0."""
+    theta, z, y, w = tiny_case(5)
     params = [t64(p).requires_grad_() for p in theta]
 
     def at(l2):
-        value = loss(params, t64(z), torch.tensor(y), t64(w), l2)
+        value = loss(params, t64(z), torch.tensor(y), t64(w), 3.0, 1, l2)
         return value, torch.autograd.grad(value, params)
 
     (l0, g0), (l1, g1) = at(0.0), at(0.25)
@@ -155,3 +151,27 @@ def test_l2_term_on_weights_only():
     assert_close(l1 - l0, torch.tensor(0.25 * norms, dtype=torch.float64))
     for a, b, p, on in zip(g1, g0, theta, (1, 0, 1, 0)):
         assert_close(a - b, t64(2 * 0.25 * p * on))
+
+
+def test_probabilities_naive_reference():
+    """(5): softmax of l over Y, frames x |Y|, float64, rows summing to 1."""
+    params = init_params(3, 4, 5, 2, CPU)
+    z = np.random.default_rng(7).normal(size=(6, 3))
+    got = probabilities(params, torch.tensor(z, dtype=torch.float32))
+    theta = [p.detach().double().numpy() for p in params]
+    want = np.exp(so.log_softmax(so.logits(theta, z)))
+    assert isinstance(got, np.ndarray) and got.dtype == np.float64
+    assert got.shape == (6, 5)
+    assert_close(torch.tensor(got), torch.tensor(want), rtol=1e-5, atol=1e-8)
+    assert_close(torch.tensor(got.sum(axis=1)), torch.ones(6, dtype=torch.float64))
+
+
+def test_probabilities_softmax_in_float64():
+    """(5): l = (0, -120) exactly in float32; p_2 = e^-120 / (1 + e^-120) ~ 7.7e-53, which a
+    float32 softmax flushes to 0."""
+    params = [torch.tensor(v, dtype=torch.float32) for v in
+              ([[1.0]], [0.0], [[0.0], [0.0]], [0.0, -120.0])]  # fmt: skip
+    got = probabilities(params, torch.tensor([[0.5]], dtype=torch.float32))
+    e = math.exp(-120)
+    assert got[0, 1] == pytest.approx(e / (1 + e), rel=1e-12)
+    assert got[0, 0] == pytest.approx(1 / (1 + e), rel=1e-15)

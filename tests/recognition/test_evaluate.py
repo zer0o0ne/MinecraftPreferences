@@ -16,7 +16,7 @@ from masks_files import write
 from masks_run import SCENARIOS, Run, bars, config_of, expected_of
 from progress_bars import Bar, assert_progress, screen
 
-from mcpref.recognition.evaluate import GuiMasksConfig, load_config, split_episodes
+from mcpref.recognition.evaluate import GuiMasksConfig, load_config
 
 PATHS = {"frames_dir": "data/gui_frames", "labels_dir": "data/gui_labels"}
 PATHS.update(screens="configs/gui-screens.yaml", out_dir="data/gui_masks")
@@ -62,31 +62,26 @@ BAD = [  # Notation: violated constraints
     {"split": ["0.5", "0.3", "0.3"]},
     {"split": ["0.5", "0.5"]},
     {"split": ["0.5", "0.25", "0.25000000000000001"]},  # sums to 1 only in floats
-    {"patch": 3},
-    {"patch": 16},
+    *({"patch": v} for v in (3, 16)),
     {"patches_per_class": 0},
     *({"min_episodes": v} for v in (0, -1, 2.0, True)),  # an integer >= 1
-    {"eps": 0},
-    {"eps": -1},
-    {"folds": 1},
-    {"folds": 2.5},
+    *({"eps": v} for v in (0, -1)),
+    *({"chunk_rows": v} for v in (0, 1, 3, -2, True)),  # even, >= 2
+    *({"folds": v} for v in (1, 2.5)),
     {"fold_seed": 1.5},
-    {"feature_quantile": 0},
-    {"feature_quantile": -0.25},
-    {"feature_quantile": 1.25},
+    *({"feature_quantile": v} for v in (0, -0.25, 1.25)),
 ]
 GOOD = [  # boundaries inside the constraints
     {"split": ["0.7", "0.2", "0.1"]},  # 0.7 + 0.2 + 0.1 < 1 in floats
     {"split": ["1", "0", "0"]},
-    {"patch": 40},
-    {"patch": 1},
+    *({"patch": v} for v in (40, 1)),
     {"patches_per_class": 1},
     {"min_episodes": 1},
     {"eps": 0.001},
+    {"chunk_rows": 2},
     {"folds": 2},
     {"fold_seed": 0},
-    {"feature_quantile": 1},
-    {"feature_quantile": 0.001},
+    *({"feature_quantile": v} for v in (1, 0.001)),
 ]
 
 
@@ -101,26 +96,17 @@ def test_load_config_accepts(config_with, changes):
     assert isinstance(config_with(**changes), GuiMasksConfig)
 
 
-@pytest.mark.parametrize("seed", [0, 1, 230])
-@pytest.mark.parametrize("episodes", [mw.EPISODES, mw.EPISODES[::-1]])
-def test_split_episodes_one_draw_per_episode_in_order(seed, episodes):
-    """Split: the i-th episode takes the i-th draw rng.choice(3, p=split) of PCG64(seed)."""
-    rng = np.random.Generator(np.random.PCG64(seed))
-    probs = [0.6, 0.2, 0.2]
-    expected = {e: int(rng.choice(3, p=probs)) for e in episodes}
-    assert split_episodes(episodes, probs, seed) == expected
-
-
 def test_worlds_exercise_the_split():
     """Counting failed records or only labelled episodes would change the split; validation
-    and test episodes hold invalid, no_answer and unlabelled frames, which are not scored."""
+    and test episodes hold invalid and no_answer frames, which are not scored."""
     fs, part = mw.frames(), expected_of("base")["part"]
     records = me.parts([dataclasses.replace(f, status="ok") for f in fs], mw.CONFIG)
     assert {e: records[e] for e in part} != part
-    labelled = me.parts([f for f in mw.frames(True) if f.label], mw.CONFIG)
+    relabelled = [f for f in mw.frames(True) if f.label not in (None, *me.BAD)]
+    labelled = me.parts(relabelled, mw.CONFIG)
     assert any(labelled[e] != part[e] for e in labelled)
     scored = [f for f in fs if f.status == "ok" and part[f.relpath] > 0]
-    assert {"invalid", "no_answer", None} <= {f.label for f in scored}
+    assert set(me.BAD) <= {f.label for f in scored}
 
 
 def classes(exp: dict, v: str) -> list:
@@ -169,18 +155,18 @@ def test_worlds_exercise_the_folds():
 def test_worlds_exercise_the_bars():
     """Each optional bar is drawn in some world and replaced by its line in another."""
     lines = {line for name in SCENARIOS for line in bars(expected_of(name))}
-    loops = ("templates b", "templates c", "score test")
+    loops = ("templates b", "templates c", "score test", "report")
     assert {f"{d}: nothing to do" for d in loops} <= lines
     assert set(loops) <= {line.desc for line in lines if isinstance(line, Bar)}
 
 
 def test_bars_on_stderr(world):
-    """Interface, progress bars: stderr holds only, in run order, `templates catalogue` (unit
-    class, total |K|), `templates b` (step, sum over Q of |F^tr_k| + (1 + n_k) ceil(H /
+    """Interface, progress bars: stderr holds only, in run order, `index` (unit frame, the
+    `ok` count), `templates catalogue` (class, |K|), `templates b` (step, |Q| ceil(H /
     chunk_rows)), `templates c` (class, the classes taking part summed over the builds),
-    `features train` (frame, |F^tr|), `score validation`, `thresholds` (point, 6 x 27), `score
-    test` (frame, 6 x the frames scored), each from 0 to its total without postfix, or
-    `<desc>: nothing to do`; nothing on stdout."""
+    `model` (shard, the template shards), `features train`, `score validation`, `thresholds`,
+    `score test`, `report` (frame, the part's frames), each from 0 to its total without
+    postfix, or `<desc>: nothing to do`; nothing on stdout."""
     _, run, exp = world
     assert run.code == 0, run.err
     assert screen(run.err) == bars(exp) and run.stdout == ""
@@ -188,12 +174,17 @@ def test_bars_on_stderr(world):
 
 
 def test_runs_as_module(tmp_path, repo):
-    """`python -m mcpref.recognition.evaluate <config path>`, on an empty validation set."""
+    """`python -m mcpref.recognition.evaluate <config path>`, on an empty validation set:
+    the `index` bar, then the message."""
     config = {**config_of("base"), "split": ["0.5", "0", "0.5"]}
     path = write(tmp_path, repo, mw.frames(), config)
     argv = [sys.executable, "-m", "mcpref.recognition.evaluate", str(path)]
     proc = subprocess.run(
-        argv, capture_output=True, text=True, timeout=8, check=False, cwd=tmp_path
+        argv, capture_output=True, timeout=8, check=False, cwd=tmp_path
     )
-    run = Run(proc.returncode, proc.stderr, proc.stdout, tmp_path / "out", None)
-    assert run.failed() == []
+    err = proc.stderr.decode()  # bytes: text mode would turn tqdm's '\r' into '\n'
+    run = Run(proc.returncode, err, proc.stdout.decode(), tmp_path / "out", None)
+    assert run.failed() == [Bar("index", 54, 54, "frame")]
+    assert err.endswith(
+        "mcpref.recognition.evaluate: RuntimeError: the validation part is empty\n"
+    )

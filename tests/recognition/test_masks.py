@@ -1,8 +1,6 @@
 """`texture_pairs` of src/mcpref/recognition/masks.py against specs/gui-masks.md (1): hand
 pins and the naive reference of masks_oracle.py; (2), (3) in test_masks_spread.py."""
 
-from fractions import Fraction
-
 import numpy as np
 import pytest
 from masks_files import write_screens
@@ -120,15 +118,17 @@ def test_texture_pairs_naive_reference(box):
 
 
 def test_texture_pairs_feed_scores(box):
-    """(1) -> (4): the canvas colours score 1 at tau 0; one masked pixel off by one costs 1/|M|."""
+    """(1) -> (4): the canvas colours match all |M| pixels at tau 0; one masked pixel off by
+    one leaves |M| - 1."""
     got, expected = box
     canvas, mask = expected["second"]
     pair = next(p for p in got["box"] if np.array_equal(p[1], mask))
     x = canvas[..., :3].astype(np.uint8)
-    assert scores(x, {"box": [pair]}, 0) == {"box": Fraction(1)}
+    n = int(mask.sum())
+    assert scores(x, {"box": [pair]}, 0) == {"box": (n, n)}
     y, i = np.argwhere(mask & (canvas[..., 0] < 255))[0]
     x[y, i, 0] += 1
-    assert scores(x, {"box": [pair]}, 0) == {"box": 1 - Fraction(1, int(mask.sum()))}
+    assert scores(x, {"box": [pair]}, 0) == {"box": (n - 1, n)}
 
 
 def test_texture_pairs_class_without_pair(box):

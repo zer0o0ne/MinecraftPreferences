@@ -1,32 +1,24 @@
-"""Config, split, the run of (1)-(14) and `main` of specs/gui-masks.md."""
+"""Config and `main` of specs/gui-masks.md: the run (R), (I), (T), (S), (E) in order."""
 
 import argparse
-import itertools
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 
-import numpy as np
 import yaml
 
 from mcpref import REPO
 from mcpref.cli.failure import FAILURES, failed
-from mcpref.gui.label_files import OTHER, frame_size
+from mcpref.gui.label_files import write_json
 from mcpref.gui.screens import load_screens
 from mcpref.gui.textures import load_textures_config
-from mcpref.recognition.frame_set import folds, labelled_parts, qualified, read_frames
-from mcpref.recognition.metrics import matrices, thresholds
-from mcpref.recognition.pairs import VARIANTS, all_pairs
-from mcpref.recognition.recognise import part_scores, predictions, train_features
-from mcpref.recognition.report import (
-    split_report,
-    variant_report,
-    write_features,
-    write_report,
-    write_templates,
-)
+from mcpref.recognition.frame_set import checks, read_state, write_index_shards
+from mcpref.recognition.pairs import b_shards, c_shards, catalogue_shards
+from mcpref.recognition.recognise import score
+from mcpref.recognition.report import report, write_report
+from mcpref.recognition.stored import load_model
 
 PROG = "mcpref.recognition.evaluate"
 TITLE = "GUI masks report"
@@ -34,11 +26,12 @@ TITLE = "GUI masks report"
 
 @dataclass(frozen=True)
 class GuiMasksConfig:
-    """Notation: configs/gui-masks.yaml; paths resolved against the repository root."""
+    """Notation: configs/gui-masks.yaml; paths relative to the repository root, kept as
+    written in the config (messages of (R)) and resolved against the root where used."""
 
-    frames_dir: Path
-    labels_dir: Path
-    screens: Path
+    frames_dir: str
+    labels_dir: str
+    screens: str
     split: tuple[Fraction, ...]
     seed: int
     min_episodes: int
@@ -54,7 +47,7 @@ class GuiMasksConfig:
     folds: int
     fold_seed: int
     feature_quantile: float
-    out_dir: Path
+    out_dir: str
 
 
 def decimals(values: Sequence[str]) -> tuple[Fraction, ...]:
@@ -78,6 +71,8 @@ def check(cfg: GuiMasksConfig) -> None:
         raise ValueError(f"eps {cfg.eps} is not > 0")
     if not all(type(t) is int for t in cfg.tau_grid):
         raise ValueError(f"tau_grid {cfg.tau_grid} holds non-integers")
+    if type(cfg.chunk_rows) is not int or cfg.chunk_rows < 2 or cfg.chunk_rows % 2:
+        raise ValueError(f"chunk_rows {cfg.chunk_rows} is not an even integer >= 2")
     if type(cfg.folds) is not int or cfg.folds < 2:
         raise ValueError(f"folds {cfg.folds} is not an integer >= 2")
     if type(cfg.fold_seed) is not int:
@@ -86,93 +81,36 @@ def check(cfg: GuiMasksConfig) -> None:
         raise ValueError(f"feature_quantile {cfg.feature_quantile} is not in (0, 1]")
 
 
+def read_mapping(path: Path) -> dict:
+    """(R): the config file's mapping as written."""
+    return yaml.safe_load(path.read_text())
+
+
 def load_config(path: Path) -> GuiMasksConfig:
     """Interface: the YAML file loaded into GuiMasksConfig; violated constraints raise."""
-    raw = yaml.safe_load(path.read_text())
-    paths = {
-        k: REPO / raw[k] for k in ("frames_dir", "labels_dir", "screens", "out_dir")
-    }
+    raw = read_mapping(path)
     exact = {k: decimals(raw[k]) for k in ("split", "theta_grid", "mu_grid")}
-    cfg = GuiMasksConfig(**raw | paths | exact | {"tau_grid": tuple(raw["tau_grid"])})
+    cfg = GuiMasksConfig(**raw | exact | {"tau_grid": tuple(raw["tau_grid"])})
     check(cfg)
     return cfg
 
 
-def split_episodes(
-    relpaths: Sequence[str], probs: Sequence[float], seed: int
-) -> dict[str, int]:
-    """Notation: one rng.choice(3, p=split) per episode in order of first appearance."""
-    rng = np.random.Generator(np.random.PCG64(seed))
-    return {e: int(rng.choice(3, p=probs)) for e in dict.fromkeys(relpaths)}
-
-
-def check_patches(cfg: GuiMasksConfig, size: tuple[int, int]) -> None:
-    """Notation: n_P must not exceed the number of P x P patches of a W x H frame."""
-    width, height = size
-    if cfg.patches_per_class > (width // cfg.patch) * (height // cfg.patch):
-        raise ValueError(
-            f"patches_per_class {cfg.patches_per_class} exceeds the patches"
-        )
-
-
-def split_frames(cfg: GuiMasksConfig) -> tuple[dict[str, int], list[list[dict]]]:
-    """Notation: the split of the episodes and F^tr, F^va, F^te; an empty F^va raises."""
-    episodes, frames = read_frames(cfg.frames_dir, cfg.labels_dir)
-    parts = split_episodes(episodes, [float(p) for p in cfg.split], cfg.seed)
-    labelled = labelled_parts(frames, parts)
-    if not labelled[1]:
-        raise ValueError("no labelled validation frames")
-    return parts, labelled
-
-
-def recognised(
-    cfg: GuiMasksConfig,
-    size: tuple[int, int],
-    named: dict,
-    val: list[dict],
-    test: list[dict],
-    names: list[str],
-) -> tuple[dict, dict, np.ndarray, np.ndarray]:
-    """(4)-(6), (14): F^va scored, thresholds chosen, then F^te scored and predicted;
-    returns the choices, the test predictions and the features of F^va, F^te."""
-    grid = list(itertools.product(cfg.tau_grid, cfg.theta_grid, cfg.mu_grid))
-    scored = (cfg.frames_dir, size, cfg.tau_grid, named)
-    s_val, x_val = part_scores(*scored, val, "validation", cfg.feature_quantile)
-    chosen = thresholds(grid, s_val, [f["label"] for f in val], names)
-    s_test, x_test = part_scores(*scored, test, "test", cfg.feature_quantile)
-    preds = {
-        v: {c: predictions(s_test[v], point, names) for c, point in chosen[v].items()}
-        for v in VARIANTS
-    }
-    return chosen, preds, x_val, x_test
-
-
-def run(cfg: GuiMasksConfig) -> dict:
-    """Notation, (1)-(14): templates and features.npz written to out_dir; returns the
-    report."""
-    classes = load_screens(cfg.screens)
-    names, size = list(classes), frame_size(cfg.frames_dir)
-    check_patches(cfg, size)
-    parts, (train, val, test) = split_frames(cfg)
-    q = qualified(train, names, cfg.min_episodes)
-    fold_of = folds([e for e, p in parts.items() if p == 0], cfg.folds, cfg.fold_seed)
-    textures = load_textures_config(cfg.screens).out_dir
-    named, fold_pairs = all_pairs(cfg, classes, textures, train, q, fold_of, size)
-    write_templates(cfg.out_dir, named)
-    x_train = train_features(
-        cfg.frames_dir, size, named, fold_pairs, fold_of, train, cfg.feature_quantile
-    )
-    chosen, preds, x_val, x_test = recognised(cfg, size, named, val, test, names)
-    x = {"train": (train, x_train), "validation": (val, x_val), "test": (test, x_test)}
-    labels = names + [OTHER]
-    write_features(cfg.out_dir, named, labels, x, preds)
-    split = split_report(parts, [train, val, test], labels, fold_of, cfg.folds)
-    report = {"split": split, "qualified": q}
-    report |= {
-        v: variant_report(named[v], chosen[v], preds[v], test, names) for v in VARIANTS
-    }
-    y_test = [f["label"] for f in test]
-    return report | {"agreement_matrices": matrices(y_test, preds, names)}
+def run(cfg: GuiMasksConfig, path: Path) -> None:
+    """Behaviour: (R), (I), (T), (S), (E) in order; run.json complete at the end."""
+    raw, out = read_mapping(path), REPO / cfg.out_dir
+    header = checks(cfg, path, raw)
+    classes = load_screens(REPO / cfg.screens)
+    names = list(classes)
+    write_index_shards(cfg, names, header["frames"])
+    state = read_state(cfg, names, header["frames"]["shards"])
+    textures = load_textures_config(REPO / cfg.screens).out_dir
+    catalogue_shards(out, classes, textures, state.size)
+    b_shards(cfg, state)
+    c_shards(cfg, state)
+    model = load_model(out, classes, state.q, cfg.folds)
+    chosen = score(cfg, state, model, raw)
+    write_report(out, report(cfg, state, model, chosen), TITLE)
+    write_json(out / "run.json", header | {"complete": True})
 
 
 def main(argv: Sequence[str]) -> int:
@@ -181,8 +119,7 @@ def main(argv: Sequence[str]) -> int:
     parser.add_argument("config", type=Path)
     args = parser.parse_args(argv)
     try:
-        cfg = load_config(args.config)
-        write_report(cfg.out_dir, run(cfg), TITLE)
+        run(load_config(args.config), args.config)
     except FAILURES as error:
         return failed(PROG, error)
     return 0

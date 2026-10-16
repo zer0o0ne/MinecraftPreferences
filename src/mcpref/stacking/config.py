@@ -6,7 +6,9 @@ from pathlib import Path
 import torch
 import yaml
 
-from mcpref import config_mapping, repo_path
+from mcpref import config_mapping, positive_int, repo_path
+
+POSITIVE = ("hidden", "epochs", "batch", "checkpoint_steps")
 
 
 @dataclass(frozen=True)
@@ -19,7 +21,9 @@ class GuiStackConfig:
     lr: float
     betas: tuple[float, float]
     adam_eps: float
-    steps: int
+    epochs: int
+    batch: int
+    checkpoint_steps: int
     seed: int
     device: torch.device
     out_dir: Path
@@ -52,13 +56,8 @@ def device(value: object) -> torch.device:
 
 def check(cfg: GuiStackConfig) -> None:
     """Notation: the constraints on config fields."""
-    for name in ("hidden", "steps", "seed"):
-        if type(getattr(cfg, name)) is not int:
-            raise ValueError(f"{name} {getattr(cfg, name)!r} is not an integer")
-    if cfg.hidden < 1:
-        raise ValueError(f"hidden {cfg.hidden} is not >= 1")
-    if cfg.steps < 1:
-        raise ValueError(f"steps {cfg.steps} is not >= 1")
+    if type(cfg.seed) is not int:
+        raise ValueError(f"seed {cfg.seed!r} is not an integer")
     if not 0 <= cfg.seed < 2**64:
         raise ValueError(f"seed {cfg.seed} is not in [0, 2^64)")
     if not cfg.l2 >= 0:
@@ -72,11 +71,12 @@ def check(cfg: GuiStackConfig) -> None:
 
 
 def load_config(path: Path) -> GuiStackConfig:
-    """Interface: the YAML file loaded into GuiStackConfig; violated constraints raise."""
+    """Interface: the YAML file as a GuiStackConfig; violated constraints raise."""
     raw = config_mapping(yaml.safe_load(path.read_text()), path, GuiStackConfig)
     paths = {k: repo_path(k, raw[k]) for k in ("masks_dir", "out_dir")}
     reals = {k: real(k, raw[k]) for k in ("l2", "lr", "adam_eps")}
+    ints = {k: positive_int(k, raw[k]) for k in POSITIVE}
     read = {"betas": betas(raw["betas"]), "device": device(raw["device"])}
-    cfg = GuiStackConfig(**raw | paths | reals | read)
+    cfg = GuiStackConfig(**raw | paths | reals | ints | read)
     check(cfg)
     return cfg

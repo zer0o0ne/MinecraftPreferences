@@ -24,32 +24,26 @@ VPT_PAIRS = {
 }
 
 
-def read_jsonl(path: Path) -> list[dict]:
-    """Block gui-masks, until its revision: one JSON object per line."""
-    return [json.loads(line) for line in path.read_text().splitlines()]
-
-
-def ok_frames(frames_dir: Path) -> list[tuple[int, dict]]:
-    """Block gui-masks, until its revision: `ok` records of frames.jsonl with their
-    0-based positions over all records."""
-    frames = enumerate(read_jsonl(frames_dir / "frames.jsonl"))
-    return [(position, f) for position, f in frames if f["status"] == "ok"]
-
-
 def frame_size(frames_dir: Path) -> tuple[int, int]:
     """(1): `width`, `height` of the config stored in {frames_dir}/run.json."""
     frames_config = json.loads((frames_dir / "run.json").read_text())["config"]
     return frames_config["width"], frames_config["height"]
 
 
-def frame_counts(frames_dir: Path) -> dict[str, int]:
-    """(4), Notation: the `ok`, `failed` counts of {frames_dir}/run.json, 0 when absent;
-    abort while it lacks the counts or has no `ok` frame."""
-    path = frames_dir / "run.json"
+def run_counts(path: Path, written: Path | str) -> dict[str, int]:
+    """(4), Notation; specs/gui-masks.md (R): the `ok`, `failed` counts of the frames'
+    run.json at `path`, 0 when absent; abort while it lacks them (`written` shown)."""
     run = json.loads(path.read_text())
     if "frames" not in run:
-        raise RuntimeError(f"{path} lacks the counts: the frames are not complete")
-    counts = {status: run["frames"].get(status, 0) for status in ("ok", "failed")}
+        raise RuntimeError(f"{written} lacks the counts: the frames are not complete")
+    return {status: run["frames"].get(status, 0) for status in ("ok", "failed")}
+
+
+def frame_counts(frames_dir: Path) -> dict[str, int]:
+    """(4), Notation: the counts of {frames_dir}/run.json; abort while it lacks them or
+    has no `ok` frame."""
+    path = frames_dir / "run.json"
+    counts = run_counts(path, path)
     if counts["ok"] < 1:
         raise RuntimeError(f"no ok frame in {path}")
     return counts
@@ -75,9 +69,26 @@ def shown(q: list[str | np.ndarray]) -> list[str]:
     return [part if isinstance(part, str) else "<image>" for part in q]
 
 
+def write_json(path: Path, value: dict) -> None:
+    """(4); specs/gui-masks.md: a JSON file written by specs/shards.md (4)."""
+    write_file(path, (json.dumps(value, indent=2) + "\n").encode())
+
+
 def write_run(out: Path, header: dict) -> None:
     """(4): {out_dir}/run.json by specs/shards.md (4)."""
-    write_file(out / "run.json", (json.dumps(header, indent=2) + "\n").encode())
+    write_json(out / "run.json", header)
+
+
+def check_fingerprints(path: Path, fingerprints: dict, out_dir: str) -> None:
+    """(R) of specs/gui-masks.md, specs/gui-stack.md: an existing run.json `path` holds
+    `fingerprints` (top-level keys or keys of its `sha256`), compared in order."""
+    if path.exists():
+        stored = json.loads(path.read_text())
+        for name, value in fingerprints.items():
+            if (stored | stored["sha256"])[name] != value:
+                raise RuntimeError(
+                    f"{name} changed since the run started; delete {out_dir}"
+                )
 
 
 def read_labels(labels_dir: Path, k: int) -> dict:
@@ -101,6 +112,12 @@ def resume(labels_dir: Path, h: int) -> tuple[int, int]:
     return records, end
 
 
+def labelled(record: dict) -> bool:
+    """(5); specs/gui-masks.md Notation: a record with a class label (`other` included),
+    not `invalid` or `no_answer`."""
+    return record["label"] not in (INVALID, NO_ANSWER)
+
+
 def write_summary(out: Path, H: int) -> None:
     """(4'), (5): summary.json from the H label shards read one at a time, plain write;
     the VPT table counts (y_f in {inventory, inventory_book}, g_f) over class labels."""
@@ -108,7 +125,7 @@ def write_summary(out: Path, H: int) -> None:
     for k in range(H):
         for r in read_labels(out / "labels", k)["labels"]:
             labels[r["label"]] += 1
-            if r["label"] not in (INVALID, NO_ANSWER):
+            if labelled(r):
                 pairs[r["label"] in INVENTORY, r["gui_inventory"]] += 1
     vpt_check = {key: pairs[pair] for key, pair in VPT_PAIRS.items()}
     summary = {"labels": labels, "vpt_check": vpt_check}

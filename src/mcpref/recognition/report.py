@@ -1,116 +1,104 @@
-"""Interface Produces of specs/gui-masks.md: templates, report.json, report.md and
-features.npz; `write_report` also used by specs/gui-stack.md."""
+"""(E) of specs/gui-masks.md: report.json and report.md from the state, the model and the
+test shards (bar `report`); `variant_preds`, `write_report` also used by
+specs/gui-stack.md."""
 
 import json
-from collections.abc import Mapping, Sequence
 from fractions import Fraction
+from functools import partial
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
-from PIL import Image
 
+from mcpref import REPO
 from mcpref.gui.label_files import OTHER
-from mcpref.recognition.drawn_masks import SCALE
-from mcpref.recognition.frame_set import frame_values
-from mcpref.recognition.metrics import evaluation
-from mcpref.recognition.pairs import Named
-from mcpref.recognition.recognise import Point
+from mcpref.recognition.frame_set import State
+from mcpref.recognition.metrics import (
+    CRITERIA,
+    evaluation,
+    matrices,
+    tally,
+    tally_matrices,
+)
+from mcpref.recognition.pairs import VARIANTS
+from mcpref.recognition.stored import (
+    ALL,
+    PARTS,
+    TAU_THETA_MU,
+    Model,
+    read_part,
+)
 
-PARTS = ("train", "validation", "test")
-
-
-def template_image(v: str, t: np.ndarray) -> Image.Image:
-    """Interface: RGB template; (f): 8-bit grey floor(T / 1000)."""
-    if v == "f":
-        return Image.fromarray((t[..., 0] // SCALE).astype(np.uint8))
-    return Image.fromarray(t)
-
-
-def write_templates(out: Path, named: Mapping[str, Named]) -> None:
-    """Interface: templates/<variant>/<name>_template.png and _mask.png (255 in M)."""
-    for v, classes in named.items():
-        folder = out / "templates" / v
-        folder.mkdir(parents=True, exist_ok=True)
-        for name, (t, m) in ((n, p) for c in classes.values() for n, p in c.items()):
-            template_image(v, t).save(folder / f"{name}_template.png", format="PNG")
-            mask = Image.fromarray(m.astype(np.uint8) * 255)
-            mask.save(folder / f"{name}_mask.png", format="PNG")
+if TYPE_CHECKING:
+    from mcpref.recognition.evaluate import GuiMasksConfig
 
 
-def split_report(
-    parts: dict[str, int],
-    part: list[list[dict]],
-    labels: list[str],
-    fold_of: dict[str, int],
-    n_folds: int,
-) -> dict:
-    """Interface report.json `split`: episodes, frames F^part and frames per label; per
-    fold, its training episodes and labelled frames F^tr_(l)."""
+def split_report(state: State, labels: list[str], k_folds: int) -> dict:
+    """Interface report.json `split`: per part, its episodes, labelled frames and frames
+    per label; per fold, its training episodes and labelled frames F^tr_(l)."""
     report = {
         name: {
-            "episodes": sum(p == i for p in parts.values()),
-            "frames": len(part[i]),
-            "per_label": {k: sum(f["label"] == k for f in part[i]) for k in labels},
+            "episodes": sum(p == i for p in state.parts.values()),
+            "frames": sum(c[i] for c in state.counts),
+            "per_label": {k: state.per_label[i][k] for k in labels},
         }
         for i, name in enumerate(PARTS)
     }
-    in_fold = [fold_of[f["relpath"]] for f in part[0]]
+    in_fold = list(state.fold_of.values())
     report["folds"] = [
-        {"episodes": list(fold_of.values()).count(l), "frames": in_fold.count(l)}
-        for l in range(n_folds)
+        {"episodes": in_fold.count(l), "frames": state.fold_frames[l]}
+        for l in range(k_folds)
     ]
     return report
 
 
-def pairs_report(named: Named, names: list[str]) -> dict:
+def pairs_report(own: dict, names: list[str]) -> dict:
     """Interface report.json `pairs`: per class, the number of pairs and mask sizes."""
-    sizes = {k: [int(m.sum()) for _, m in named.get(k, {}).values()] for k in names}
+    sizes = {k: [int(m.sum()) for _, m in own.get(k, {}).values()] for k in names}
     return {k: {"n_pairs": len(s), "mask_sizes": s} for k, s in sizes.items()}
 
 
-def variant_report(
-    named: Named,
-    chosen: dict[str, Point],
-    preds: dict[str, list[str]],
-    test: list[dict],
-    names: list[str],
-) -> dict:
-    """Interface report.json, one variant: pairs; thresholds and (7) per choice."""
-    ids, y, g = frame_values(test)
-    return {"pairs": pairs_report(named, names)} | {
-        c: {
-            "thresholds": dict(zip(("tau", "theta", "mu"), point)),
-            "test": evaluation(y, preds[c], ids, g, names + [OTHER]),
-        }
-        for c, point in chosen.items()
+def variant_preds(pred: np.ndarray) -> dict[str, dict[str, list[str]]]:
+    """Interface features `pred`: variant -> threshold choice -> y_hat, in the orders
+    VARIANTS, CRITERIA; also used by specs/gui-stack.md (6)."""
+    return {
+        v: {c: pred[:, i, j].tolist() for j, c in enumerate(CRITERIA)}
+        for i, v in enumerate(VARIANTS)
     }
 
 
-def strings(values: Sequence[str]) -> np.ndarray:
-    """Interface features.npz: a fixed-width unicode array."""
-    return np.array(values, dtype=str)
+def tally_shard(acc: dict, matrix_acc: dict, z: dict) -> None:
+    """(7), (8): adds one test shard, its predictions of each variant and choice."""
+    y, ids, g = z["y"].tolist(), z["ids"].tolist(), z["g"].tolist()
+    preds = variant_preds(z["pred"])
+    for v in VARIANTS:
+        for c in CRITERIA:
+            tally(acc[v][c], y, preds[v][c], ids, g)
+    tally_matrices(matrix_acc, y, preds)
 
 
-def write_features(
-    out: Path,
-    named: Mapping[str, Named],
-    labels: list[str],
-    parts: Mapping[str, tuple[list[dict], np.ndarray]],
-    preds: Mapping[str, Mapping[str, list[str]]],
-) -> None:
-    """Interface: features.npz (numpy.savez, no object arrays); columns
-    <variant>/<class>[__<member>] in the order of `named` (14)."""
-    columns = [f"{v}/{n}" for v, c in named.items() for ps in c.values() for n in ps]
-    arrays = {"columns": strings(columns), "labels": strings(labels)}
-    for part, (frames, x) in parts.items():
-        ids, y, g = frame_values(frames)
-        arrays[f"{part}_ids"], arrays[f"{part}_y"] = strings(ids), strings(y)
-        arrays[f"{part}_g"] = np.array(g, dtype=bool)
-        arrays[f"{part}_x"] = x
-    for v, by_choice in preds.items():
-        for c, y_hat in by_choice.items():
-            arrays[f"test_pred_{v}_{c}"] = strings(y_hat)
-    np.savez(out / "features.npz", **arrays)
+def accumulated(cfg: "GuiMasksConfig", state: State) -> tuple[dict, dict]:
+    """(E): (7), (8) accumulated over the test shards read one at a time; bar `report`."""
+    acc, matrix_acc = {v: {c: {} for c in CRITERIA} for v in VARIANTS}, {}
+    tally = partial(tally_shard, acc, matrix_acc)
+    read_part(REPO / cfg.out_dir, 2, state.counts, "report", tally)
+    return acc, matrix_acc
+
+
+def report(cfg: "GuiMasksConfig", state: State, model: Model, chosen: dict) -> dict:
+    """(E): report.json; the split from the state, `pairs` from the model."""
+    acc, matrix_acc = accumulated(cfg, state)
+    labels = [*state.names, OTHER]
+    out = {"split": split_report(state, labels, cfg.folds), "qualified": state.q}
+    for v in VARIANTS:
+        out[v] = {"pairs": pairs_report(model[ALL][v], state.names)} | {
+            c: {
+                "thresholds": dict(zip(TAU_THETA_MU, chosen[v][c])),
+                "test": evaluation(acc[v][c], labels),
+            }
+            for c in CRITERIA
+        }
+    return out | {"agreement_matrices": matrices(matrix_acc, state.names)}
 
 
 def cell(v: object) -> str:

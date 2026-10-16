@@ -1,13 +1,9 @@
-"""(6)-(8) of specs/gui-masks.md: thresholds chosen on F^va, metrics on F^te, agreement
-between labellers; (7), (8) also used by specs/gui-stack.md."""
+"""(6)-(8) of specs/gui-masks.md, accumulated shard by shard: the criteria of the thresholds,
+the metrics on F^te, the agreement between labellers; also used by specs/gui-stack.md."""
 
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from fractions import Fraction
-
-from tqdm import tqdm
-
-from mcpref.recognition.recognise import Point, Scores, predictions
 
 
 def share(num: int, den: int) -> Fraction | None:
@@ -15,117 +11,113 @@ def share(num: int, den: int) -> Fraction | None:
     return Fraction(num, den) if den else None
 
 
-def agreement(y: Sequence[str], y_hat: Sequence[str]) -> Fraction | None:
-    """(6): share of frames with y_hat = y."""
-    return share(sum(a == b for a, b in zip(y, y_hat)), len(y))
+def agreement(n: Counter) -> Fraction | None:
+    """(6): share of frames with y_hat = y; n counts the frames per (y, y_hat)."""
+    return share(sum(c for (a, b), c in n.items() if a == b), sum(n.values()))
 
 
-def macro_recall(y: Sequence[str], y_hat: Sequence[str]) -> Fraction | None:
-    """(6): mean over the labels present in y of the share of their frames predicted."""
-    hits = Counter(a for a, b in zip(y, y_hat) if a == b)
-    recalls = [Fraction(hits[k], n) for k, n in Counter(y).items()]
+def macro_recall(n: Counter) -> Fraction | None:
+    """(6): mean over the labels present of the share of their frames predicted
+    correctly; n counts the frames per (y, y_hat)."""
+    totals, hits = Counter(), Counter()
+    for (a, b), c in n.items():
+        totals[a] += c
+        hits[a] += c * (a == b)
+    recalls = [Fraction(hits[k], t) for k, t in totals.items() if t]
     return sum(recalls, Fraction(0)) / len(recalls) if recalls else None
 
 
 CRITERIA = {"agreement": agreement, "macro_recall": macro_recall}
+FLAGS = (("true", True), ("false", False))
 
 
-def choose(
-    grid: Sequence[Point],
-    s: Scores,
-    y: list[str],
-    order: list[str],
-    step: Callable[[], None],
-) -> dict[str, Point]:
-    """(6): per criterion, the first grid point (tau outermost, mu innermost) maximising
-    it; step() after each grid point's predictions."""
-    preds = []
-    for point in grid:
-        preds.append((point, predictions(s, point, order)))
-        step()
+def choose(acc: Sequence[Counter]) -> dict[str, int]:
+    """(6): per criterion, the index of the first grid point (tau outermost, mu innermost)
+    maximising it; acc[p] counts the frames of F^va per (y, y_hat) at grid point p."""
     return {
-        name: max(preds, key=lambda pp: criterion(y, pp[1]))[0]
+        name: max(range(len(acc)), key=lambda p: criterion(acc[p]))
         for name, criterion in CRITERIA.items()
     }
 
 
-def thresholds(
-    grid: Sequence[Point], s: Mapping[str, Scores], y: list[str], order: list[str]
-) -> dict[str, dict[str, Point]]:
-    """(6) for the variants in turn; bar `thresholds`."""
-    with tqdm(total=len(s) * len(grid), desc="thresholds", unit="point") as bar:
-        return {v: choose(grid, sv, y, order, bar.update) for v, sv in s.items()}
-
-
-def label_metrics(
-    y: Sequence[str], y_hat: Sequence[str], ids: Sequence[str], k: str
-) -> dict:
-    """(7): counts, precision, recall, F1 and misclassified ids of label k."""
-    tp = sum(a == b == k for a, b in zip(y, y_hat))
-    n_true, n_pred = list(y).count(k), list(y_hat).count(k)
-    return {
-        "n_true": n_true,
-        "n_pred": n_pred,
-        "precision": share(tp, n_pred),
-        "recall": share(tp, n_true),
-        "f1": share(2 * tp, n_true + n_pred),
-        "errors": [i for i, a, b in zip(ids, y, y_hat) if a == k != b],
-    }
-
-
-def metrics(
-    y: Sequence[str], y_hat: Sequence[str], ids: Sequence[str], labels: Sequence[str]
-) -> dict:
-    """(7): agreement, macro recall, per-label metrics, confusion matrix (y x y_hat)."""
-    pairs = Counter(zip(y, y_hat))
-    return {
-        "agreement": agreement(y, y_hat),
-        "macro_recall": macro_recall(y, y_hat),
-        "per_label": {k: label_metrics(y, y_hat, ids, k) for k in labels},
-        "confusion": {a: {b: pairs[a, b] for b in labels} for a in labels},
-    }
-
-
-def evaluation(
+def tally(
+    acc: dict,
     y: Sequence[str],
     y_hat: Sequence[str],
     ids: Sequence[str],
     g: Sequence[bool],
-    labels: Sequence[str],
-) -> dict:
-    """(7): metrics on the frames given, and on those with g_f true / false."""
-    by_flag = {}
-    for name, flag in (("true", True), ("false", False)):
-        keep = [i for i, gi in enumerate(g) if gi == flag]
-        by_flag[name] = metrics(
-            *([s[i] for i in keep] for s in (y, y_hat, ids)), labels
-        )
-    return metrics(y, y_hat, ids, labels) | {"by_flag": by_flag}
+) -> None:
+    """(7): adds the frames of one shard: counts per (y, y_hat, g) and (id, y, g) of the
+    frames with y_hat != y, in order."""
+    counts, errors = acc.setdefault("counts", Counter()), acc.setdefault("errors", [])
+    for i, a, b, flag in zip(ids, y, y_hat, g):
+        counts[a, b, bool(flag)] += 1
+        if a != b:
+            errors.append((i, a, bool(flag)))
 
 
-def agreement_matrix(labellers: Mapping[str, Sequence[str]], k: str) -> dict:
-    """(8): A_k[i, j] over F_k, the frames to which some labeller assigns k."""
-    f_k = [row for row in zip(*labellers.values()) if k in row]
-    n = range(len(labellers))
-    matrix = [[share(sum(r[i] == r[j] for r in f_k), len(f_k)) for j in n] for i in n]
+def label_metrics(n: Counter, errors: list[tuple[str, str]], k: str) -> dict:
+    """(7): counts, precision, recall, F1 and misclassified ids of label k."""
+    n_true = sum(c for (a, _), c in n.items() if a == k)
+    n_pred = sum(c for (_, b), c in n.items() if b == k)
     return {
-        "n": len(f_k),
-        "labellers": list(labellers),
-        "matrix": matrix if f_k else None,
+        "n_true": n_true,
+        "n_pred": n_pred,
+        "precision": share(n[k, k], n_pred),
+        "recall": share(n[k, k], n_true),
+        "f1": share(2 * n[k, k], n_true + n_pred),
+        "errors": [i for i, a in errors if a == k],
     }
 
 
-def matrices(
-    y: Sequence[str],
-    preds: Mapping[str, Mapping[str, Sequence[str]]],
-    names: Sequence[str],
-) -> dict:
-    """(8) per threshold choice: labellers VLM, then `preds` in its order; one matrix per
-    class of `names`."""
+def metrics(acc: dict, flags: set[bool], labels: Sequence[str]) -> dict:
+    """(7) on the tallied frames with g_f in `flags`: agreement, macro recall, per-label
+    metrics, confusion matrix (y x y_hat)."""
+    n = Counter()
+    for (a, b, flag), c in acc.get("counts", Counter()).items():
+        if flag in flags:
+            n[a, b] += c
+    errors = [(i, a) for i, a, flag in acc.get("errors", []) if flag in flags]
     return {
-        c: {
-            k: agreement_matrix({"vlm": y} | {v: p[c] for v, p in preds.items()}, k)
-            for k in names
-        }
-        for c in CRITERIA
+        "agreement": agreement(n),
+        "macro_recall": macro_recall(n),
+        "per_label": {k: label_metrics(n, errors, k) for k in labels},
+        "confusion": {a: {b: n[a, b] for b in labels} for a in labels},
     }
+
+
+def evaluation(acc: dict, labels: Sequence[str]) -> dict:
+    """(7) from `acc` (empty: as on an empty set), and split by g_f true / false."""
+    by_flag = {name: metrics(acc, {flag}, labels) for name, flag in FLAGS}
+    return metrics(acc, {True, False}, labels) | {"by_flag": by_flag}
+
+
+def tally_matrices(
+    acc: dict, y: Sequence[str], preds: Mapping[str, Mapping[str, Sequence[str]]]
+) -> None:
+    """(8): adds one shard's labels of every labeller (VLM, then `preds` in its order;
+    labeller -> threshold choice -> y_hat): per choice and label k, |F_k| and the
+    agreeing frames of each pair of labellers."""
+    names = acc.setdefault("labellers", ["vlm", *preds])
+    for c in CRITERIA:
+        n, agree = acc.setdefault(c, (Counter(), {}))
+        for row in zip(y, *(p[c] for p in preds.values())):
+            for k in set(row):
+                n[k] += 1
+                a = agree.setdefault(k, [[0] * len(names) for _ in names])
+                for i, ri in enumerate(row):
+                    for j, rj in enumerate(row):
+                        a[i][j] += ri == rj
+
+
+def agreement_matrix(acc: dict, c: str, k: str) -> dict:
+    """(8): A_k[i, j] over F_k, reported with |F_k|; no matrix when F_k is empty."""
+    n, agree = acc.get(c, (Counter(), {}))
+    names, a = acc["labellers"], agree.get(k)
+    matrix = [[share(x, n[k]) for x in row] for row in a] if a else None
+    return {"n": n[k], "labellers": names, "matrix": matrix}
+
+
+def matrices(acc: dict, names: Sequence[str]) -> dict:
+    """(8) from `acc`, per threshold choice, one matrix per class of `names`."""
+    return {c: {k: agreement_matrix(acc, c, k) for k in names} for c in CRITERIA}

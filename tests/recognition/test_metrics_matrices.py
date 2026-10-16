@@ -1,28 +1,15 @@
-"""`matrices` of src/mcpref/recognition/metrics.py against specs/gui-masks.md (8): hand cases
-in exact fractions and the naive reference of metrics_oracle.py."""
+"""`tally_matrices` and `matrices` of src/mcpref/recognition/metrics.py against
+specs/gui-masks.md (8): hand cases in exact fractions and the naive whole-set reference of
+metrics_oracle.py, the labels tallied in one or several shards."""
 
+import itertools
 from fractions import Fraction as Fr
 
 import metrics_oracle as o
 import numpy as np
 import pytest
 
-from mcpref.recognition.metrics import matrices
-
-LABELS = ["a", "b", "c", "d", "x", "other"]
-FRAMES = [  # id, y, y_hat, g
-    ("f1", "a", "a", True),
-    ("f2", "a", "b", False),
-    ("f3", "b", "b", True),
-    ("f4", "a", "other", True),
-    ("f5", "other", "a", False),
-    ("f6", "b", "c", False),
-    ("f7", "other", "other", True),
-    ("f8", "d", "a", False),
-]
-SET_KEYS = {"agreement", "macro_recall", "per_label", "confusion"}
-LABEL_KEYS = {"n_true", "n_pred", "precision", "recall", "f1", "errors"}
-
+from mcpref.recognition.metrics import matrices, tally_matrices
 
 NAMES = ["p", "q", "r", "s"]
 Y = ["p", "p", "q", "r", "p"]
@@ -55,6 +42,15 @@ HAND = {  # choice -> class -> (|F_k|, matrix over VLM, one, two); s: assigned b
 }
 
 
+def run(y: list, preds: dict, names: list, cuts=()) -> dict:
+    """(8) of the labels tallied shard by shard, the shards cut at `cuts`."""
+    acc = {}
+    for a, b in itertools.pairwise((0, *cuts, len(y))):
+        part = {n: {c: p[a:b] for c, p in by.items()} for n, by in preds.items()}
+        tally_matrices(acc, y[a:b], part)
+    return matrices(acc, names)
+
+
 def shown(got: dict) -> dict:
     """class -> (n, matrix as floats) for the classes with a matrix (Interface: none for an
     empty F_k, the class absent or its matrix null)."""
@@ -72,7 +68,7 @@ def floats(case: dict) -> dict:
 def test_matrices_hand_case():
     """(8): per choice and class, |F_k| and A_k in labeller order VLM, then `preds` in its order;
     no matrix for s."""
-    got = matrices(Y, PREDS, NAMES)
+    got = run(Y, PREDS, NAMES)
     assert set(got) == set(HAND)
     for choice, case in HAND.items():
         assert set(got[choice]) <= set(NAMES)
@@ -89,14 +85,16 @@ def test_matrices_follow_preds_order():
     """(8): the labellers in `preds` order; swapping them permutes rows and columns."""
     swapped = {"two": PREDS["two"], "one": PREDS["one"]}
     perm = [0, 2, 1]
-    got = shown(matrices(Y, swapped, NAMES)["agreement"])
+    got = shown(run(Y, swapped, NAMES, (2,))["agreement"])
     for k, (n, m) in floats(HAND["agreement"]).items():
         assert got[k] == (n, [[m[i][j] for j in perm] for i in perm])
 
 
+@pytest.mark.parametrize("cuts", [(), (0, 7), (10, 10, 29), tuple(range(1, 30))])
 @pytest.mark.parametrize("seed", [0, 1])
-def test_matrices_naive_reference(seed):
-    """(8) on 30 random frames, three labellers besides the VLM, against masks_oracle.matrices."""
+def test_matrices_over_shards_naive_reference(seed, cuts):
+    """(8) on 30 random frames, three labellers besides the VLM, tallied in shards (empty ones
+    included), against the naive whole-set reference."""
     rng = np.random.default_rng(seed)
     pool = NAMES + ["other"]
     y = [str(v) for v in rng.choice(pool, 30)]
@@ -107,7 +105,7 @@ def test_matrices_naive_reference(seed):
         }
         for name in ("a", "b", "c")
     }
-    got = matrices(y, preds, NAMES)
+    got = run(y, preds, NAMES, cuts)
     for c in ("agreement", "macro_recall"):
         labellers = [y] + [preds[name][c] for name in preds]
         assert shown(got[c]) == o.matrices(NAMES, labellers)

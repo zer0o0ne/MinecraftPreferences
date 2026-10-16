@@ -1,5 +1,5 @@
-"""Synthetic inputs of `main` of specs/gui-masks.md: catalogue, textures with the font, frames,
-labels, config; written by masks_files.py."""
+"""Synthetic inputs of `main` of specs/gui-masks.md: catalogue, textures with the font, frames
+in plan shards, labels, config; written by masks_files.py."""
 
 import itertools
 from dataclasses import dataclass
@@ -18,7 +18,7 @@ EPISODES = [f"data/7.0/ep{7 * e % N_EP:02d}.mp4" for e in range(N_EP)]  # not so
 CONFIG = {"split": ["0.5", "0.25", "0.25"], "seed": 230, "min_episodes": 2}
 CONFIG.update(spread_quantile=0.75, spread_max=20, patch=4, patches_per_class=3, eps=1)
 CONFIG.update(tau_grid=[12, 4, 40], theta_grid=["0.9", "0.5", "0.75"])
-CONFIG.update(mu_grid=["0", "0.25", "0.1"], chunk_rows=3)
+CONFIG.update(mu_grid=["0", "0.25", "0.1"], chunk_rows=6)
 CONFIG.update(folds=3, fold_seed=3, feature_quantile=0.5)
 GLYPHS = {  # code point -> top row, rows of the glyph from column 0
     ord("A"): (1, [".#.", "#.#", "###", "#.#"]),  # width 3
@@ -76,10 +76,7 @@ CATALOGUE = {
 }
 _rng = np.random.default_rng(2026)
 PATTERNS = {k: _rng.integers(16, 236, (H, 12 if k == "alpha" else W)) for k in CLASSES}
-FAR_FROM_125 = [
-    *range(16, 80),
-    *range(172, 236),
-]  # beta's inverse 251 - Y differs a lot
+FAR_FROM_125 = [*range(16, 80), *range(172, 236)]  # beta's inverse 251 - Y far off
 PATTERNS["beta"] = _rng.choice(FAR_FROM_125, (H, 12))
 MISLABEL = {"alpha": "beta", "beta": "delta", "gamma": "other", "delta": "other"}
 MISLABEL["other"] = "alpha"
@@ -137,8 +134,8 @@ class Frame:
     id: str
     relpath: str
     status: str
-    flag: bool  # line.isGuiInventory
-    label: str | None  # VLM label; None: no record in labels.jsonl
+    flag: bool  # line.isGuiInventory = gui_inventory of its label record
+    label: str | None  # VLM label; None for a failed frame (no label record)
     y: np.ndarray | None  # Y plane; None for a failed frame
 
 
@@ -176,11 +173,11 @@ def y_plane(cls: str, partial: bool, rng) -> np.ndarray:
 
 
 def frames(relabel: bool = False) -> list:
-    """Episodes interleaved, 3 frames each; episodes 5 (test) and 10 (train) show gamma;
-    mislabels, invalid, no_answer, a missing label; failed records first (of a test episode,
-    of a ghost). relabel: the first episode unlabelled, episode 4 invalid."""
+    """Episodes interleaved, 3 frames each, in position order; episodes 5 (test) and 10
+    (train) show gamma; mislabels, invalid, no_answer; failed records (of a test episode, of a
+    ghost) first and fourth. relabel: the first episode no_answer, episode 4 invalid."""
     rng, out = np.random.default_rng(7), []
-    special = {(2, 1): "invalid", (9, 0): "no_answer", (12, 2): None}
+    special = {(2, 1): "invalid", (9, 0): "no_answer", (12, 2): "no_answer"}
     for s, e in itertools.product(range(3), range(N_EP)):
         cls = (
             "gamma"
@@ -190,7 +187,7 @@ def frames(relabel: bool = False) -> list:
         n = 3 * e + s
         label = special.get((e, s), MISLABEL[cls] if n % 10 == 7 else cls)
         if relabel and e in (0, 4):
-            label = None if e == 0 else "invalid"
+            label = "no_answer" if e == 0 else "invalid"
         stem, flag = Path(EPISODES[e]).stem, (cls == "alpha") != (n % 5 == 0)
         y = y_plane(cls, n % 3 == 2, rng)
         out.append(Frame(f"7.0_{stem}_{s + 10}", EPISODES[e], "ok", flag, label, y))

@@ -1,7 +1,8 @@
-"""`evaluation` of src/mcpref/recognition/metrics.py against specs/gui-masks.md (7): hand
-cases in exact fractions and the naive reference of metrics_oracle.py; (8) in
-test_metrics_matrices.py."""
+"""`tally` and `evaluation` of src/mcpref/recognition/metrics.py against specs/gui-masks.md
+(7): hand cases in exact fractions and the naive whole-set reference of metrics_oracle.py,
+the frames tallied in one or several shards; (8) in test_metrics_matrices.py."""
 
+import itertools
 from collections.abc import Mapping
 from fractions import Fraction as Fr
 
@@ -10,7 +11,7 @@ import numpy as np
 import pytest
 from metrics_oracle import normal, num
 
-from mcpref.recognition.metrics import CRITERIA, evaluation
+from mcpref.recognition.metrics import CRITERIA, evaluation, tally
 
 LABELS = ["a", "b", "c", "d", "x", "other"]
 FRAMES = [  # id, y, y_hat, g
@@ -27,9 +28,13 @@ SET_KEYS = {"agreement", "macro_recall", "per_label", "confusion"}
 LABEL_KEYS = {"n_true", "n_pred", "precision", "recall", "f1", "errors"}
 
 
-def run(frames: list) -> dict:
-    ids, y, y_hat, g = ([f[i] for f in frames] for i in range(4))
-    return evaluation(y, y_hat, ids, g, LABELS)
+def run(frames: list, cuts=()) -> dict:
+    """(7) of `frames` tallied shard by shard, the shards cut at `cuts`."""
+    acc = {}
+    for a, b in itertools.pairwise((0, *cuts, len(frames))):
+        ids, y, y_hat, g = ([f[i] for f in frames[a:b]] for i in range(4))
+        tally(acc, y, y_hat, ids, g)
+    return evaluation(acc, LABELS)
 
 
 def row(n_true, n_pred, precision, recall, f1, errors) -> dict:
@@ -96,31 +101,49 @@ def test_evaluation_empty_sets():
         "per_label": {k: row(0, 0, None, None, None, []) for k in LABELS},
         "confusion": {},
     }
-    empty = run([])
-    assert (empty["agreement"], empty["macro_recall"]) == (None, None)
-    assert normal(empty)["per_label"]["a"] == row(0, 0, None, None, None, [])
+    for empty in (run([]), evaluation({}, LABELS)):
+        assert (empty["agreement"], empty["macro_recall"]) == (None, None)
+        assert normal(empty)["per_label"]["a"] == row(0, 0, None, None, None, [])
 
 
-@pytest.mark.parametrize("seed", [0, 1, 2])
-def test_evaluation_naive_reference(seed):
-    """(7) on 40 random frames against masks_oracle.metrics, as a whole and by flag."""
+def random_frames(seed: int, n: int = 40) -> list:
     rng = np.random.default_rng(seed)
-    frames = [
+    return [
         (
             f"id{i}",
             str(rng.choice(LABELS[:4] + ["other"])),
             str(rng.choice(LABELS)),
             bool(g),
         )
-        for i, g in enumerate(rng.integers(0, 2, 40))
+        for i, g in enumerate(rng.integers(0, 2, n))
     ]
-    got = run(frames)
+
+
+SHARDS = [(), (3,), (0, 0, 17), (5, 5, 13, 39), tuple(range(1, 40))]
+
+
+@pytest.mark.parametrize("cuts", SHARDS)
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_evaluation_over_shards_naive_reference(seed, cuts):
+    """(7) of 40 random frames tallied in shards (empty ones included) against the naive
+    whole-set reference, as a whole and by flag."""
+    frames = random_frames(seed)
+    got = run(frames, cuts)
     ids, y, y_hat = ([f[i] for f in frames] for i in range(3))
     assert normal(got) == o.metrics(ids, y, y_hat, LABELS)
     for flag in (True, False):
         rows = [f for f in frames if f[3] == flag]
         sub = ([f[i] for f in rows] for i in range(3))
         assert normal(got["by_flag"][str(flag).lower()]) == o.metrics(*sub, LABELS)
+
+
+@pytest.mark.parametrize("cuts", SHARDS)
+def test_errors_in_frame_order_over_shards(cuts):
+    """(7): the ids of the frames with y = k and y_hat != k, in the order tallied."""
+    frames = random_frames(5)[::-1]  # ids not sorted
+    got = run(frames, cuts)["per_label"]
+    for k in LABELS:
+        assert list(got[k]["errors"]) == [i for i, a, b, _ in frames if a == k != b]
 
 
 def test_criteria_threshold_choices_in_order():

@@ -1,5 +1,6 @@
-"""Naive references for specs/gui-masks.md (1)-(5), (13), (14): explicit loops over pixels and
-frames, Python integers and exact fractions; nothing from src/."""
+"""Naive references for specs/gui-masks.md (1)-(5), (13), (14) and the RGB view (5) of
+specs/vpt-gui-frames.md: explicit loops over pixels and frames, Python integers, exact
+fractions and float64; nothing from src/."""
 
 import math
 from fractions import Fraction
@@ -106,14 +107,21 @@ def deviations(x: np.ndarray, t: np.ndarray) -> np.ndarray:
     return d if d.ndim == 2 else d.max(axis=2)
 
 
-def score(x: np.ndarray, pairs: list, bound: int) -> Fraction | None:
-    """(4): best c / |M| over the pairs, c counting d <= bound (tau; 1000 tau for (f));
-    None without a pair."""
-    best = None
+def best(x: np.ndarray, pairs: list, bound: int) -> tuple | None:
+    """(4): (c, |M|) of the first pair with the largest c / |M| (exact), c counting d <= bound
+    (tau; 1000 tau for (f)); None without a pair."""
+    out = None
     for t, m in pairs:
-        s = Fraction(int((m & (deviations(x, t) <= bound)).sum()), int(m.sum()))
-        best = s if best is None or s > best else best
-    return best
+        cm = (int((m & (deviations(x, t) <= bound)).sum()), int(m.sum()))
+        if out is None or Fraction(*cm) > Fraction(*out):
+            out = cm
+    return out
+
+
+def score(x: np.ndarray, pairs: list, bound: int) -> Fraction | None:
+    """(4): S = c / |M| of the best pair; None without a pair."""
+    cm = best(x, pairs, bound)
+    return None if cm is None else Fraction(*cm)
 
 
 def feature(x: np.ndarray, t: np.ndarray, m: np.ndarray, q: float) -> int:
@@ -137,3 +145,20 @@ def predict(s: dict, order: list, theta: Fraction, mu: Fraction) -> str:
     top = next(k for k in order if s.get(k) == ranked[0])
     second = ranked[1] if len(ranked) > 1 else 0
     return top if ranked[0] >= theta and ranked[0] - second >= mu else "other"
+
+
+def yuv_rgb(y: np.ndarray, u: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """vpt-gui-frames (5) in float64: BT.601 limited range, chroma repeated over its 2 x 2
+    block, each value floor(x + 0.5) clipped to 0..255."""
+    rows, cols = y.shape
+    out = np.zeros((rows, cols, 3), dtype=np.int64)
+    for j in range(rows):
+        for i in range(cols):
+            yy = 255 / 219 * (float(y[j, i]) - 16)
+            cb, cr = float(u[j // 2, i // 2]) - 128, float(v[j // 2, i // 2]) - 128
+            r = yy + 255 / 224 * 1.402 * cr
+            g = yy - 255 / 224 * (1.402 * 0.299 / 0.587) * cr
+            g -= 255 / 224 * (1.772 * 0.114 / 0.587) * cb
+            b = yy + 255 / 224 * 1.772 * cb
+            out[j, i] = [min(255, max(0, math.floor(c + 0.5))) for c in (r, g, b)]
+    return out
