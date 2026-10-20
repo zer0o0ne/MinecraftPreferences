@@ -15,7 +15,6 @@ import torch
 import yaml
 
 from mcpref.cli.failure import FAILURES, failed
-from mcpref.gui.label_files import check_fingerprints, sha256, write_json
 from mcpref.recognition.metrics import (
     CRITERIA,
     evaluation,
@@ -27,10 +26,10 @@ from mcpref.recognition.report import variant_preds, write_report
 from mcpref.recognition.stored import (
     FEATURES,
     PARTS,
-    complete_run,
     read_arrays,
     shard_bar,
 )
+from mcpref.runs.files import check_fingerprints, finished_run, sha256, write_json
 from mcpref.shards.store import complete_shards, shard_path, write_file, write_shard
 from mcpref.stacking.config import GuiStackConfig, load_config
 from mcpref.stacking.fit import Fitted, Shard, cpu_copies, fit
@@ -59,7 +58,7 @@ class Features:
 def checks(cfg: GuiStackConfig, path: Path, raw: dict) -> None:
     """(R): gui-masks complete; an existing {out_dir}/run.json with this run's
     fingerprints (config, masks); then {out_dir}/run.json written."""
-    complete_run(cfg.masks_dir, raw["masks_dir"])
+    finished_run(cfg.masks_dir, raw["masks_dir"], "complete")
     masks_run, run_path = cfg.masks_dir / "run.json", cfg.out_dir / "run.json"
     hashes = {"config": sha256(path), "masks": sha256(masks_run)}
     check_fingerprints(run_path, hashes, raw["out_dir"])

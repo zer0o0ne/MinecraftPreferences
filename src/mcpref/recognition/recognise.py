@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from mcpref import REPO
-from mcpref.gui.label_files import OTHER, rgb_view, write_json
+from mcpref.gui.label_files import OTHER, rgb_view
 from mcpref.recognition.drawn_masks import SCALE, edges
 from mcpref.recognition.frame_set import State, part_frames
 from mcpref.recognition.masks import Pair, distance
@@ -30,6 +30,7 @@ from mcpref.recognition.stored import (
     write_features,
     write_thresholds,
 )
+from mcpref.runs.files import write_json
 from mcpref.shards.store import complete_shards
 
 if TYPE_CHECKING:

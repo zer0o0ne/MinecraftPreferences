@@ -11,7 +11,6 @@ import yaml
 
 from mcpref import REPO
 from mcpref.cli.failure import FAILURES, failed
-from mcpref.gui.label_files import write_json
 from mcpref.gui.screens import load_screens
 from mcpref.gui.textures import load_textures_config
 from mcpref.recognition.frame_set import checks, read_state, write_index_shards
@@ -19,6 +18,7 @@ from mcpref.recognition.pairs import b_shards, c_shards, catalogue_shards
 from mcpref.recognition.recognise import score
 from mcpref.recognition.report import report, write_report
 from mcpref.recognition.stored import load_model
+from mcpref.runs.files import write_json
 
 PROG = "mcpref.recognition.evaluate"
 TITLE = "GUI masks report"

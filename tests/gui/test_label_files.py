@@ -124,10 +124,18 @@ def test_bar_closed_at_the_shards_written(lab, j, written):
     assert assert_aborted(*lab.run()) == [label_bar(written)]
 
 
+def not_complete(lab) -> str:
+    """The end of stderr when the frames are not complete: finished_run (specs/runs.md (1))
+    with {frames_dir} as written in the config."""
+    return f": RuntimeError: {lab.cfg['frames_dir']} is not complete\n"
+
+
 def test_abort_while_frames_lack_counts(lab):
     """{frames_dir}/run.json as at the start of a vpt-gui-frames run: frames not complete."""
     lab.frames(counts=False)
-    assert_aborted(*lab.run())
+    code, err = lab.run()
+    assert_aborted(code, err)
+    assert err.endswith(not_complete(lab))
     assert lab.fake.calls == [] and not (lab.root / "out").exists()
 
 
@@ -148,8 +156,11 @@ UNREADABLE = ["gui-labels.yaml", "gui-screens.yaml", "vlm.yaml", "frames/run.jso
 
 @pytest.mark.parametrize("missing", UNREADABLE)
 def test_abort_on_unreadable_file(lab, missing):
+    """A missing {frames_dir}/run.json: the frames are not complete (specs/runs.md (1))."""
     (lab.root / missing).unlink()
-    assert assert_aborted(*lab.run()) == []
+    code, err = lab.run()
+    assert assert_aborted(code, err) == []
+    assert err.endswith(not_complete(lab)) == (missing == "frames/run.json")
     assert lab.fake.calls == [] and not (lab.root / "out/run.json").exists()
 
 

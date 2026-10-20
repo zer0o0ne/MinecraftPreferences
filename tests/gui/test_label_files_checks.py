@@ -79,7 +79,8 @@ def test_rerun_aborts_while_frames_lack_counts(lab, finished):
     labelled(lab, finished)
     before = (len(lab.fake.calls), lab.outputs())
     lab.frames(counts=False)
-    assert not assert_refused(lab, *before).endswith(changed_message(lab))
+    message = f"RuntimeError: {lab.cfg['frames_dir']} is not complete"
+    assert assert_refused(lab, *before).endswith(": " + message)
 
 
 def test_no_run_json_but_label_shards_kept_without_check(lab):

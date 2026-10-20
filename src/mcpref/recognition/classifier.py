@@ -13,17 +13,16 @@ import numpy as np
 import yaml
 
 from mcpref import REPO, config_mapping, repo_path
-from mcpref.gui.label_files import sha256
 from mcpref.gui.screens import ScreenClass, load_screens
 from mcpref.recognition.metrics import CRITERIA
 from mcpref.recognition.recognise import predict
 from mcpref.recognition.stored import (
     CATALOGUE,
     THRESHOLDS,
-    complete_run,
     read_thresholds,
     shard_bar,
 )
+from mcpref.runs.files import finished_run, sha256
 from mcpref.shards.store import shard_path
 
 VARIANT = "d"
@@ -91,7 +90,7 @@ def classify(
 
 def check_run(masks_dir: str, screens: str) -> str:
     """(L) steps 1, 2: run.json complete and built from the caller's catalogue; h_K."""
-    run = complete_run(REPO / masks_dir, masks_dir)
+    run = finished_run(REPO / masks_dir, masks_dir, "complete")
     h_k = sha256(REPO / screens)
     if run["sha256"]["screens"] != h_k:
         raise RuntimeError(

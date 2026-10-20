@@ -21,7 +21,6 @@ from mcpref.gui.label_files import (
     frame_size,
     resume,
     rgb_view,
-    sha256,
     shown,
     write_labels,
     write_run,
@@ -29,6 +28,7 @@ from mcpref.gui.label_files import (
     yuv_path,
 )
 from mcpref.gui.screens import ScreenClass, load_screens
+from mcpref.runs.files import sha256
 from mcpref.shards.store import complete_shards
 from mcpref.vlm.client import VLMConfig, ask_many
 from mcpref.vlm.client import load_config as load_vlm_config
@@ -169,7 +169,7 @@ def run(cfg: GuiLabelsConfig, config_path: Path) -> None:
     """Behaviour (4), (4'): the checks, run.json (frames: the fingerprint), the label
     shards, summary.json."""
     frames_dir, out = REPO / cfg.frames_dir, REPO / cfg.out_dir
-    counts = frame_counts(frames_dir)
+    counts = frame_counts(frames_dir, cfg.frames_dir)
     H = complete_shards(frames_dir / "plan")
     header = {"config": asdict(cfg), "sha256": hashes(cfg, config_path)}
     header["frames"] = {"shards": H, **counts}

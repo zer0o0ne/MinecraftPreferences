@@ -12,9 +12,9 @@ import yaml
 
 from mcpref import REPO, config_mapping, positive_int
 from mcpref.cli.failure import FAILURES, failed
-from mcpref.gui.label_files import check_fingerprints, sha256, write_json
 from mcpref.pretrain.items import PARTS, read_inputs, split
-from mcpref.recognition.stored import complete_run, shard_bar
+from mcpref.recognition.stored import shard_bar
+from mcpref.runs.files import check_fingerprints, finished_run, sha256, write_json
 from mcpref.shards.store import complete_shards, write_shard
 
 PROG = "mcpref.pretrain.index"
@@ -76,20 +76,11 @@ def clip_fields(run: dict) -> dict:
     return fields
 
 
-def counted_run(directory: str) -> dict:
-    """(R) 1: the parsed {directory}/run.json holding `clips`, else aborts."""
-    path = REPO / directory / "run.json"
-    run = json.loads(path.read_text()) if path.exists() else {}
-    if "clips" not in run:
-        raise RuntimeError(f"{directory} is not complete")
-    return run
-
-
 def checks(cfg: TrainIndexConfig) -> tuple[list[dict], dict | None]:
     """(R) 1-4 in order: the clip-defining fields of C (and Q_c); Q_l's run.json."""
     paired = cfg.pair_clips_dir is not None
     dirs = [cfg.clips_dir, *([cfg.pair_clips_dir] if paired else [])]
-    runs = [counted_run(d) for d in dirs]
+    runs = [finished_run(REPO / d, d, "clips") for d in dirs]
     fields = [clip_fields(run) for run in runs]
     for d, f in zip(dirs, fields):
         lacking = [n for n in CLIP_FIELDS if n not in f]
@@ -103,7 +94,8 @@ def checks(cfg: TrainIndexConfig) -> tuple[list[dict], dict | None]:
         raise RuntimeError(
             f"{cfg.pair_clips_dir} differs from {cfg.clips_dir} in {differing}"
         )
-    return fields, complete_run(REPO / cfg.pair_labels_dir, cfg.pair_labels_dir)
+    labels = finished_run(REPO / cfg.pair_labels_dir, cfg.pair_labels_dir, "complete")
+    return fields, labels
 
 
 def header(

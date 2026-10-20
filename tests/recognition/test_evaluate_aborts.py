@@ -52,7 +52,7 @@ def stale_out(root) -> None:
 
 
 CHECKS = [  # (R) in order; each case also breaks every later check
-    ("{f}/run.json lacks the counts: the frames are not complete", no_counts),
+    ("{f} is not complete", no_counts),  # finished_run of specs/runs.md, marker frames
     ("{l} has 5 label shards, not 6", label_shard_lost),
     ("{l} does not label the current {f}", other_frames),
     ("patches_per_class 31 exceeds the 30 patches of a 24x20 frame", too_many_patches),
@@ -60,20 +60,36 @@ CHECKS = [  # (R) in order; each case also breaks every later check
 ]
 
 
-@pytest.mark.parametrize("i", range(len(CHECKS)), ids=[c[1].__name__ for c in CHECKS])
-def test_checks_in_order(tmp_path, repo, i):
+def assert_first_check_aborts(tmp_path, repo, breakings: list, message: str) -> None:
     """(R): the first failing check aborts with its message, paths as written in the
     config, before any bar and any file written."""
     path = write(tmp_path, repo, mw.frames(), mw.CONFIG)
-    for _, breaking in CHECKS[i:]:
+    for breaking in breakings:
         breaking(tmp_path)
     cfg = yaml.safe_load(path.read_text())
     paths = {k[0]: cfg[f"{k}_dir"] for k in ("frames", "labels", "out")}
     run = rerun(tmp_path)
     assert run.failed() == [] and run.report is None
-    assert run.err == PREFIX + CHECKS[i][0].format(**paths) + "\n"
+    assert run.err == PREFIX + message.format(**paths) + "\n"
     files = {p.name for p in run.out.rglob("*")} if run.out.exists() else set()
     assert files <= {"run.json"}
+
+
+@pytest.mark.parametrize("i", range(len(CHECKS)), ids=[c[1].__name__ for c in CHECKS])
+def test_checks_in_order(tmp_path, repo, i):
+    breakings = [breaking for _, breaking in CHECKS[i:]]
+    assert_first_check_aborts(tmp_path, repo, breakings, CHECKS[i][0])
+
+
+def no_frames_run(root) -> None:
+    (root / "frames/run.json").unlink()
+
+
+def test_missing_frames_run_json(tmp_path, repo):
+    """(R), first check by finished_run (specs/runs.md (1)): no {frames_dir}/run.json gives
+    the message of CHECKS[0], every later check broken too."""
+    breakings = [no_frames_run, *(breaking for _, breaking in CHECKS[1:])]
+    assert_first_check_aborts(tmp_path, repo, breakings, CHECKS[0][0])
 
 
 def test_more_label_shards_than_plan_shards(tmp_path, repo):

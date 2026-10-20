@@ -12,10 +12,10 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
-from mcpref.gui.label_files import write_json
 from mcpref.gui.screens import ScreenClass
 from mcpref.recognition.drawn_masks import SCALE
 from mcpref.recognition.masks import Pair
+from mcpref.runs.files import write_json
 from mcpref.shards.store import shard_path, write_shard
 
 INDEX, CATALOGUE, B, C = "index", "templates/catalogue", "templates/b", "templates/c"
@@ -154,15 +154,6 @@ def read_thresholds(path: Path) -> dict[str, dict[str, tuple[int, Fraction, Frac
         }
         for v, by in chosen.items()
     }
-
-
-def complete_run(masks_dir: Path, written: str) -> dict:
-    """Interface: the parsed {masks_dir}/run.json of a complete run, else aborts."""
-    path = masks_dir / "run.json"
-    run = json.loads(path.read_text()) if path.exists() else {}
-    if run.get("complete") is not True:
-        raise RuntimeError(f"{written} is not complete")
-    return run
 
 
 def load_catalogue(pairs: dict, out: Path, s: int, k: str, cls: ScreenClass) -> None:

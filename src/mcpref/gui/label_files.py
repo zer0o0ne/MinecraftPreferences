@@ -1,14 +1,14 @@
 """Interface Consumes and Produces of specs/gui-labels.md: frames read, label values,
 files written."""
 
-import hashlib
 import json
 from collections import Counter
 from pathlib import Path
 
 import numpy as np
 
-from mcpref.shards.store import shard_path, write_file, write_shard
+from mcpref.runs import files
+from mcpref.shards.store import shard_path, write_shard
 from mcpref.vpt.gui_frames import yuv420p_to_rgb
 
 OTHER = "other"
@@ -30,22 +30,18 @@ def frame_size(frames_dir: Path) -> tuple[int, int]:
     return frames_config["width"], frames_config["height"]
 
 
-def run_counts(path: Path, written: Path | str) -> dict[str, int]:
+def run_counts(run: dict) -> dict[str, int]:
     """(4), Notation; specs/gui-masks.md (R): the `ok`, `failed` counts of the frames'
-    run.json at `path`, 0 when absent; abort while it lacks them (`written` shown)."""
-    run = json.loads(path.read_text())
-    if "frames" not in run:
-        raise RuntimeError(f"{written} lacks the counts: the frames are not complete")
+    parsed run.json, 0 when absent."""
     return {status: run["frames"].get(status, 0) for status in ("ok", "failed")}
 
 
-def frame_counts(frames_dir: Path) -> dict[str, int]:
-    """(4), Notation: the counts of {frames_dir}/run.json; abort while it lacks them or
-    has no `ok` frame."""
-    path = frames_dir / "run.json"
-    counts = run_counts(path, path)
+def frame_counts(frames_dir: Path, written: str) -> dict[str, int]:
+    """(4), Notation: the counts of {frames_dir}/run.json, by finished_run of
+    specs/runs.md (`written` shown); abort when it has no `ok` frame."""
+    counts = run_counts(files.finished_run(frames_dir, written, "frames"))
     if counts["ok"] < 1:
-        raise RuntimeError(f"no ok frame in {path}")
+        raise RuntimeError(f"no ok frame in {frames_dir / 'run.json'}")
     return counts
 
 
@@ -59,36 +55,14 @@ def rgb_view(frames_dir: Path, frame: dict, size: tuple[int, int]) -> np.ndarray
     return yuv420p_to_rgb(yuv_path(frames_dir, frame).read_bytes(), *size)
 
 
-def sha256(path: Path) -> str:
-    """(4): SHA-256 of a file's bytes."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def shown(q: list[str | np.ndarray]) -> list[str]:
     """Interface run.json: the prompt with the image replaced by "<image>"."""
     return [part if isinstance(part, str) else "<image>" for part in q]
 
 
-def write_json(path: Path, value: dict) -> None:
-    """(4); specs/gui-masks.md: a JSON file written by specs/shards.md (4)."""
-    write_file(path, (json.dumps(value, indent=2) + "\n").encode())
-
-
 def write_run(out: Path, header: dict) -> None:
-    """(4): {out_dir}/run.json by specs/shards.md (4)."""
-    write_json(out / "run.json", header)
-
-
-def check_fingerprints(path: Path, fingerprints: dict, out_dir: str) -> None:
-    """(R) of specs/gui-masks.md, specs/gui-stack.md: an existing run.json `path` holds
-    `fingerprints` (top-level keys or keys of its `sha256`), compared in order."""
-    if path.exists():
-        stored = json.loads(path.read_text())
-        for name, value in fingerprints.items():
-            if (stored | stored["sha256"])[name] != value:
-                raise RuntimeError(
-                    f"{name} changed since the run started; delete {out_dir}"
-                )
+    """(4): {out_dir}/run.json by write_json of specs/runs.md (3)."""
+    files.write_json(out / "run.json", header)
 
 
 def read_labels(labels_dir: Path, k: int) -> dict:

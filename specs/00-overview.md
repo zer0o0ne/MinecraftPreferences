@@ -94,6 +94,7 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 27 | shards — on-disk shards of every dataset: atomic, durable, in order (AGENTS.md Code, Data) | all data stages | — | `specs/shards.md` |
 | 28 | gui-classifier — the pipeline's screen classifier: variant (d) of block 18 from its templates and thresholds; latency budget | P1, P2 data, R1 (env) | 18 | GX |
 | 29 | train-index — shuffled index shards: references to unlabeled clips and labeled pairs, train / validation split by groups of episodes linked by pairs | P1, P4, P5 data | 25, 23, 3 | — |
+| 30 | runs — the run files of the blocks: completeness of another block's output, fingerprints, JSON files, file hashes | all | 27 | — |
 
 ## Package map
 Filled as block specs are approved: subpackage → stage(s) → spec.
@@ -108,3 +109,4 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `cli` → shared one-line failure messages of the command-line entry points
 - `shards` → every block that builds or reads a dataset → `specs/shards.md`
 - `pretrain` → pretraining → `specs/train-index.md`
+- `runs` → every block with a run.json → `specs/runs.md`

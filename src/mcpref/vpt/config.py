@@ -1,5 +1,5 @@
 """Notation of specs/vpt-gui-frames.md: configs/vpt-gui-frames.yaml; the access fields
-shared with specs/perception-data.md; run.json and the rerun check of each."""
+shared with specs/perception-data.md; run.json and its rerun check (d)."""
 
 import json
 from collections.abc import Mapping
@@ -66,26 +66,13 @@ def load_config(path: Path) -> GuiFramesConfig:
 
 
 def check_same(path: Path, previous: Mapping, current: Mapping) -> None:
-    """(d) of specs/vpt-gui-frames.md, (7) of specs/perception-data.md: abort when a
-    value of `current` differs from `previous` (read from `path`) as JSON text."""
+    """(d) of specs/vpt-gui-frames.md: abort when a value of `current` differs from
+    `previous` (read from `path`) as JSON text."""
     changed = [
         k for k, v in current.items() if json.dumps(previous.get(k)) != json.dumps(v)
     ]
     if changed:
         raise RuntimeError(f"{path} holds other values of {changed}")
-
-
-def check_rerun(path: Path, header: dict) -> None:
-    """(7) of specs/perception-data.md: an existing run.json must hold the same value of
-    every header key."""
-    if path.exists():
-        check_same(path, json.loads(path.read_text()), header)
-
-
-def write_run(out: Path, run: dict) -> None:
-    """(7) of specs/perception-data.md: run.json, the header before planning, completed
-    with the counts."""
-    (out / "run.json").write_text(json.dumps(run, indent=2) + "\n")
 
 
 def check_outputs(path: Path, config: dict) -> None:

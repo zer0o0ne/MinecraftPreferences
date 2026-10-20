@@ -16,7 +16,7 @@ from mcpref import REPO, config_mapping, number, repo_path
 from mcpref.clips.episode import Classify, Pipeline
 from mcpref.clips.plan import pipeline, write_shards
 from mcpref.clips.store import Pools, json_bytes, read_json, remove, resume
-from mcpref.gui.label_files import sha256
+from mcpref.runs.files import sha256
 from mcpref.shards.store import make_dirs, write_file
 from mcpref.vpt.downloads import download
 from mcpref.vpt.episodes import index

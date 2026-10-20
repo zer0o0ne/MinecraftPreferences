@@ -17,16 +17,14 @@ from mcpref.gui.label_files import (
     LABELS,
     NO_ANSWER,
     OTHER,
-    check_fingerprints,
     frame_size,
     labelled,
     read_labels,
     run_counts,
-    sha256,
-    write_json,
     yuv_path,
 )
 from mcpref.recognition.stored import INDEX, read_index, shard_bar, write_index
+from mcpref.runs.files import check_fingerprints, finished_run, sha256, write_json
 from mcpref.shards.store import complete_shards, shard_path
 from mcpref.vpt.plan import generator, read_shard
 
@@ -68,9 +66,7 @@ def labels_sha256(labels_dir: Path, n_s: int) -> str:
 
 def checks(cfg: "GuiMasksConfig", config: Path, raw: dict) -> dict:
     """(R): the checks in order, then run.json written; returns its contents."""
-    counts = run_counts(
-        REPO / cfg.frames_dir / "run.json", f"{cfg.frames_dir}/run.json"
-    )
+    counts = run_counts(finished_run(REPO / cfg.frames_dir, cfg.frames_dir, "frames"))
     frames = {"shards": complete_shards(REPO / cfg.frames_dir / "plan")} | counts
     check_labels(cfg, frames)
     check_patches(cfg, *frame_size(REPO / cfg.frames_dir))

@@ -1,5 +1,5 @@
 # GUI classifier
-Status: approved (2026-10-20; clarified after the second audit the same day: `read_thresholds` in the Interface of gui-masks, the catalogue loaded after its hash check, the files of gui-masks trusted, the clock and load of the latency test, `argparse`, row 25 of the overview; approved; clarified after the refactor the same day: `dtype=numpy.int64` of `reduceat`, the completeness check shared with gui-stack (`complete_run`), approved)
+Status: approved (2026-10-20; clarified after the second audit the same day: `read_thresholds` in the Interface of gui-masks, the catalogue loaded after its hash check, the files of gui-masks trusted, the clock and load of the latency test, `argparse`, row 25 of the overview; approved; clarified after the refactor the same day: `dtype=numpy.int64` of `reduceat`, the completeness check shared with gui-stack (`complete_run`), approved); 2026-10-20: `finished_run` of `specs/runs.md`, approved
 Stage: the screen classifier $\gamma$ of the pipeline (`specs/00-overview.md`, block 28): block perception-data now, later preference-pool and env
 
 ## Sources
@@ -37,7 +37,7 @@ Stage: the screen classifier $\gamma$ of the pipeline (`specs/00-overview.md`, b
 
 ## Behaviour
 (L) `load_classifier`, in this order, each failing check aborting with a `RuntimeError` (paths as written in the configs):
-1. `{masks_dir}/run.json` exists and holds `"complete": true` (`{masks_dir} is not complete`), by `complete_run`, which also gives its contents;
+1. `{masks_dir}/run.json` exists and holds `"complete": true` (`{masks_dir} is not complete`), by `finished_run` (`specs/runs.md`, marker `complete`), which also gives its contents;
 2. its `sha256.screens` equals $h_K$ (`{masks_dir} was built from another catalogue than {screens}`); then $\mathcal{K}$ by `load_screens` of the caller's catalogue;
 3. catalogue shards $s = 0..|\mathcal{K}| - 1$, one at a time (bar `classifier`): one `numpy.load` (`allow_pickle=False`) of `pairs.npz`, its keys listed and only the `d/…` arrays read; for each pair, in member order: $T$ not of shape $H \times W \times 3$ → `{masks_dir} holds <w>x<h> templates, not <W>x<H>` (`<w>x<h>` from $T$'s shape); $M$ empty → `{masks_dir}: the mask of d/<m> of <k> is empty`; then $I$ and $T_I$ are kept ($T_I$ as `int16`), $T$ and $M$ dropped, and the pair's bytes of (3) fed to the running SHA-256 of $h_T$;
 4. $(\tau, \theta, \mu)$ by `read_thresholds`; $\gamma_{id}$ of (3).
@@ -47,7 +47,7 @@ Memory then holds the model: $I$, $T_I$ of every pair (≈ 0.63 MB at the Spark 
 - `src/mcpref/recognition/classifier.py` (one more module of `recognition/`, [U]):
   - `GuiClassifierConfig`; `def load_config(path: Path) -> GuiClassifierConfig`.
   - `def load_classifier(cfg: GuiClassifierConfig, screens: str, width: int, height: int) -> tuple[Callable[[list[np.ndarray]], list[str]], str]` — (L): $\gamma$ of (1), (2) and $\gamma_{id}$ of (3); `screens` the caller's catalogue path as written in its config, resolved against the repository root.
-  - Reuses `predict` of `recognition/recognise.py` ((5)), `read_thresholds` and `complete_run` of `recognition/stored.py`, `CRITERIA`, `load_screens`, `sha256` of `gui/label_files.py`, `shard_path`, `config_mapping`, `repo_path`. Gui-masks (4) is computed here in the gathered form of (1) only; gui-masks keeps its `scores` ([U]).
+  - Reuses `predict` of `recognition/recognise.py` ((5)), `read_thresholds` of `recognition/stored.py`, `finished_run` and `sha256` of `runs/files.py`, `CRITERIA`, `load_screens`, `shard_path`, `config_mapping`, `repo_path`. Gui-masks (4) is computed here in the gathered form of (1) only; gui-masks keeps its `scores` ([U]).
 - Consumes: `{masks_dir}/run.json`, `templates/catalogue/<name(s)>/pairs.npz`, `thresholds.json` of block gui-masks (its Produces).
 - Callers: block perception-data (`clips/run.py`, its revision below); later preference-pool and env.
 - Revision of `specs/perception-data.md` in this cycle ([U]):
@@ -74,7 +74,7 @@ Memory then holds the model: $I$, $T_I$ of every pair (≈ 0.63 MB at the Spark 
 | (1) | numpy fancy indexing on `x.reshape(-1, 3)`, `astype(numpy.int16)`, `numpy.abs`, `ndarray.max`, `numpy.add.reduceat` | 1.26.4 | the frame's gathered pixels cast to `int16` before the subtraction; `axis=-1` for the channels; `reduceat` over the pairs' start offsets with `dtype=numpy.int64` (every mask non-empty by (L)) | [N] |
 | (1) | `fractions.Fraction` | CPython 3.10.20 | `Fraction(c, abs_M)` | — |
 | (L) | `numpy.load`, `NpzFile.files` | 1.26.4 | `allow_pickle=False` | as in `specs/gui-masks.md` |
-| (L) | `mcpref.recognition.stored.read_thresholds`, `complete_run` | this repo | — | `specs/gui-masks.md` Interface |
+| (L) | `mcpref.recognition.stored.read_thresholds`; `mcpref.runs.files.finished_run` | this repo | — | `specs/gui-masks.md` Interface; `specs/runs.md` |
 | (3), (L) | `hashlib.sha256` (`update`, `hexdigest`), `json.dumps`, `ndarray.astype("<i8").tobytes`, `ndarray.tobytes` | CPython 3.10.20; numpy 1.26.4 | default separators; C order | — |
 | bar | `tqdm.tqdm` | 4.70.1 | `total`, `desc`, `unit` | as in `specs/gui-masks.md` |
 
