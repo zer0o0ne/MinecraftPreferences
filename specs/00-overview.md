@@ -28,16 +28,17 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 ## Networks
 | Net | Input | Output | Trained in |
 |---|---|---|---|
-| $\phi$ perception | $h_t$ (frames + meta) | $z_t$ | P1 (truncated METRA loss), R2 (METRA loss) |
-| $P$ preference | two latent histories | $p_\succ$, $p_{cmp}$ | P4 (corrected VLM labels), R3 (corrected self-labels) |
-| $\pi$ policy | last $k_\pi$ latent states | probabilities over $A$, $\widehat{\Delta z}(a)$ for every $a \in A$ | P5 (action + shift regression), R4 (PPO) |
+| $\phi$ perception | $h_t$ (frames + meta) | $z_t$ | pretraining loop (truncated METRA loss; the losses of π and P flow in), R2 (METRA loss) |
+| $P$ preference | two latent histories | $p_\succ$, $p_{cmp}$ | pretraining loop (corrected VLM labels), R3 (corrected self-labels) |
+| $\pi$ policy | last $k_\pi$ latent states | probabilities over $A$, $\widehat{\Delta z}(a)$ for every $a \in A$ | pretraining loop (action + shift regression), R4 (PPO) |
 
 ## Pretraining (VPT dataset)
+- **One loop** ([U] 2026-10-20; blocks 29, 7): P1, P4 and P5 are trained together on unlabeled clips (losses of φ and π) mixed in their natural proportion with labeled pairs of P2, P3 (losses of φ and π on each clip of the pair, plus P's loss); the gradients of π's and P's losses flow into φ; P5 with the one-interval delay of Q MCTS-10.
 - **P1 Perception.** Random dataset pairs $(h_t, h_{t+\Delta})$, with the number $n$ of legal actions of every interval (Q G-12, PER-9). Loss: maximise $d_\alpha(z_t, z_{t+1})$ subject to $d_\alpha^2 \le 1$ via METRA's dual variable, only on transitions that changed something (meta differs or the pixel difference exceeds a threshold); unchanged transitions are dropped (Q PER-8), plus $\beta_c \max(0, \lVert z \rVert_2 - c)^2$ for both $z_t, z_{t+1}$. Large $\alpha_i$ allow long chains along coordinate $i$ inside the ball.
 - **P2 VLM labels.** A random pool of dataset states; each is linked at random to several others of the pool; while there are many components and few cycles, random edges between components are added (Q VLM-2). `Qwen3-VL-30B-A3B-Instruct-FP8`, served on an NVIDIA DGX Spark (`specs/vlm-client.md`), gets each state as several screenshots plus the dataset info (inventory, …) and answers: first preferred, second preferred, or refuses to compare (Q VLM-*).
 - **P3 Correction.** VLM labels → preference graph → $C$ → training labels (Q ACY-*).
-- **P4 Preference.** Inputs: $\phi$ (from P1) applied to each state with its history. Targets: the labels from P3 for both outputs.
-- **P5 Policy.** Random consecutive pairs $(t, t+1)$ with history. Input: latent history up to $t$. Targets: $\Delta z_t$ for $\widehat{\Delta z}$, the dataset action $a_t$ for the action head (Q POL-4).
+- **P4 Preference.** Inputs: $\phi$ of the same loop applied to each state with its history. Targets: the labels from P3 for both outputs.
+- **P5 Policy.** Random consecutive pairs $(t, t+1)$ with history. Input: latent history up to $t$. Targets: the dataset action of the next interval (from $t + 1$) for the action head and, in that action's row of $\widehat{\Delta z}$, $\Delta z_t = z_{t+1} - z_t$ (Q MCTS-10) (Q POL-4).
 
 ## RL cycle (repeats; one cycle = one trajectory)
 - **R1 Sampling**, $n$ steps from where the previous cycle stopped. Each step:
@@ -52,9 +53,9 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 
 ## Data flow
 ```
-VPT dataset ─P1→ φ0
-VPT dataset ─P2 (VLM)→ labels ─P3 (C)→ corrected labels ─P4 (φ0)→ P0
-VPT dataset ─P5 (φ0)→ π0
+VPT dataset ─perception-data→ clips ─────────────────────────────────────────────┐
+VPT dataset ─preference-pool→ pair clips ─P2 (VLM)→ labels ─P3 (C)→ pair labels ─┤
+                                                                                 └─ train-index → pretraining loop → φ0, P0, π0
 (φ, P, π, M, T) + env ─R1→ trajectory τ, trees ─R2→ φ' ─R3 (M, P, φ')→ P' ─R4 (τ, T, π)→ π' ─R5→ M' ─→ R1 …
 ```
 
@@ -64,13 +65,13 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 |---|---|---|---|---|
 | S | spark-env — `setup_env.sh`, `pyproject.toml`, `uv.lock`; script conventions | all | — | `specs/spark-env.md` |
 | 0 | vlm-client — Python API to the served VLM; `serve_vlm.sh` | P2 | S | `specs/vlm-client.md` |
-| 1 | data — dataset access: windows, consecutive and random pairs | P1, P2, P5 | — | G, D |
-| 2 | perception — $\phi$ and the P1 loss | P1 | 1 | PER |
+| 1 | data — superseded by blocks 22, 25, 29 | — | — | — |
+| 2 | perception — $\phi$ and the P1 loss | P1 | 7 | PER |
 | 3 | acyclic — correction $C$ | P3, R3 | — | ACY |
-| 4 | vlm-labels — prompt, query, parsing, label artifact | P2 | 1 | VLM |
-| 5 | preference — $P$ and its loss | P4, R3 | 2 | PRF |
-| 6 | policy — $\pi$ and the P5 loss | P5 | 2 | POL |
-| 7 | pretrain — orchestration of P1–P5 | P1–P5 | 1–6 | G |
+| 4 | vlm-labels — prompt, query, parsing, label artifact | P2 | 23 | VLM |
+| 5 | preference — $P$ and its loss | P4, R3 | 2, 7 | PRF |
+| 6 | policy — $\pi$ and the P5 loss | P5 | 2, 7 | POL |
+| 7 | pretrain — one loop training φ, π and P (pluggable components and losses) | P1, P4, P5 | 29 | G |
 | 8 | mcts — search, decision, tree storage | R1 | 5, 6 | MCTS |
 | 9 | env-sampling — environment loop and trajectory record | R1 | 8 | RLS |
 | 10 | metra — METRA perception loss | R2 | 2 | MET |
@@ -86,12 +87,13 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 20 | vpt-actions — legal world actions of $A$ per interval of a VPT episode, modes, exclusions | P1, P2, P5 data | — | `specs/vpt-actions.md` |
 | 21 | vpt-gui-actions — GUI lines of a VPT episode: clicks → elements (left, right, shift, double), close, digit chains, cut spans; classes from a pluggable classifier | P1, P2, P5 data | 15, 20 | `specs/vpt-gui-actions.md` |
 | 22 | clips — grid of elementary states, interval validity, sampling of non-overlapping clips | P1, P2 data | 20, 21 | `specs/clips.md` |
-| 23 | preference-pool — `collect_preferences_pretrain_data.sh`: clips of $k_P + k_\phi - 1$ states, pairs within one game world (not necessarily one episode), then block 4 adds the VLM labels | P2 | 22, 24, 25, 0 | VLM |
+| 23 | preference-pool — `collect_preferences_pretrain_data.sh`: clips of $L$ states (the `states` of block 25, the same value) in perception-data's format ($L \ge k_P + k_\phi - 1$), pairs within one game world (not necessarily one episode), then block 4 adds the VLM labels | P2 | 22, 24, 25, 0 | VLM |
 | 24 | f3-overlay — debug-overlay detector on frame 0 of an episode | P1, P2 data | 20 | `specs/f3-overlay.md` |
 | 25 | perception-data — pipeline over whole VPT episodes (download, two decodes, classifier calls, sampling, storage, rerun); `collect_perception_pretrain_data.sh` with the classifier | P1 | 21, 22, 24, 28 | `specs/perception-data.md` |
 | 26 | action-mask — the mask of $A$ per state, masking as much as possible (unsupported shift / double clicks, …) | P5, R1 | 21 | [U] 2026-10-15 |
 | 27 | shards — on-disk shards of every dataset: atomic, durable, in order (AGENTS.md Code, Data) | all data stages | — | `specs/shards.md` |
 | 28 | gui-classifier — the pipeline's screen classifier: variant (d) of block 18 from its templates and thresholds; latency budget | P1, P2 data, R1 (env) | 18 | GX |
+| 29 | train-index — shuffled index shards: references to unlabeled clips and labeled pairs, train / validation split by groups of episodes linked by pairs | P1, P4, P5 data | 25, 23, 3 | — |
 
 ## Package map
 Filled as block specs are approved: subpackage → stage(s) → spec.
@@ -105,3 +107,4 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `http` → shared HTTP retries (textures, VPT downloads, VLM client) → the retry rules of `specs/vlm-client.md` (6), `specs/gui-screens.md`, `specs/vpt-gui-frames.md`
 - `cli` → shared one-line failure messages of the command-line entry points
 - `shards` → every block that builds or reads a dataset → `specs/shards.md`
+- `pretrain` → pretraining → `specs/train-index.md`
