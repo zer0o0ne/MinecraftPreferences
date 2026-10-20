@@ -156,6 +156,15 @@ def read_thresholds(path: Path) -> dict[str, dict[str, tuple[int, Fraction, Frac
     }
 
 
+def complete_run(masks_dir: Path, written: str) -> dict:
+    """Interface: the parsed {masks_dir}/run.json of a complete run, else aborts."""
+    path = masks_dir / "run.json"
+    run = json.loads(path.read_text()) if path.exists() else {}
+    if run.get("complete") is not True:
+        raise RuntimeError(f"{written} is not complete")
+    return run
+
+
 def load_catalogue(pairs: dict, out: Path, s: int, k: str, cls: ScreenClass) -> None:
     """(1), (10)-(12) of class k from its catalogue shard into `pairs` (variant ->
     class -> column -> pair); (f) T with a channel axis of size 1 (Interface)."""

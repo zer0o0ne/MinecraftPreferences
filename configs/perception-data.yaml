@@ -52,6 +52,7 @@ clips: "configs/clips.yaml"
 screens: "configs/gui-screens.yaml"
 gui_actions: "configs/vpt-gui-actions.yaml"
 overlay: "configs/f3-overlay.yaml"
+classifier_config: "configs/gui-classifier.yaml"
 states: 16
 per_episode: 10
 n_clips: 10000

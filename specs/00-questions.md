@@ -8,10 +8,12 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   **→ [U]** one agent step = one action of $A$; its duration in ticks follows from the action's definition (ACT-2).
 - **G-2** History lengths: perception input $k_\phi$, preference $k_P$, policy $k_\pi$, VLM screenshots $k_V$ — equal or separate, values, stride inside a window?
   **→ [U]** $\phi$ sees past frames at a stride over a span (example: every 3rd frame over the last 30) plus all meta of those frames. Open: exact stride and span; does the window end at the current frame; $k_P$, $k_\pi$, $k_V$.
+  **→ [U]** (2026-10-20) $\phi$'s input is the sequence of elementary states as interleaved (screenshot$_i$, meta$_i$); in training whole clips go through the model; at sampling (R1) $\phi$ runs streaming (each step adds only the new state), and the stream is restarted every $L$ states, so a state sees 1..$L$ states of context, as inside a training clip. Measured: Qwen3.5-2B takes 222 tokens per 640 × 360 frame and ≈ 65–180 tokens per meta as text; its context is 262,144 tokens.
 - **G-3** History at an episode start ($t < k$): pad (repeat first state / zeros) or exclude such $t$?
 - **G-4** Is the VLM used only in pretraining, so that in RL all preference labels come from the current $P$?
 - **G-5** Per cycle: R2 → R3 → R4 → R5 in this order, once each? Gradient steps / epochs for each.
 - **G-6** Architectures: $\phi$ backbone (VPT pretrained / ImpalaCNN from scratch / pretrained vision encoder), $P$ and $\pi$ (MLP / transformer over latent histories), sizes, $D$.
+  **→ [U]** (2026-10-20) $\phi$ = a small standard VLM (e.g. Qwen3.5-2B) over the interleaved states of G-2; its last hidden state goes to an MLP head that maps it to $z$. $P$ and $\pi$ are lightweight (MCTS-5). Open: the exact VLM, the head, $D$, $P$ and $\pi$.
 - **G-7** Optimisers, learning rates, batch sizes per training stage; fixed in each block spec, or one config file with values from you?
   **→ [U]** every exact number goes into a config, never asked; where and how: G-11.
 - **G-8** Checkpointed across cycles for resuming: nets, optimiser states, METRA $\lambda$, $\mathcal{M}$, $\mathcal{T}$, env state?
@@ -71,6 +73,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **PER-6** Output layer: unbounded linear or bounded (tanh)?
 - **PER-7** $\phi$ per frame ($z_t = \phi(o_t)$; "history" = sequence of per-frame $z$) or on a window $\phi(o_{t-k_\phi+1..t})$?
   **→ [U]** on a window (G-2).
+  **→ [U]** (2026-10-20) the window is the stream since its last restart, at most $L$ states (G-2).
 
 ## VLM — Labels (P2)
 - **VLM-1** [later] Labelling instruction. **→ [U]** model `Qwen/Qwen3-VL-30B-A3B-Thinking-FP8`, served on a Spark; a Python API sends a set of images and text.
@@ -120,6 +123,10 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   **→ [U]** the $l$ most probable unmasked actions ($l$ in the config).
 - **MCTS-4** Backup: mean or max; discount $\gamma$.
 - **MCTS-5** Budget: simulations per decision, maximum depth.
+  **→ [U]** (2026-10-20) the agent acts every ≈ 300 ms (one $\Delta$, ≈ 6 ticks at 20 Hz); within it several dozen MCTS iterations, each one call of $P$ and $\pi$: 100–150 ms for 20–30 calls, the rest of the interval for $\phi$ (streaming, G-2) and the other per-step components; speed matters only at sampling. The simulator runs in parallel with the agent's computation, in real time at 20 Hz (its budget is the whole interval). Open: MCTS-10.
+- **MCTS-10** With the simulator running in parallel, the action chosen during interval $t$ (from state $t$) takes effect only from $t + 1$, while action $a_t$ is still being executed. Plan from the root $z_t$ as if $a_t$ had not happened, or from the imagined state after it ($z_t + \widehat{\Delta z}_t(a_t)$, its shift predicted by $\pi$)? The human data of P5 has no such delay.
+  **→ [U]** (2026-10-20) the human pretraining gets the same delay, simulating the human reaction time (the P300, from receiving information to the first reaction): in P5 the action target of state $t$ (history up to $t$) is the action of the next interval, from $t + 1$, so the agent and the human data share the one-interval latency. Open (POL, MCTS blocks): (a) the shift target of that action — $z_{t+2} - z_{t+1}$ (its own effect) or $z_{t+2} - z_t$ (including the in-flight $a_t$); (b) how the tree accounts for the in-flight $a_t$ at the root; (c) POL-8 still applies to the delayed interval; (d) the last interval of a clip has no delayed target.
+  **→ [U]** (2026-10-20) (b) the in-flight $a_t$ is not accounted for: the tree is built from $z_t$; (c) yes, POL-8 is decided for the delayed interval; (d) yes, the last interval of a clip gives no P5 target. (a) asked again: the user's formula $z_{t+1} - z_t$ and the words "the shift with the delay" admit two readings.
 - **MCTS-6** Decision: most visited child, sample $\propto N^{1/\tau}$, or max value? Which probabilities are stored for PPO — the network's $\pi(\cdot)$ or the visit distribution? PPO's ratio needs the probability with which the executed action was actually chosen.
 - **MCTS-7** [later] Tree reuse: how the real $z_{t+1}$ attaches (re-root at the executed child with its $z$ replaced, a new root linked to it, …); what "extended by future decisions" means structurally.
 - **MCTS-8** Imagined nodes have no observation, so after R2 their $z$ are coordinates of the old $\phi$. Re-simulate them from re-encoded real nodes with the current $\pi$, keep them as is, or keep only real nodes?

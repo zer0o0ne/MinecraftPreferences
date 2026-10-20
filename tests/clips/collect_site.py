@@ -75,6 +75,8 @@ class Site(FakeAzure, OutDir):
         self.fields = FIELDS | {"index_urls": urls, "ffmpeg": str(self.ffmpeg),
                                 "out_dir": self.rel(self.out)}  # fmt: skip
         self.fields |= {n: self.rel(self.paths[n]) for n in ("clips", "screens", "gui_actions", "overlay")}  # fmt: skip
+        # not read by collect: main loads the classifier (specs/gui-classifier.md)
+        self.fields["classifier_config"] = self.rel(tmp / "cfg" / "gui-classifier.yaml")
         self.sub, self.gid = dict(SUB), GID
 
     def app(self, req):

@@ -10,6 +10,7 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 - Data and environment: the original VPT recordings (640×360, every tick) plus BASALT 2022; RL and new human recordings in the MineStudio simulator (MC 1.16.5). Python 3.10.
 - Elementary states are a fixed $\Delta$ ticks apart; the agent acts once per $\Delta$; human data carries, per interval, the number $n$ of legal actions of $A$ made in it, and only sequences with $n \ge 1$ in every interval are used (Q G-12, G-13, G-14).
 - Every exact number (hyperparameters, thresholds, API constants) is a config field (Q G-11).
+- Inference speed ([U] 2026-10-20): the agent's inference as fast as possible; all of perception ideally within 150 ms per step with a ~2B transformer inside; every component on the per-step path states a latency budget in its spec.
 
 ## Shared notation
 - $o_t$ — state at step $t$: frame + meta (inventory, position, …) (Q D-7, D-8).
@@ -80,16 +81,17 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 15 | gui-screens — catalogue of survival screens: window, textures, dynamic regions, elements with canonical numbering | P1, P5, R1 | S | ACT, GX |
 | 16 | vpt-gui-frames — random VPT frames with an open GUI, fetched without whole videos; `download_data.sh` | GX experiment | S | GX |
 | 17 | gui-labels — screen type of each sampled frame by the VLM | GX experiment | 0, 15, 16 | GX |
-| 18 | gui-masks — six mask variants, template classifier, agreement with VLM labels, cross-fitted features; later rebuilt on engine frames | GX experiment, then 14 | 15, 16, 17 | GX |
+| 18 | gui-masks — six mask variants, template classifier, agreement with VLM labels, cross-fitted features; later rebuilt on engine frames; its variant (d) is the pipeline's classifier (block 28) | GX experiment, then 14 | 15, 16, 17 | GX |
 | 19 | gui-stack — MLP over the mask features of block 18 | GX experiment | 18 | GX |
 | 20 | vpt-actions — legal world actions of $A$ per interval of a VPT episode, modes, exclusions | P1, P2, P5 data | — | `specs/vpt-actions.md` |
 | 21 | vpt-gui-actions — GUI lines of a VPT episode: clicks → elements (left, right, shift, double), close, digit chains, cut spans; classes from a pluggable classifier | P1, P2, P5 data | 15, 20 | `specs/vpt-gui-actions.md` |
 | 22 | clips — grid of elementary states, interval validity, sampling of non-overlapping clips | P1, P2 data | 20, 21 | `specs/clips.md` |
 | 23 | preference-pool — `collect_preferences_pretrain_data.sh`: clips of $k_P + k_\phi - 1$ states, pairs within one game world (not necessarily one episode), then block 4 adds the VLM labels | P2 | 22, 24, 25, 0 | VLM |
 | 24 | f3-overlay — debug-overlay detector on frame 0 of an episode | P1, P2 data | 20 | `specs/f3-overlay.md` |
-| 25 | perception-data — pipeline over whole VPT episodes (download, two decodes, classifier calls, sampling, storage, rerun); `collect_perception_pretrain_data.sh` with the classifier | P1 | 21, 22, 24 | `specs/perception-data.md` |
+| 25 | perception-data — pipeline over whole VPT episodes (download, two decodes, classifier calls, sampling, storage, rerun); `collect_perception_pretrain_data.sh` with the classifier | P1 | 21, 22, 24, 28 | `specs/perception-data.md` |
 | 26 | action-mask — the mask of $A$ per state, masking as much as possible (unsupported shift / double clicks, …) | P5, R1 | 21 | [U] 2026-10-15 |
 | 27 | shards — on-disk shards of every dataset: atomic, durable, in order (AGENTS.md Code, Data) | all data stages | — | `specs/shards.md` |
+| 28 | gui-classifier — the pipeline's screen classifier: variant (d) of block 18 from its templates and thresholds; latency budget | P1, P2 data, R1 (env) | 18 | GX |
 
 ## Package map
 Filled as block specs are approved: subpackage → stage(s) → spec.
@@ -97,7 +99,7 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `scripts/`, `pyproject.toml`, `uv.lock`, `configs/spark-env.yaml` → all → `specs/spark-env.md`
 - `vpt` → GUI-recognition experiment, P1, P2, P5 data → `specs/vpt-gui-frames.md`, `specs/vpt-actions.md`
 - `gui` → GUI-recognition experiment, env, human-click mapping, P1, P2, P5 data → `specs/gui-screens.md` (data: `configs/gui-screens.yaml`), `specs/gui-labels.md`, `specs/vpt-gui-actions.md`
-- `recognition` → GUI-recognition experiment, P1, P2 data, later env → `specs/gui-masks.md`, `specs/f3-overlay.md`
+- `recognition` → GUI-recognition experiment, P1, P2 data, later env → `specs/gui-masks.md`, `specs/f3-overlay.md`, `specs/gui-classifier.md`
 - `clips` → P1, P2 data → `specs/clips.md`, `specs/perception-data.md`
 - `stacking` → GUI-recognition experiment → `specs/gui-stack.md`
 - `http` → shared HTTP retries (textures, VPT downloads, VLM client) → the retry rules of `specs/vlm-client.md` (6), `specs/gui-screens.md`, `specs/vpt-gui-frames.md`

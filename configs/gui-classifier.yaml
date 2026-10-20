@@ -1,0 +1,3 @@
+# specs/gui-classifier.md: GuiClassifierConfig. Paths relative to the repository root.
+masks_dir: "data/gui_masks"
+criterion: "agreement"

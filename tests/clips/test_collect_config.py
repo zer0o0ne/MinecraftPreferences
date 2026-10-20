@@ -1,4 +1,5 @@
-"""`load_config` and the starting values of specs/perception-data.md (Notation, Interface)."""
+"""`load_config` and the starting values of specs/perception-data.md (Notation, Interface),
+with the field `classifier_config` of its revision of 2026-10-20."""
 
 import dataclasses
 from pathlib import Path
@@ -12,7 +13,7 @@ from .collect_site import FIELDS
 
 PATHS = {"clips": "configs/clips.yaml", "screens": "configs/gui-screens.yaml",
          "gui_actions": "configs/vpt-gui-actions.yaml", "overlay": "configs/f3-overlay.yaml",
-         "out_dir": "data/elsewhere"}  # fmt: skip
+         "classifier_config": "configs/gui-classifier.yaml", "out_dir": "data/elsewhere"}  # fmt: skip
 VALID = FIELDS | PATHS | {"index_urls": {"7xx": "http://h/i7", "6xx": "http://h/i6"},
                           "ffmpeg": "/x/ffmpeg"}  # fmt: skip
 INTEGERS = ("width", "height", "fetch_streams", "http_retries", "states", "per_episode",
@@ -114,7 +115,9 @@ def test_approved_config_has_starting_values(repo):
      ("required_options", {"guiScale": {"v": 2}}), ("required_options", {2: 2}),
      ("x_ms_version", 20191212), ("min_version", 6.12), ("min_version", None),
      ("ffmpeg", None), ("clips", 1), ("screens", None), ("gui_actions", ["a"]),
-     ("overlay", 2), ("out_dir", None)],
+     ("overlay", 2), ("out_dir", None), ("classifier_config", 1),
+     ("classifier_config", None), ("classifier_config", ["configs/gui-classifier.yaml"]),
+     ("classifier_config", {"path": "configs/gui-classifier.yaml"})],
 )  # fmt: skip
 def test_strings_and_mappings_are_checked(tmp_path, name, value):
     with pytest.raises(ValueError):
@@ -127,3 +130,20 @@ def test_required_options_take_every_json_scalar(tmp_path):
         load_config(write(tmp_path, required_options=scalars)).required_options
         == scalars
     )
+
+
+def test_classifier_config_follows_overlay(tmp_path):
+    """Notation: `classifier_config` is the field after `overlay` (the key order of run.json
+    (8)); its value the string as written."""
+    cfg = load_config(write(tmp_path, classifier_config="cfg/other-classifier.yaml"))
+    names = [f.name for f in dataclasses.fields(cfg)]
+    assert names[names.index("overlay") + 1] == "classifier_config"
+    assert cfg.classifier_config == "cfg/other-classifier.yaml"
+
+
+def test_classifier_config_is_required(tmp_path):
+    path = tmp_path / "perception-data.yaml"
+    doc = {k: v for k, v in VALID.items() if k != "classifier_config"}
+    path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    with pytest.raises(ValueError):
+        load_config(path)

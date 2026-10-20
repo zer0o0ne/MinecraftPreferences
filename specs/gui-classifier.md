@@ -1,0 +1,83 @@
+# GUI classifier
+Status: approved (2026-10-20; clarified after the second audit the same day: `read_thresholds` in the Interface of gui-masks, the catalogue loaded after its hash check, the files of gui-masks trusted, the clock and load of the latency test, `argparse`, row 25 of the overview; approved; clarified after the refactor the same day: `dtype=numpy.int64` of `reduceat`, the completeness check shared with gui-stack (`complete_run`), approved)
+Stage: the screen classifier $\gamma$ of the pipeline (`specs/00-overview.md`, block 28): block perception-data now, later preference-pool and env
+
+## Sources
+- [U] the user, 2026-10-20: after the gui-masks run on the Spark (test part: 9035 labelled frames) the user looked at frames where the VLM label and variant (d) disagree and found the VLM wrong; decisions: (d) is the screen classifier of every later block; it is plugged into block perception-data now (`main` and its script); the templates and thresholds are read from the output of block gui-masks, not rebuilt; the code is `recognition/classifier.py`, one more module of `recognition/` beyond the AGENTS.md soft limit; its settings live in their own `configs/gui-classifier.yaml`.
+- [U] the user, 2026-10-20 (later): the agent's inference as fast as possible; ideally all of perception within 150 ms per step, with a ~2B transformer inside; the classifier runs on that path (env, action mask).
+- [U] the user, 2026-10-20 (on the audited draft): every recommendation of the 16 open points accepted — $\gamma_{id}$ of (3); the field `classifier_config` of perception-data, neither an output field nor hashed; the catalogue and size checks; empty masks abort; the gathered model built shard by shard; `read_thresholds` reused; the hash streamed under the bar; `main` in `clips/run.py`, catching every exception; the latency budget of (4) and its slow test; the gathered form only here; `criterion` = `agreement`; the latency goal in `specs/00-overview.md`; the revisions of perception-data, gui-masks and the overview below.
+- [U] the user, 2026-10-20 (on the second audit): every recommendation accepted — `read_thresholds` named in the Interface of gui-masks, `predict` and `CRITERIA` marked as used here; $\mathcal{K}$ loaded after the hash check; the files of gui-masks trusted (Domain); the latency measured with `time.perf_counter` under the slow tier's usual load, fixture pairs $i = 0..54$; `main` parses its arguments with `argparse`; block 28 added to the dependencies of block 25.
+- [U] the user, 2026-10-20 (after the refactor): `numpy.add.reduceat` gets `dtype=numpy.int64` explicitly (a `bool` dtype would give a logical or instead of a count); the check "`{masks_dir}/run.json` complete" of (L) step 1 and of gui-stack (R) becomes one function `complete_run` of `recognition/stored.py`.
+- `specs/gui-masks.md` (approved, revision of 2026-10-15): (4), (5), variant (d) (10); Produces: `run.json` (`complete`, `sha256.screens`), `templates/catalogue/<name(s)>/pairs.npz` (keys `d/<member>/T`, `d/<member>/M`; $T$ `uint8` $H \times W \times 3$, $M$ `bool` $H \times W$), `thresholds.json`; Interface (with its revision below): `predict` (`recognition/recognise.py`), `CRITERIA` (`recognition/metrics.py`), `read_thresholds` (`recognition/stored.py`: `thresholds.json` → per variant and choice $(\tau, \theta, \mu)$ with `Fraction`s).
+- `specs/perception-data.md` (approved): the classifier $\gamma$ and $\gamma_{id}$, `collect`, (8), (9).
+- `specs/gui-screens.md` (approved): `load_screens`; the textures command `python -m mcpref.gui.textures`.
+- `specs/shards.md` (approved): `shard_path`.
+- [R] measurement of 2026-10-20 (dev machine, 8 CPUs, numpy 1.26.4; 640 × 360 frame; 55 pairs with the mask sizes of the (d) pairs of the Spark run, 44,799 pixels in all, masks of scattered pixels): `scores` + `exact` + `predict` of gui-masks ≈ 30 ms per frame; one gather of the masks' pixels by precomputed flat indices, `max` over channels, `<= τ`, per-pair sums by `numpy.add.reduceat` ≈ 1.8 ms per frame at batch 1.
+- [N] numpy 1.26.4 (audit of 2026-10-20): `numpy.add.reduceat` on `bool` input gives `int64` sums; an empty segment does not give 0 (it returns the next element), hence (L) step 3 rejects empty masks.
+
+## Notation
+- $\mathcal{K}$ — the classes of the caller's catalogue (`screens`), in catalogue order (`load_screens`); `other` — the reject label.
+- $P_k$ — the (d) pairs of class $k$ = class $s$ of $\mathcal{K}$: for each member $m$ of $k$ in catalogue order whose key `d/<m>/T` is in catalogue shard $s$ of `{masks_dir}/templates/catalogue/`, the pair ($T$ = `d/<m>/T`, $M$ = `d/<m>/M`); a class with no such key has no pair.
+- $I$ — the flat indices of a pair's mask, $I = \{ W r + q : M(r, q) \}$ ascending (row $r$, column $q$; `int64`); $T_I$ — $T$ at them ($|M| \times 3$).
+- $(\tau, \theta, \mu)$ — the entry of variant `d` and choice `criterion` of `{masks_dir}/thresholds.json` (gui-masks (6)); $\theta, \mu$ as exact fractions.
+- $x$ — an RGB frame, $H \times W \times 3$, `uint8`; $W, H$ — the caller's frame width and height; $S_k(x)$ — the score of class $k$ (1).
+- $\gamma$ — the classifier: a non-empty list of frames → a list of labels of $\mathcal{K} \cup \{\text{other}\}$; $\gamma_{id}$ — its identifier (3).
+- Config `configs/gui-classifier.yaml` → `@dataclass(frozen=True) class GuiClassifierConfig`: `masks_dir` (a string, the `out_dir` of gui-masks, relative to the repository root, resolved against it), `criterion` (a key of `CRITERIA`). Read like `configs/perception-data.yaml` (`config_mapping`: a missing or unknown key → `ValueError`); a `masks_dir` that is not a string → `ValueError` (`repo_path`); a `criterion` outside `CRITERIA` → `ValueError(f"criterion {value!r} is not one of {list(CRITERIA)}")`.
+
+## Math
+(1) Class of a frame $x$: for each pair of $P_k$, $c = |\{ i \in I : \max_{ch} |x(i, ch) - T_I(i, ch)| \le \tau \}|$ (differences in a signed integer type); $S_k(x) = \max$ over the pairs of $P_k$ of $c / |M|$ (exact fractions; a class without a pair has no score) — gui-masks (4) for variant (d); $\gamma(x)$ = gui-masks (5) with $\theta$, $\mu$, ties in $\mathcal{K}$ order.
+(2) Batch: $\gamma([x_1, \dots, x_n]) = [\gamma(x_1), \dots, \gamma(x_n)]$, each frame independent of the rest of its batch.
+(3) Identifier: $\gamma_{id}$ = `json.dumps({"variant": "d", "tau": τ, "theta": str(θ), "mu": str(μ), "templates": h_T, "catalogue": h_K})` (default separators; `str` of a `Fraction`, e.g. `"1/2"`, `"0"`); $h_K$ — the SHA-256 (lowercase hex) of the caller's catalogue file; $h_T$ — the SHA-256 (lowercase hex) of the concatenation, over the classes of $\mathcal{K}$ in order and their pairs in member order, of: `f"{k}/{m}\n"` in UTF-8, $I$ as little-endian `int64` bytes, $T_I$ as `uint8` bytes (C order).
+(4) Latency ([U]): the median over 20 calls, after one warm-up call, of $\gamma([x])$ on one 640 × 360 frame with the pairs of the latency fixture (Tests), each call timed by `time.perf_counter`, is at most 5 ms on the CPU of the test machine, under the slow tier's usual parallel load.
+
+## Domain
+- No run of gui-masks on `{masks_dir}` during (L).
+- The frames given to $\gamma$ are $H \times W \times 3$ `uint8` (not checked).
+- `{masks_dir}` holds the files gui-masks Produces, in its formats (not checked beyond (L)): `d/<m>/M` (`bool`, $H \times W$ of its $T$) for every `d/<m>/T`; `thresholds.json` with an entry for `d` and every choice of `CRITERIA`; `run.json` with `sha256.screens`.
+
+## Behaviour
+(L) `load_classifier`, in this order, each failing check aborting with a `RuntimeError` (paths as written in the configs):
+1. `{masks_dir}/run.json` exists and holds `"complete": true` (`{masks_dir} is not complete`), by `complete_run`, which also gives its contents;
+2. its `sha256.screens` equals $h_K$ (`{masks_dir} was built from another catalogue than {screens}`); then $\mathcal{K}$ by `load_screens` of the caller's catalogue;
+3. catalogue shards $s = 0..|\mathcal{K}| - 1$, one at a time (bar `classifier`): one `numpy.load` (`allow_pickle=False`) of `pairs.npz`, its keys listed and only the `d/…` arrays read; for each pair, in member order: $T$ not of shape $H \times W \times 3$ → `{masks_dir} holds <w>x<h> templates, not <W>x<H>` (`<w>x<h>` from $T$'s shape); $M$ empty → `{masks_dir}: the mask of d/<m> of <k> is empty`; then $I$ and $T_I$ are kept ($T_I$ as `int16`), $T$ and $M$ dropped, and the pair's bytes of (3) fed to the running SHA-256 of $h_T$;
+4. $(\tau, \theta, \mu)$ by `read_thresholds`; $\gamma_{id}$ of (3).
+Memory then holds the model: $I$, $T_I$ of every pair (≈ 0.63 MB at the Spark run's 44,799 mask pixels: $I$ `int64`, $T_I$ `int16`) and $(\tau, \theta, \mu)$ — the classifier's state, like the model of gui-masks (S), not a dataset. $\gamma$ reads nothing from disk.
+
+## Interface
+- `src/mcpref/recognition/classifier.py` (one more module of `recognition/`, [U]):
+  - `GuiClassifierConfig`; `def load_config(path: Path) -> GuiClassifierConfig`.
+  - `def load_classifier(cfg: GuiClassifierConfig, screens: str, width: int, height: int) -> tuple[Callable[[list[np.ndarray]], list[str]], str]` — (L): $\gamma$ of (1), (2) and $\gamma_{id}$ of (3); `screens` the caller's catalogue path as written in its config, resolved against the repository root.
+  - Reuses `predict` of `recognition/recognise.py` ((5)), `read_thresholds` and `complete_run` of `recognition/stored.py`, `CRITERIA`, `load_screens`, `sha256` of `gui/label_files.py`, `shard_path`, `config_mapping`, `repo_path`. Gui-masks (4) is computed here in the gathered form of (1) only; gui-masks keeps its `scores` ([U]).
+- Consumes: `{masks_dir}/run.json`, `templates/catalogue/<name(s)>/pairs.npz`, `thresholds.json` of block gui-masks (its Produces).
+- Callers: block perception-data (`clips/run.py`, its revision below); later preference-pool and env.
+- Revision of `specs/perception-data.md` in this cycle ([U]):
+  - Sources: [U] 2026-10-20 and `specs/gui-classifier.md`.
+  - Notation, Config: a field `classifier_config` after `overlay` — the path of `configs/gui-classifier.yaml`, a string relative to the repository root (`repo_path`); not an output field and not hashed in (8) ($\gamma_{id}$ carries its effect).
+  - (9): the one-line message is printed by `main` of `clips/run.py`.
+  - Interface: `src/mcpref/clips/run.py`: `def main(argv: Sequence[str]) -> int`, run as `python -m mcpref.clips.run <config path>`: `load_config`, then `load_classifier(load_config of gui-classifier at REPO / cfg.classifier_config, cfg.screens, cfg.width, cfg.height)`, then `collect(cfg, γ, γ_id)`; arguments parsed by `argparse` as in `mcpref.recognition.evaluate` (one positional config path; a wrong argument list exits 2 with its usage); exit 0, or 1 when any `Exception` is raised, with `mcpref.cli.failure.failed("mcpref.clips.run", error)` as the last line of stderr. `scripts/collect_perception_pretrain_data.sh` (preamble of `specs/spark-env.md`, as in `scripts/eval_gui_masks.sh`): `uv run --locked python -m mcpref.gui.textures configs/gui-screens.yaml`, then `uv run --locked python -m mcpref.clips.run configs/perception-data.yaml`; it needs a complete gui-masks run on the same machine. The line "`main` and `scripts/collect_perception_pretrain_data.sh` … are added by the cycle that plugs in the classifier" is replaced by these.
+  - Consumes: `configs/gui-classifier.yaml`; $\gamma$, $\gamma_{id}$ from `load_classifier` (`specs/gui-classifier.md`).
+  - Progress bars: a run of `main` draws the bar `classifier` of `specs/gui-classifier.md` first, then `indices`, `resume`, `collect`.
+  - Starting config values: `classifier_config` = `configs/gui-classifier.yaml`.
+  - Tests: `main` with a fake gui-masks output and a fake `collect`: $\gamma$ and $\gamma_{id}$ passed to `collect`; exit 1 with the one-line message on a failed check of (L) and on an exception of `collect` outside `FAILURES`; the config field (`ValueError` on a non-string); the script runs textures, then `main`, and stops when textures fail (fake `uv`).
+  - Out of scope: "The classifier itself and its batching on a GPU" becomes "The classifier's GPU batching (the classifier: `specs/gui-classifier.md`)".
+- Revision of `specs/gui-masks.md` in this cycle ([U]): Interface — `recognition/stored.py` gains `def read_thresholds(path: Path) -> dict[str, dict[str, tuple[int, Fraction, Fraction]]]` (`thresholds.json`: per variant and threshold choice $(\tau, \theta, \mu)$, $\theta$ and $\mu$ as `Fraction`s of their strings); `read_thresholds`, `predict` and `CRITERIA` are marked "also used by block gui-classifier"; Datasets — block gui-classifier reads `run.json` and, once it holds `"complete": true`, `templates/catalogue/` and `thresholds.json`.
+- Revision of `specs/00-overview.md` in this cycle ([U]): Principles — "Inference speed ([U] 2026-10-20): the agent's inference as fast as possible; all of perception ideally within 150 ms per step with a ~2B transformer inside; every component on the per-step path states a latency budget in its spec."; Candidate blocks — row `| 28 | gui-classifier — the pipeline's screen classifier: variant (d) of block 18 from its templates and thresholds; latency budget | P1, P2 data, R1 (env) | 18 | GX |`; row 18 gains "its variant (d) is the pipeline's classifier (block 28)"; row 25 depends also on 28; package map `recognition` → adds `specs/gui-classifier.md`.
+- Datasets: reads `templates/catalogue/` of gui-masks, one shard at a time, only the `d/…` arrays; builds none. Checkpoints: none.
+- Progress bars (AGENTS.md Code): `classifier` (unit `shard`): (L) step 3; total $|\mathcal{K}|$, `initial` 0; advanced after each shard; no postfix; drawn on every load (never `already done`); $|\mathcal{K}| = 0$ → the line `classifier: nothing to do`.
+- Config `configs/gui-classifier.yaml`, starting values: `masks_dir` = `data/gui_masks`, `criterion` = `agreement`.
+- Tests (CPU, independent of `src/`): fake gui-masks outputs written as gui-masks Produces says (tiny $W, H$; a few classes; members with and without (d) keys; a class without any); (1) against a naive transcription of gui-masks (4), (5) on whole bool masks (ties between pairs and between classes, exact-fraction boundaries at $\theta$ and $\mu$, values near 0 and 255, no score → `other`); (2) a frame's class independent of its batch; (3) $\gamma_{id}$ against an in-test transcription, changing with $\tau$, $\theta$, $\mu$, a template byte inside a mask and the catalogue, not with a template byte outside every mask nor with the criterion name when the thresholds are equal; (L) each check, its message and its order; each shard read once; the bar; the config loader. Slow tier — (4): the latency fixture: $W = 640$, $H = 360$, 55 pairs $i = 0..54$ with $|M_i|$ = 328, 328, 728, 728, 736, 968, 680, 736, 968, 680, 624, 624, 664, 896, 1168, 896, 896, 880, 800, 736, 880, 1232, 960, 590, 1200, 880, 592, 1160, 688, 1440, 666, 960, 960, 640, 680, 568, 1008, 928, 616, 936, 616, 936, 616, 936, 616, 936, 616, 936, 680, 568, 616, 936, 700, 208, 2235 (the (d) pairs of the Spark run, in class and member order), $M_i$ = the flat positions $640 \cdot 6i + j$, $j = 0..|M_i| - 1$ (runs along rows, like label rectangles), one pair per class, random $T$ and $x$ from a fixed seed.
+
+## Library mapping
+| Item | Call | Version | Explicit args | Source read |
+|---|---|---|---|---|
+| (1) | `mcpref.recognition.recognise.predict` | this repo | `order` = $\mathcal{K}$; `theta`, `mu` as `Fraction` | `specs/gui-masks.md` (5) |
+| (1) | numpy fancy indexing on `x.reshape(-1, 3)`, `astype(numpy.int16)`, `numpy.abs`, `ndarray.max`, `numpy.add.reduceat` | 1.26.4 | the frame's gathered pixels cast to `int16` before the subtraction; `axis=-1` for the channels; `reduceat` over the pairs' start offsets with `dtype=numpy.int64` (every mask non-empty by (L)) | [N] |
+| (1) | `fractions.Fraction` | CPython 3.10.20 | `Fraction(c, abs_M)` | — |
+| (L) | `numpy.load`, `NpzFile.files` | 1.26.4 | `allow_pickle=False` | as in `specs/gui-masks.md` |
+| (L) | `mcpref.recognition.stored.read_thresholds`, `complete_run` | this repo | — | `specs/gui-masks.md` Interface |
+| (3), (L) | `hashlib.sha256` (`update`, `hexdigest`), `json.dumps`, `ndarray.astype("<i8").tobytes`, `ndarray.tobytes` | CPython 3.10.20; numpy 1.26.4 | default separators; C order | — |
+| bar | `tqdm.tqdm` | 4.70.1 | `total`, `desc`, `unit` | as in `specs/gui-masks.md` |
+
+## Out of scope
+- Rebuilding (d) on engine frames; the other variants and the MLP of block gui-stack; correcting the VLM labels.
+- GPU batching; frames of another size or type than the templates' (Domain); the latency on the Spark (measured by the user).

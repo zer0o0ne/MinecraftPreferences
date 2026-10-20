@@ -54,6 +54,7 @@ class PerceptionDataConfig:
     screens: str
     gui_actions: str
     overlay: str
+    classifier_config: str
     states: int
     per_episode: int
     n_clips: int
@@ -99,7 +100,7 @@ def load_config(path: Path) -> PerceptionDataConfig:
         number(k, raw[k])
     for k in STRINGS:
         string(k, raw[k])
-    for k in (*CONFIGS, "out_dir"):
+    for k in (*CONFIGS, "classifier_config", "out_dir"):
         repo_path(k, raw[k])
     return PerceptionDataConfig(**raw)
 

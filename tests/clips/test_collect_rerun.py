@@ -120,6 +120,7 @@ def other_ffmpeg(site) -> str:
         ("retry_delay", lambda s: 0.01), ("ffmpeg", other_ffmpeg),
         ("ffmpeg_timeout", lambda s: 4.5), ("workers", lambda s: 2),
         ("classifier_batch", lambda s: 3), ("out_dir", lambda s: str(s.out)),
+        ("classifier_config", lambda s: s.rel(s.tmp / "cfg" / "other-classifier.yaml")),
     ],
 )  # fmt: skip
 def test_other_fields_may_differ(ran, name, change):

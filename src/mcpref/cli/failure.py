@@ -1,5 +1,6 @@
 """Exit 1 with a one-line message on stderr: `main` of specs/gui-screens.md (textures),
-specs/vpt-gui-frames.md, specs/gui-labels.md, specs/gui-masks.md, specs/gui-stack.md."""
+specs/vpt-gui-frames.md, specs/gui-labels.md, specs/gui-masks.md, specs/gui-stack.md,
+specs/perception-data.md."""
 
 import sys
 

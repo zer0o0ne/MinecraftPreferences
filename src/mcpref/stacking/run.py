@@ -24,7 +24,13 @@ from mcpref.recognition.metrics import (
     tally_matrices,
 )
 from mcpref.recognition.report import variant_preds, write_report
-from mcpref.recognition.stored import FEATURES, PARTS, read_arrays, shard_bar
+from mcpref.recognition.stored import (
+    FEATURES,
+    PARTS,
+    complete_run,
+    read_arrays,
+    shard_bar,
+)
 from mcpref.shards.store import complete_shards, shard_path, write_file, write_shard
 from mcpref.stacking.config import GuiStackConfig, load_config
 from mcpref.stacking.fit import Fitted, Shard, cpu_copies, fit
@@ -53,10 +59,8 @@ class Features:
 def checks(cfg: GuiStackConfig, path: Path, raw: dict) -> None:
     """(R): gui-masks complete; an existing {out_dir}/run.json with this run's
     fingerprints (config, masks); then {out_dir}/run.json written."""
+    complete_run(cfg.masks_dir, raw["masks_dir"])
     masks_run, run_path = cfg.masks_dir / "run.json", cfg.out_dir / "run.json"
-    complete = masks_run.exists() and json.loads(masks_run.read_text()).get("complete")
-    if complete is not True:
-        raise RuntimeError(f"{raw['masks_dir']} is not complete")
     hashes = {"config": sha256(path), "masks": sha256(masks_run)}
     check_fingerprints(run_path, hashes, raw["out_dir"])
     write_json(run_path, {"config": raw, "sha256": hashes})
@@ -128,8 +132,7 @@ def trained(cfg: GuiStackConfig, f: Features) -> Fitted:
 
 
 def predictions(f: Features, ids: np.ndarray, y: np.ndarray, p: np.ndarray) -> str:
-    """Produces predictions.jsonl: per frame in shard order id, label, predicted (5),
-    p."""
+    """Produces predictions.jsonl: id, label, predicted (5), p per frame, in order."""
     y_hat = predicted(p, f.labels)
     records = (
         {"id": i, "label": k, "predicted": yh, "p": dict(zip(f.labels, pf))}
@@ -157,8 +160,7 @@ def evaluated(cfg: GuiStackConfig, f: Features) -> dict:
     """(6): gui-masks (7) with y_hat, (8) with vlm, (a)-(f) (`pred`), `stack` (y_hat
     under both choices); the prediction and test shards one at a time; bar `report`."""
     acc, matrix_acc, directory = {}, {}, cfg.out_dir / "predictions"
-    total = sum(f.test_sizes)
-    with shard_bar("report", len(f.test_sizes), 0, total, 0, "frame") as update:
+    with shard_bar("report", len(f.test_sizes), 0, sum(f.test_sizes), 0, "frame") as up:
         for r, path in enumerate(f.test_paths):
             ids, y, g, pred = read_arrays(path, ("ids", "y", "g", "pred"))
             lines = (shard_path(directory, r) / PREDICTIONS).read_text().splitlines()
@@ -166,7 +168,7 @@ def evaluated(cfg: GuiStackConfig, f: Features) -> dict:
             tally(acc, y.tolist(), y_hat, ids.tolist(), g.tolist())
             stack = {"stack": dict.fromkeys(CRITERIA, y_hat)}
             tally_matrices(matrix_acc, y.tolist(), variant_preds(pred) | stack)
-            update(len(ids))
+            up(len(ids))
     test = evaluation(acc, f.labels)
     return {"test": test, "agreement_matrices": matrices(matrix_acc, f.labels[:-1])}
 
