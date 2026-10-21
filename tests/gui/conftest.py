@@ -194,3 +194,20 @@ def lab(tmp_path, repo, catalogue, write_config, fake_ask_many, monkeypatch, cap
     monkeypatch.chdir(tmp_path / "cwd")
     tqdm_defaults(monkeypatch)
     return Lab(tmp_path, cfg, ids, fake, capsys)
+
+
+# specs/action-mask.md: the approved masks and catalogue, read-only.
+@pytest.fixture(scope="session")
+def masks(repo):
+    """`load_masks` of the approved configs/action-mask.yaml."""
+    from mcpref.gui.mask import load_config, load_masks
+
+    return load_masks(load_config(repo / "configs/action-mask.yaml"))
+
+
+@pytest.fixture(scope="session")
+def approved_screens(repo) -> dict:
+    """`load_screens` of the approved configs/gui-screens.yaml."""
+    from mcpref.gui.screens import load_screens
+
+    return load_screens(repo / "configs/gui-screens.yaml")

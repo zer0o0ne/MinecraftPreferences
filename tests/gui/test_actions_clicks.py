@@ -38,8 +38,7 @@ def test_left_right_and_button_clicks():
         ("left.shift", 1, S2, "shift_click_2"),  # shift + right on a slot
         ("right.shift", 0, S1, "shift_click_1"),
         ("right.shift", 1, S10, "shift_click_10"),
-        ("left.shift", 0, B37, "shift_click_37"),  # on a button
-        ("left.shift", 1, B37, "shift_click_37"),
+        ("left.shift", 0, B37, "shift_click_37"),  # on a button (b37: right ignored)
         ("left.control", 0, S1, "left_click_1"),  # not a shift key
     ],
 )
@@ -50,9 +49,11 @@ def test_shift_click(key, b, at, action):
 
 @pytest.mark.parametrize("keys", [[], ["left.shift"]])
 @pytest.mark.parametrize("b", [0, 1])
-@pytest.mark.parametrize("cls, at", [("inv", OUT), ("other", S1), ("pause", S1)])
+@pytest.mark.parametrize(
+    "cls, at", [("inv", OUT), ("other", S1), ("pause", S1), ("death", S1)]
+)
 def test_press_without_element_is_foreign(keys, b, cls, at):
-    # `pause` has button 37 under S1: still no element (Notation e_t)
+    # `pause` and `death` have button 37 under S1: still no element (Notation e_t)
     lines = episode(world(), inv(), inv(), inv(keys=keys, press=[b], at=at), world())
     assert run(lines, {2: "inv", 3: cls}) == GuiActions([], fs(), fs({3}))
 
@@ -112,7 +113,7 @@ def test_hold_inside_one_slot():
     assert run(lines, {2: "inv"}) == GuiActions([S("left_click_1", 2, 2)], fs(), fs())
 
 
-@pytest.mark.parametrize("cls", ["lectern", "other", "pause"])
+@pytest.mark.parametrize("cls", ["lectern", "other", "pause", "death"])
 def test_hold_uses_the_class_of_its_press(cls):
     # e_r with c_t = `inv`: slot 1 on line 3 whatever frame 3 shows
     lines = episode(

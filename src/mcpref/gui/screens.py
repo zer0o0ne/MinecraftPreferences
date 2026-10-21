@@ -1,6 +1,7 @@
 """Interface of specs/gui-screens.md: the screen catalogue of configs/gui-screens.yaml."""
 
 import dataclasses
+import re
 from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from typing import Literal
 import yaml
 
 IGNORED = {"src", "note", "cond"}
+RIGHT_HANDLED = r"(book_recipe|option|recipe|pattern)_[0-9]+"
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,11 @@ class Element:
     kind: Literal["slot", "button"]
     hit: Rect
     click: tuple[float, float]
+
+
+def right_handled(e: Element) -> bool:
+    """Interface: a button whose name fully matches RIGHT_HANDLED (specs/action-mask.md)."""
+    return e.kind == "button" and re.fullmatch(RIGHT_HANDLED, e.name) is not None
 
 
 @dataclass(frozen=True)

@@ -140,7 +140,7 @@ def test_drag_on_the_first_press_of_a_pair():
     assert run(lines, {2: "inv", 4: "inv"}) == GuiActions([PAIR], fs(), fs({2, 3}))
 
 
-@pytest.mark.parametrize("cls", ["other", "pause", "lectern"])
+@pytest.mark.parametrize("cls", ["other", "pause", "death", "lectern"])
 def test_second_press_reads_its_own_frame(cls):
     # e_4 under class c_4: none, or button 37 of `lectern`, is not slot 1
     found = run(two_presses((0, S1), (0, S1)), {2: "inv", 4: cls})

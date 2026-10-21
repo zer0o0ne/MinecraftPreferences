@@ -23,7 +23,7 @@ Stage: <number and name from specs/00-overview.md>
 Index ranges, boundaries, reductions, stop-grad and sampling are written out, never implied.
 
 ## Interface
-- Module: `src/mcpref/<subpackage>/<module>.py`
+- Module: `src/mcpref/<subpackage>/<module>.py` — every module of the block, split so each file stays within AGENTS.md's 200 lines
 - `def f(a: T, ...) -> R` — each argument as a Notation symbol; the result as an equation number.
 - Consumes: <artifact path and format | function> from <block spec>
 - Produces: <artifact path and format> for <block spec>

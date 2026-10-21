@@ -13,7 +13,7 @@ from mcpref.gui.screens import ScreenClass
 from mcpref.vpt.actions import WORLD_ACTIONS, Segment
 from mcpref.vpt.channels import runs
 
-NO_SCREEN = frozenset({"other", "pause"})
+NO_SCREEN = frozenset({"other", "pause", "death"})
 CLICKS = ("left_click", "right_click", "shift_click", "double_click")
 
 
@@ -87,7 +87,7 @@ def gui_actions(
     double_click_ms: int,
 ) -> GuiActions:
     """Interface: (2) cut spans; (3)-(7) on the kept ones, in line order (9); the
-    catalogue class of c_t, none for other and pause (no element)."""
+    catalogue class of c_t, none for other, pause and death (no element)."""
     c = {t: classes[t] for t in needed_frames(lines)}
     cut, segs, foreign = set(), [], set()
     for k, j in spans(lines):
@@ -106,7 +106,7 @@ def gui_actions(
 def excluded_states(
     lines: Sequence[Mapping], classes: Mapping[int, str], cut: Collection[int]
 ) -> frozenset[int]:
-    """Interface (8): GUI states of kept spans with c_t other or pause."""
+    """Interface (8): GUI states of kept spans with c_t other, pause or death."""
     return frozenset(
         t
         for t, c in classes.items()

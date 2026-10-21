@@ -3,7 +3,7 @@
 import itertools
 from collections.abc import Mapping, Sequence
 
-from mcpref.gui.screens import Element, ScreenClass, element_at
+from mcpref.gui.screens import Element, ScreenClass, element_at, right_handled
 from mcpref.vpt.actions import Segment
 from mcpref.vpt.channels import keys
 
@@ -36,6 +36,11 @@ def shift(line: Mapping) -> bool:
 def is_slot(e: Element | None) -> bool:
     """(3a), (6): e is a slot."""
     return e is not None and e.kind == "slot"
+
+
+def ignored(b: int, e: Element | None) -> bool:
+    """(3): a right press on a button for which right_handled is false."""
+    return b == 1 and e is not None and e.kind == "button" and not right_handled(e)
 
 
 def pairs(
@@ -135,7 +140,7 @@ def kept_span(
     """(3)-(7) on the lines g..j of a kept span, segments in the order of (9);
     `cls` the classes of its lines with a press or digit."""
     e = {t: at(c, lines[t]) for t, c in cls.items()}
-    presses = [(t, b) for t in e for b in pressed(lines[t])]
+    presses = [(t, b) for t in e for b in pressed(lines[t]) if not ignored(b, e[t])]
     pair = pairs(lines, [t for t, b in presses if b == 0], e, double_click_ms)
     clicks, wrong = press_segments(lines, presses, e, pair)
     digits = [seg for t in e for seg in digit_segments(lines, t, cls[t], e[t])]

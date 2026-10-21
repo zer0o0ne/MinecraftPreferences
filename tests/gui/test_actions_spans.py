@@ -71,8 +71,8 @@ def test_needed_frames_include_the_first_line_of_a_container():
     assert needed_frames(lines) == [1, 2, 3]
 
 
-@pytest.mark.parametrize("cls", ["other", "pause"])
-def test_span_cut_when_its_first_frame_is_other_or_pause(cls):
+@pytest.mark.parametrize("cls", ["other", "pause", "death"])
+def test_span_cut_when_its_first_frame_is_other_pause_or_death(cls):
     # span [1, 3], u = 2: a press outside, Q, a press on a slot, a digit, a close
     lines = episode(world(), inv(press=[0], keys=["q"]), inv(press=[0], at=S1),
                     inv(keys=["2", "escape"], at=S10), world())  # fmt: skip
@@ -81,12 +81,12 @@ def test_span_cut_when_its_first_frame_is_other_or_pause(cls):
     )
 
 
-def test_span_kept_on_death():
+def test_span_opened_without_an_action_cut_on_death():
+    # revision of 2026-10-21: the death screen's span is cut, its presses and close too
     lines = episode(
         world(), box(), box(press=[0], at=S1), box(keys=["escape"]), world()
     )
-    expected = GuiActions([S("left_click_37", 2, 2), S("close", 3, 3)], fs(), fs())
-    assert run(lines, {2: "death"}) == expected
+    assert run(lines, {2: "death"}) == GuiActions([], fs({1, 2, 3}), fs())
 
 
 def test_cut_reads_frame_k_plus_1():

@@ -1,10 +1,11 @@
 # VPT GUI actions
-Status: approved (2026-10-15; clarified after the prototype the same day: `opens_container` in the Interface)
+Status: approved (2026-10-15; clarified after the prototype the same day: `opens_container` in the Interface); revision of 2026-10-21 (block action-mask: `death` spans cut, right presses on buttons that ignore them ignored), approved
 Stage: data of P1, P2 (blocks perception-data, preference-pool), later P5 (`specs/00-overview.md`, block 21)
 
 ## Sources
 - [U] the user, 2026-10-15 (Q ACT-19, ACT-20 and the keys 1–9 entries): GUI actions are `close` and left, right and shift + left click on element $i = 1..n_{max}$; the screen classifier is pluggable — this block takes the class of each frame it needs as an input; a GUI span whose first frame is `other` or `pause` is cut out of the timeline; a state inside a kept span whose frame is `other` is not used; a click on no element, a drag across elements, and Q or F in a GUI exclude their interval; E and ESC in a GUI are `close`; the middle button is ignored; spans opened without an action (death screen) are kept; a digit pressed in a GUI (swap of the hovered slot with a hotbar slot) is replaced by the shortest equivalent chain of clicks, counted as three clicks; a double click is the action `double_click_`$i$ (90 more), the pair counted as one action.
-- [U] the user, 2026-10-15 (after the audit): shift + click is `shift_click_`$i$ on every element, the game deciding the effect (a recipe-book recipe crafts as many as possible); the first line of a container span is a world line; a right press on a recipe (pop-up), lists scrolled by the wheel, the press position of the record after the press, presses without effect: mapped as written; a shift + double click is foreign; a detected pair is a double click whatever the cursor holds; the digit chain is (hovered, $s$, hovered); actions unsupported by a screen are masked by a later block (action-mask).
+- [U] the user, 2026-10-15 (after the audit): shift + click is `shift_click_`$i$ on every element, the game deciding the effect (a recipe-book recipe crafts as many as possible); the first line of a container span is a world line; a right press on a recipe (pop-up), lists scrolled by the wheel, the press position of the record after the press, presses without effect: mapped as written (except the right presses ignored by (3), 2026-10-21); a shift + double click is foreign; a detected pair is a double click whatever the cursor holds; the digit chain is (hovered, $s$, hovered); actions unsupported by a screen are masked by a later block (action-mask).
+- [U] the user, 2026-10-21 (block action-mask, `specs/action-mask.md`): the environment presses Respawn at the moment of death, so the spans of the death screen are cut like those of `other` and `pause` (replacing "spans opened without an action (death screen) are kept"); a press the game ignores is no action: a right press, with or without shift, on a button that is not right-handled (`right_handled` of `gui/screens.py`, `specs/action-mask.md`) is ignored entirely, its hold included; the episodes already collected keep the earlier rules.
 - `specs/vpt-actions.md` (approved, with the revision of 2026-10-15): lines, $W_k$, $K_k$, $N_k$, `Segment`, `interval_actions`; world actions.
 - `specs/gui-screens.md` (approved): classes $\mathcal{K}$, elements with canonical indices (1–9 = hotbar slots 0–8 where the player inventory is shown), `kind`, `element_at`; VPT mouse positions map to the frame point $(x/2, y/2)$; $n_{max} = 90$.
 - `specs/vpt-gui-frames.md` [R]: a container GUI is visible from frame $k+1$ when line $k$ is the first with `isGuiOpen` true, the player inventory already in frame $k$; the frame of the first line without a GUI shows none.
@@ -15,16 +16,16 @@ Stage: data of P1, P2 (blocks perception-data, preference-pool), later P5 (`spec
 - Lines $\ell_0..\ell_{T-1}$, $W_k$, $K_k$, $N_k$ as in `specs/vpt-actions.md`; $N^B_t$ = `mouse.newButtons`, $B_t$ = `mouse.buttons`; $(x_t, y_t)$ = `mouse.x`, `mouse.y`; digits $D$ = {`1`, …, `9`}, digit $s$ ↔ element $s$; $\text{shift}_t$ — shift held: `left.shift` or `right.shift` in $K_t$.
 - Span $[k, j]$ — a maximal run of lines with `isGuiOpen` true; its first frame $u = k + 1$ if $j > k$, else $k$.
 - $c_t$ — the class of frame $t$, an element of $\mathcal{K} \cup \{\text{other}\}$, given by the caller's classifier for the frames it needs ((1) and the states).
-- $e_t$ — `element_at(screens[`$c_t$`], `$x_t / 2$`, `$y_t / 2$`)`, none when $c_t \in$ {`other`, `pause`} ([U]: pause is never an action) or no element contains the point; $\iota(e)$ — its canonical index.
+- $e_t$ — `element_at(screens[`$c_t$`], `$x_t / 2$`, `$y_t / 2$`)`, none when $c_t \in$ {`other`, `pause`, `death`} ([U]: pause is never an action) or no element contains the point; $\iota(e)$ — its canonical index.
 - Kept span — a span that is not cut (2).
 - First-line rule ([U]): the first line $k \ge 1$ of a span with `isGuiInventory` of $\ell_k$ false (a container, visible only from frame $k+1$, [R]) counts as a world line for (3)–(8) and for the GUI flag of its state: its presses and keys are ignored (no segment, not foreign) and its state is not subject to (8).
 
 ## Math
 (1) Needed frames: the first frame $u$ of every span, and every line $t$ of a span with $N^B_t \cap \{0, 1\} \ne \emptyset$ or $N_t \cap D \ne \emptyset$.
 
-(2) Cut: a span is cut iff $c_u \in$ {`other`, `pause`}; its lines $k..j$ are cut lines (Q ACT-20 (a)).
+(2) Cut: a span is cut iff $c_u \in$ {`other`, `pause`, `death`}; its lines $k..j$ are cut lines (Q ACT-20 (a)).
 
-(3) Clicks, for every line $t$ of a kept span and every $b \in N^B_t \cap \{0, 1\}$ that is not a press of a pair of (3a): if $e_t$ is none, line $t$ is foreign; else the segment $(a, t, t)$ with $a$ = `shift_click_`$\iota(e_t)$ if $\text{shift}_t$, for either button and every element kind ([U], [G]); else `left_click_`$\iota(e_t)$ for $b = 0$, `right_click_`$\iota(e_t)$ for $b = 1$.
+(3) Clicks, for every line $t$ of a kept span and every $b \in N^B_t \cap \{0, 1\}$ that is not a press of a pair of (3a): if $e_t$ is none, line $t$ is foreign; else, if $b = 1$ and $e_t$ is a button for which `right_handled` is false, the press is ignored: no segment, not foreign, no hold of its own in (4), though like every press it ends the hold of an earlier press of the same button ([U] 2026-10-21, [G] `Widget.java:130-158`); else the segment $(a, t, t)$ with $a$ = `shift_click_`$\iota(e_t)$ if $\text{shift}_t$, for either button and every element kind ([U], [G]); else `left_click_`$\iota(e_t)$ for $b = 0$, `right_click_`$\iota(e_t)$ for $b = 1$.
 
 (3a) Double clicks ([U], [G] `:284`, `:423-436`): in line order within a span, a left press at line $t$ with $e_t$ a slot and a left press at a later line $t'$ of the span with $e_{t'} = e_t$, no left press on the lines between, and `milli`$_{t'}$ − `milli`$_t$ < `double_click_ms`, form a pair unless the press at $t$ already completes a pair; the pair is the one segment (`double_click_`$\iota(e_t)$, $t$, $t'$) instead of two clicks; a pair with $\text{shift}_{t'}$ makes every line of $t..t'$ foreign instead ([U]: a shift + double click moves every matching item, no action).
 
@@ -36,7 +37,7 @@ Stage: data of P1, P2 (blocks perception-data, preference-pool), later P5 (`spec
 
 (7) Foreign keys: a line $t$ of a kept span with $N_t \cap \{\texttt{q}, \texttt{f}\} \ne \emptyset$ is foreign. Every other key and the middle button are ignored.
 
-(8) States: a state $t$ with `isGuiOpen` true on a line of a kept span and $c_t \in$ {`other`, `pause`} is not used, nor is any window or history containing it (as in `specs/vpt-actions.md` (12)).
+(8) States: a state $t$ with `isGuiOpen` true on a line of a kept span and $c_t \in$ {`other`, `pause`, `death`} is not used, nor is any window or history containing it (as in `specs/vpt-actions.md` (12)).
 
 (9) Segments are listed by first line, then in the order (3) with (3a), (5), (6) within a line; (3) and (3a) in the order of $N^B_t$, a pair at the place of its first press; (6) in the order of $N_t$; together with the world segments of `specs/vpt-actions.md`, sorted by first line (they never share a line: world segments lie on world lines), they are the `segs` of `interval_actions`; cut lines are its `cut`; an interval whose lines $a..b-1$ (cut lines included, `specs/clips.md` (1)) contain a foreign line is not used.
 
@@ -56,17 +57,18 @@ Stage: data of P1, P2 (blocks perception-data, preference-pool), later P5 (`spec
 - `specs/00-overview.md`: block 21; $A$ = 34 world actions and 361 GUI actions; package map `gui` → also P1, P2, P5 data → this spec.
 - Config `configs/vpt-gui-actions.yaml` → `@dataclass(frozen=True) class GuiActionsConfig`: `double_click_ms` (a YAML integer, not a boolean, ≥ 1; violated constraints → `ValueError` at load); starting value 250 ([G]).
 - No progress bar (one episode in memory).
-- Tests: hand-made lines and classes on a tiny catalogue: spans and first frames (1-line span, an episode starting in a GUI, an episode ending in a GUI); `needed_frames` (ascending, no repeats, cut spans included); `excluded_states` with `cut` and a `pause` frame; shift + right on a slot, right shift; presses inside one run of $B$; a hold cut at the span's end; a held digit (auto-repeat counted once); `action_names` order and $n_{max}$ from the catalogue; cut on `other` and `pause`, kept on `death`; the first line of a container span (press ignored, world state) and of the player inventory (mapped); clicks (left, right, shift on a slot, shift on a button, outside every element, on an `other` frame); double clicks at `double_click_ms` − 1 and `double_click_ms`, on another element, a triple press (one pair and one click), a pair across two intervals, a shift + double click (foreign); a drag across two slots and a hold inside one slot; close by `e` and `escape` on the last line only, none at the episode's end; digits over a slot, over slot $s$, over a button, over nothing, on a class without element $s$; Q, F; (8); the order of (9).
+- Tests: hand-made lines and classes on a tiny catalogue: spans and first frames (1-line span, an episode starting in a GUI, an episode ending in a GUI); `needed_frames` (ascending, no repeats, cut spans included); `excluded_states` with `cut` and a `pause` frame; shift + right on a slot, right shift; presses inside one run of $B$; a hold cut at the span's end; a held digit (auto-repeat counted once); `action_names` order and $n_{max}$ from the catalogue; cut on `other`, `pause` and `death`; the first line of a container span (press ignored, world state) and of the player inventory (mapped); clicks (left, right, shift on a slot, shift on a button, outside every element, on an `other` frame); double clicks at `double_click_ms` − 1 and `double_click_ms`, on another element, a triple press (one pair and one click), a pair across two intervals, a shift + double click (foreign); a drag across two slots and a hold inside one slot; close by `e` and `escape` on the last line only, none at the episode's end; digits over a slot, over slot $s$, over a button, over nothing, on a class without element $s$; Q, F; (8); the order of (9); (8) with a `death` frame; a right press, with and without shift, on a right-handled button (kept) and on another button (ignored, also when the cursor leaves the button while it is held; the interval's $n$ without it).
 
 ## Library mapping
 | Item | Call | Version | Explicit args | Source read |
 |---|---|---|---|---|
 | $e_t$ | `mcpref.gui.screens.element_at` | this repo | the class, $x_t / 2$, $y_t / 2$ | `specs/gui-screens.md` |
+| (3) | `mcpref.gui.screens.right_handled` | this repo | $e_t$ | `specs/action-mask.md` |
 
 ## Out of scope
 - The classifier (pluggable; blocks 18, 19 or their successor); frames (the caller decodes and classifies them).
 - Text input (anvil name, recipe-book search, signs, chat); creative screens.
 - The cursor's content: a press with an item on the cursor is mapped like any press (its drag, if it crosses elements, is foreign by (4)); a digit with an item on the cursor is counted as three clicks; a detected pair is a double click whatever the cursor holds.
-- Masking of actions a screen does not support (block action-mask); presses without effect count as actions ([U]).
+- Masking of actions a screen does not support (block action-mask); presses without effect count as actions ([U]), except the right presses ignored by (3).
 - Server-side closes (a container out of reach, a broken chest): no action.
 

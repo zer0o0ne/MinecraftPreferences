@@ -11,6 +11,7 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 - Elementary states are a fixed $\Delta$ ticks apart; the agent acts once per $\Delta$; human data carries, per interval, the number $n$ of legal actions of $A$ made in it, and only sequences with $n \ge 1$ in every interval are used (Q G-12, G-13, G-14).
 - Every exact number (hyperparameters, thresholds, API constants) is a config field (Q G-11).
 - Inference speed ([U] 2026-10-20): the agent's inference as fast as possible; all of perception ideally within 150 ms per step with a ~2B transformer inside; every component on the per-step path states a latency budget in its spec.
+- Death ([U] 2026-10-21): the environment presses Respawn at the moment of death; the agent never sees the death screen, and the VPT spans of the death screen are cut.
 
 ## Shared notation
 - $o_t$ — state at step $t$: frame + meta (inventory, position, …) (Q D-7, D-8).
@@ -19,7 +20,7 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 - $\alpha \in \mathbb{R}^D_{>0}$ — per-coordinate metric weights (the user's $a_i$) (Q PER-2); $d_\alpha^2(z, z') = \sum_i \alpha_i^2 (z_i - z'_i)^2$. METRA geometry holds in the coordinates $\alpha \odot z$, the norm bound for $z$.
 - $c$ — norm bound of $z$ (example: 1).
 - $P$ — preference network; $P(x, y) = (p_\succ, p_{cmp})$: probability that $x$ is preferred to $y$, probability that $x, y$ are comparable; $x, y$ are latent histories.
-- $A$ — discrete action set (Q ACT, versions 1 and 2): 34 world actions (`WORLD_ACTIONS` of `specs/vpt-actions.md`) and 361 GUI actions (`gui_action_names` of `specs/vpt-gui-actions.md`: close, left, right, shift and double click on element $i = 1..n_{max}$ of the recognised screen), 395 in all; masked by GUI state, screen type and pitch; a screen that is not recognised is closed at once (Q ACT-19). An action holds its input until its effect completes, at most $\Delta$, and continues without release while chosen again (Q G-13); $\pi$ learns to lower the logits of masked actions (Q POL-7).
+- $A$ — discrete action set (Q ACT, versions 1 and 2): 34 world actions (`WORLD_ACTIONS` of `specs/vpt-actions.md`) and 361 GUI actions (`gui_action_names` of `specs/vpt-gui-actions.md`: close, left, right, shift and double click on element $i = 1..n_{max}$ of the recognised screen), 395 in all; masked by GUI state, screen type, pitch and hotbar slot (`specs/action-mask.md`); a screen that is not recognised is closed at once (Q ACT-19). An action holds its input until its effect completes, at most $\Delta$, and continues without release while chosen again (Q G-13); $\pi$ learns to lower the logits of masked actions (Q POL-7).
 - $\pi$ — policy; $\pi(\cdot \mid z\text{-history})$ — probabilities over $A$; $\widehat{\Delta z}(a)$, $a \in A$ — predicted latent shift of each action (output $|A| \times D$).
 - $\Delta z_t = z_{t+1} - z_t$ — actual latent shift.
 - $\mathcal{M}$ — memory of past states (Q MEM-1, MEM-2); $\mathcal{T}$ — stored MCTS trees.
@@ -90,7 +91,7 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 23 | preference-pool — `collect_preferences_pretrain_data.sh`: clips of $L$ states (the `states` of block 25, the same value) in perception-data's format ($L \ge k_P + k_\phi - 1$), pairs within one game world (not necessarily one episode), then block 4 adds the VLM labels | P2 | 22, 24, 25, 0 | VLM |
 | 24 | f3-overlay — debug-overlay detector on frame 0 of an episode | P1, P2 data | 20 | `specs/f3-overlay.md` |
 | 25 | perception-data — pipeline over whole VPT episodes (download, two decodes, classifier calls, sampling, storage, rerun); `collect_perception_pretrain_data.sh` with the classifier | P1 | 21, 22, 24, 28 | `specs/perception-data.md` |
-| 26 | action-mask — the mask of $A$ per state, masking as much as possible (unsupported shift / double clicks, …) | P5, R1 | 21 | [U] 2026-10-15 |
+| 26 | action-mask — the mask of $A$ per state from the GUI flag, the screen class, the pitch and the hotbar slot; block 21 drops what it forbids | P5, R1 | 15, 21 | `specs/action-mask.md` |
 | 27 | shards — on-disk shards of every dataset: atomic, durable, in order (AGENTS.md Code, Data) | all data stages | — | `specs/shards.md` |
 | 28 | gui-classifier — the pipeline's screen classifier: variant (d) of block 18 from its templates and thresholds; latency budget | P1, P2 data, R1 (env) | 18 | GX |
 | 29 | train-index — shuffled index shards: references to unlabeled clips and labeled pairs, train / validation split by groups of episodes linked by pairs | P1, P4, P5 data | 25, 23, 3 | — |
@@ -101,7 +102,7 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `vlm` → P2 (later R-stage labelling) → `specs/vlm-client.md`
 - `scripts/`, `pyproject.toml`, `uv.lock`, `configs/spark-env.yaml` → all → `specs/spark-env.md`
 - `vpt` → GUI-recognition experiment, P1, P2, P5 data → `specs/vpt-gui-frames.md`, `specs/vpt-actions.md`
-- `gui` → GUI-recognition experiment, env, human-click mapping, P1, P2, P5 data → `specs/gui-screens.md` (data: `configs/gui-screens.yaml`), `specs/gui-labels.md`, `specs/vpt-gui-actions.md`
+- `gui` → GUI-recognition experiment, env, human-click mapping, P1, P2, P5 data → `specs/gui-screens.md` (data: `configs/gui-screens.yaml`), `specs/gui-labels.md`, `specs/vpt-gui-actions.md`, `specs/action-mask.md`
 - `recognition` → GUI-recognition experiment, P1, P2 data, later env → `specs/gui-masks.md`, `specs/f3-overlay.md`, `specs/gui-classifier.md`
 - `clips` → P1, P2 data → `specs/clips.md`, `specs/perception-data.md`
 - `stacking` → GUI-recognition experiment → `specs/gui-stack.md`

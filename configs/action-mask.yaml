@@ -1,0 +1,3 @@
+# specs/action-mask.md: ActionMaskConfig. Paths relative to the repository root.
+screens: "configs/gui-screens.yaml"
+pitch_limit: 90

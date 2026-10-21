@@ -36,7 +36,7 @@ def test_excluded_states():
     classes = {0: "other", 1: "other", 2: "box", 3: "pause", 5: "other", 6: "death",
                8: "other", 9: "inv", 10: "other"}  # fmt: skip
     found = excluded_states(lines, classes, {8, 9})
-    assert found == fs({3, 5}) and type(found) is frozenset
+    assert found == fs({3, 5, 6}) and type(found) is frozenset  # 6: `death`, revision
 
 
 def test_excluded_states_from_line_0_and_only_over_classes():
