@@ -1,5 +1,5 @@
 # Runs
-Status: approved (2026-10-20)
+Status: approved (2026-10-20); 2026-10-20: pretrain a producer and a reader (`specs/pretrain.md`), approved
 Stage: every block that writes or reads a `run.json` (`specs/00-overview.md`, block 30)
 
 ## Sources
@@ -13,8 +13,8 @@ Stage: every block that writes or reads a `run.json` (`specs/00-overview.md`, bl
 
   | Marker | Producers | Readers | Value written |
   |---|---|---|---|
-  | `complete` | gui-masks; train-index; the producer of $Q_\ell$ (`specs/train-index.md`) | gui-stack, gui-classifier (of gui-masks); train-index (R) 4 (of $Q_\ell$) | `true` |
-  | `clips` | perception-data; preference-pool (in perception-data's format) | train-index (R) 1 | an integer ≥ 0 |
+  | `complete` | gui-masks; train-index; the producer of $Q_\ell$ (`specs/train-index.md`); pretrain | gui-stack, gui-classifier (of gui-masks); train-index (R) 4 (of $Q_\ell$); pretrain (R) 1 (of train-index) | `true` |
+  | `clips` | perception-data; preference-pool (in perception-data's format) | train-index (R) 1; pretrain (R) 5 | an integer ≥ 0 |
   | `frames` | vpt-gui-frames | gui-labels (4), gui-masks (R) | an object, possibly `{}` |
 - $D$ — a directory resolved by the caller; `written` — $D$ as written in the caller's config, for messages; `marker` — a top-level key of a run file.
 

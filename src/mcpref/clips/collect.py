@@ -12,7 +12,7 @@ import httpx
 import yaml
 from tqdm import tqdm
 
-from mcpref import REPO, config_mapping, number, repo_path
+from mcpref import REPO, config_mapping, integer, number, repo_path
 from mcpref.clips.episode import Classify, Pipeline
 from mcpref.clips.plan import pipeline, write_shards
 from mcpref.clips.store import Pools, json_bytes, read_json, remove, resume
@@ -62,13 +62,6 @@ class PerceptionDataConfig:
     workers: int
     classifier_batch: int
     out_dir: str
-
-
-def integer(name: str, value: object, low: float, high: float) -> int:
-    """Notation: a YAML integer, not a boolean, in [low, high]."""
-    if type(value) is not int or not low <= value <= high:
-        raise ValueError(f"{name} {value!r} is not an integer in [{low}, {high}]")
-    return value
 
 
 def string(name: str, value: object) -> str:

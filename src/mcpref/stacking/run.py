@@ -32,8 +32,9 @@ from mcpref.recognition.stored import (
 from mcpref.runs.files import check_fingerprints, finished_run, sha256, write_json
 from mcpref.shards.store import complete_shards, shard_path, write_file, write_shard
 from mcpref.stacking.config import GuiStackConfig, load_config
-from mcpref.stacking.fit import Fitted, Shard, cpu_copies, fit
+from mcpref.stacking.fit import Fitted, Shard, fit
 from mcpref.stacking.model import predicted, probabilities, standardisation, z_tensor
+from mcpref.training.devices import cpu_copies
 
 PROG = "mcpref.stacking.run"
 PREDICTIONS = "predictions.jsonl"

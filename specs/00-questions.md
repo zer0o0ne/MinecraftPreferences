@@ -14,6 +14,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **G-5** Per cycle: R2 → R3 → R4 → R5 in this order, once each? Gradient steps / epochs for each.
 - **G-6** Architectures: $\phi$ backbone (VPT pretrained / ImpalaCNN from scratch / pretrained vision encoder), $P$ and $\pi$ (MLP / transformer over latent histories), sizes, $D$.
   **→ [U]** (2026-10-20) $\phi$ = a small standard VLM (e.g. Qwen3.5-2B) over the interleaved states of G-2; its last hidden state goes to an MLP head that maps it to $z$. $P$ and $\pi$ are lightweight (MCTS-5). Open: the exact VLM, the head, $D$, $P$ and $\pi$.
+  **→ [U]** (2026-10-20) $\phi$ uses gradient checkpointing (activations recomputed in the backward pass), block 2; the pretraining loop accumulates gradients over micro-batches (`specs/pretrain.md`).
 - **G-7** Optimisers, learning rates, batch sizes per training stage; fixed in each block spec, or one config file with values from you?
   **→ [U]** every exact number goes into a config, never asked; where and how: G-11.
 - **G-8** Checkpointed across cycles for resuming: nets, optimiser states, METRA $\lambda$, $\mathcal{M}$, $\mathcal{T}$, env state?

@@ -1,0 +1,19 @@
+# specs/pretrain.md: PretrainConfig. Paths relative to the repository root; groups
+# (name: {lr, weight_decay}) filled by the blocks providing the modules.
+index_dir: "data/train_index"
+out_dir: "data/pretrain"
+seed: 0
+epochs: 1
+batch: 32
+micro_batch: 1
+w_pi: 1.0
+w_P: 1.0
+groups: {}
+betas: [0.9, 0.999]
+adam_eps: 1.0e-8
+warmup_steps: 100
+lr_floor: 0.1
+grad_clip: 1.0
+checkpoint_steps: 500
+keep_checkpoints: 2
+device: "cuda"

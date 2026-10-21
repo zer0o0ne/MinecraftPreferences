@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 import torch
 from progress_bars import Bar, assert_aborted, screen, states
+from training.schedule_oracle import epoch
 
-from . import fit_oracle as fo
 from . import stack_oracle as so
 from .stack_files import run, run_main
 from .stack_world import CONFIG, LABELS, NAN_WORLD, reference
@@ -82,7 +82,7 @@ def last_checkpoint(visits_done: int) -> int:
     sizes = reference(NAN_WORLD, CONFIG)["sizes"]
     rng, visits = np.random.Generator(np.random.PCG64(CONFIG["seed"])), []
     for _ in range(CONFIG["epochs"]):
-        visits += dict.fromkeys(q for q, _ in fo.epoch(rng, sizes, CONFIG["batch"]))
+        visits += dict.fromkeys(q for q, _ in epoch(rng, sizes, CONFIG["batch"]))
     steps = sum(math.ceil(sizes[q] / CONFIG["batch"]) for q in visits[:visits_done])
     return steps // CONFIG["checkpoint_steps"] * CONFIG["checkpoint_steps"]
 

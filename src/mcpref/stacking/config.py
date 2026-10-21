@@ -7,6 +7,7 @@ import torch
 import yaml
 
 from mcpref import config_mapping, positive_int, repo_path
+from mcpref.training.devices import device
 
 POSITIVE = ("hidden", "epochs", "batch", "checkpoint_steps")
 
@@ -42,16 +43,6 @@ def betas(value: object) -> tuple[float, float]:
     if not isinstance(value, list) or len(value) != 2:
         raise ValueError(f"betas {value!r} are not a list of two")
     return real("betas", value[0]), real("betas", value[1])
-
-
-def device(value: object) -> torch.device:
-    """Notation: a string accepted by torch.device."""
-    if isinstance(value, str):
-        try:
-            return torch.device(value)
-        except RuntimeError as error:
-            raise ValueError(f"device {value!r}: {error}") from error
-    raise ValueError(f"device {value!r} is not a string")
 
 
 def check(cfg: GuiStackConfig) -> None:

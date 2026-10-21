@@ -1,22 +1,14 @@
-"""Transcriptions of the schedule and of (4) of specs/gui-stack.md (Notation: mini-batch
-schedule; (3'), (4)) in float64, nothing from src/; the `read` of `fit` on tiny shards."""
+"""Transcriptions of (4) of specs/gui-stack.md ((3'), (4); its schedule from
+tests/training/schedule_oracle.py) in float64, nothing from src/; the `read` of `fit` on
+tiny shards."""
 
 import math
 
 import numpy as np
 import torch
+from training.schedule_oracle import epoch, mini_batches
 
 from . import stack_oracle as so
-
-
-def epoch(rng: np.random.Generator, sizes: list, batch: int) -> list:
-    """One epoch: pi_e = permutation(Q); for each shard q in that order, permutation(|S_q|)
-    cut into consecutive mini-batches of B frames: (q, positions in S_q)."""
-    out = []
-    for q in rng.permutation(len(sizes)):
-        perm = rng.permutation(sizes[q])
-        out += [(int(q), perm[k : k + batch]) for k in range(0, sizes[q], batch)]
-    return out
 
 
 def schedule(seed: int, sizes: list, batch: int, epochs: int) -> tuple[list, list]:
@@ -28,11 +20,6 @@ def schedule(seed: int, sizes: list, batch: int, epochs: int) -> tuple[list, lis
         states.append(rng.bit_generator.state)
         batches += epoch(rng, sizes, batch)
     return batches, states
-
-
-def mini_batches(sizes: list, batch: int) -> int:
-    """M = sum_q ceil(|S_q| / B)."""
-    return sum(math.ceil(n / batch) for n in sizes)
 
 
 def adam_path(theta0: list, z, y: list, w, sizes: list, cfg: dict) -> list:

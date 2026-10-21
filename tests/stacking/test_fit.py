@@ -1,17 +1,17 @@
-"""src/mcpref/stacking/fit.py against specs/gui-stack.md (Notation: schedule; (3), (4);
-Behaviour (F); Produces: checkpoints; progress bars), with the float64 transcriptions of
-fit_oracle.py."""
+"""src/mcpref/stacking/fit.py against specs/gui-stack.md ((3), (4); Behaviour (F);
+Produces: checkpoints; progress bars), with the float64 transcriptions of fit_oracle.py; the
+tests of `schedule` are in tests/training/test_schedule.py."""
 
 import io
-import math
 
 import numpy as np
 import pytest
 import torch
 from progress_bars import Bar, assert_progress, screen
 from torch.testing import assert_close
+from training.schedule_oracle import epoch
 
-from mcpref.stacking.fit import fit, full_loss, schedule
+from mcpref.stacking.fit import fit, full_loss
 from mcpref.stacking.model import init_params, probabilities
 
 from . import fit_oracle as fo
@@ -19,34 +19,6 @@ from . import stack_oracle as so
 from .fit_run import FIT, SIZES, checkpoint, checkpoints, config, fit_in, oracle
 
 CPU = torch.device("cpu")
-CASES = [([5, 2], 2), ([3], 5), ([1, 4, 2], 1), ([6, 6, 1], 4), ([7], 7)]  # sizes, B
-
-
-@pytest.mark.parametrize("sizes, batch", CASES)
-def test_schedule_transcription(sizes, batch):
-    """Two epochs from one generator equal the transcription of the Notation, and leave the
-    generator in the same state."""
-    rng, ref = (np.random.Generator(np.random.PCG64(11)) for _ in range(2))
-    for _ in range(2):
-        got, want = schedule(rng, sizes, batch), fo.epoch(ref, sizes, batch)
-        assert [q for q, _ in got] == [q for q, _ in want]
-        assert all(np.array_equal(a, b) for (_, a), (_, b) in zip(got, want))
-        assert rng.bit_generator.state == ref.bit_generator.state
-
-
-@pytest.mark.parametrize("sizes, batch", CASES)
-def test_schedule_partitions_each_shard(sizes, batch):
-    """Every frame of S once per epoch; each shard's mini-batches consecutive, of B frames
-    but its last one (shorter or equal); M mini-batches."""
-    got = schedule(np.random.Generator(np.random.PCG64(5)), sizes, batch)
-    order = [q for q, _ in got]
-    assert len(got) == fo.mini_batches(sizes, batch)
-    for q, n in enumerate(sizes):
-        at = [i for i, r in enumerate(order) if r == q]
-        assert at == list(range(at[0], at[0] + math.ceil(n / batch)))
-        parts = [got[i][1] for i in at]
-        assert sorted(np.concatenate(parts).tolist()) == list(range(n))
-        assert all(len(p) == batch for p in parts[:-1]) and 1 <= len(parts[-1]) <= batch
 
 
 def test_full_loss_naive_reference():
@@ -130,7 +102,7 @@ def test_fit_reads_each_shard_once_per_visit(repo, tmp_path):
     fit_in(repo, tmp_path, read, FIT)
     rng, visits = np.random.Generator(np.random.PCG64(FIT["seed"])), []
     for _ in range(FIT["epochs"]):
-        visits += dict.fromkeys(q for q, _ in fo.epoch(rng, SIZES, FIT["batch"]))
+        visits += dict.fromkeys(q for q, _ in epoch(rng, SIZES, FIT["batch"]))
     assert sorted(read.calls[:2]) == sorted(read.calls[-2:]) == [0, 1]
     assert read.calls[2:-2] == visits
 

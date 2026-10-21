@@ -53,7 +53,7 @@ def write_plan_shard(directory: Path, shard: Shard, rng: np.random.Generator) ->
         (staged / SHARD).write_text(json.dumps(data))
 
 
-def generator(seed: int, state: dict | None) -> np.random.Generator:
+def generator(seed: int | list[int], state: dict | None) -> np.random.Generator:
     """(3'): Generator(PCG64(seed)) with h = 0, else set to the state of shard h - 1."""
     if state is None:
         return np.random.Generator(np.random.PCG64(seed))

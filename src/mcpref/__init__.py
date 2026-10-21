@@ -32,6 +32,13 @@ def number(name: str, value: object) -> float:
     return float(value)
 
 
+def integer(name: str, value: object, low: float, high: float) -> int:
+    """A YAML integer, not a boolean, in [low, high]."""
+    if type(value) is not int or not low <= value <= high:
+        raise ValueError(f"{name} {value!r} is not an integer in [{low}, {high}]")
+    return value
+
+
 def positive_int(name: str, value: object) -> int:
     """A YAML integer, not a boolean, >= 1."""
     if type(value) is not int or value < 1:

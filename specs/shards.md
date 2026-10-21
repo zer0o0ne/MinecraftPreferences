@@ -1,5 +1,5 @@
 # Shards
-Status: approved (2026-10-15; clarified after the refactor the same day: no `..` in paths, approved)
+Status: approved (2026-10-15; clarified after the refactor the same day: no `..` in paths, approved); 2026-10-20: `part_path` and `sync` in the interface, for block pretrain (`specs/pretrain.md`), approved
 Stage: every block that builds or reads a dataset (AGENTS.md Code, Data); `specs/00-overview.md` block 27; first users: blocks vpt-gui-frames and perception-data
 
 ## Sources
@@ -39,9 +39,11 @@ Stage: every block that builds or reads a dataset (AGENTS.md Code, Data); `specs
   - `def shard_path(D: Path, k: int) -> Path` — $D/\mathrm{name}(k)$.
   - `@contextlib.contextmanager def write_shard(D: Path, k: int) -> Iterator[Path]` — (1); yields the staged shard.
   - `def complete_shards(D: Path) -> int` — (2).
-  - `def publish(part: Path, path: Path) -> None` — (3); for files that a program other than Python writes under a temporary name (e.g. ffmpeg's `<id>.yuv.part` of vpt-gui-frames (c)).
+  - `def publish(part: Path, path: Path) -> None` — (3); for files that a program other than Python, or a library writing to a path (e.g. `torch.save` of block pretrain), writes under a temporary name (e.g. ffmpeg's `<id>.yuv.part` of vpt-gui-frames (c)).
   - `def write_file(path: Path, data: bytes) -> None` — (4).
   - `def make_dirs(p: Path) -> None` — $\mathrm{make}(p)$; for a caller's directory of single files (e.g. `frames/` and `indices/` of vpt-gui-frames), called before the caller trusts or publishes files there.
+  - `def part_path(path: Path) -> Path` — the temporary name `<path>.part` of (1) and (4).
+  - `def sync(p: Path) -> None` — $\mathrm{sync}(p)$ of Notation.
 - Callers read shard $k$ through `shard_path(D, k)`, one shard at a time, for $k < n$; each caller's spec names its shards' files, items per shard and the state stored with a shard (skill `spec-format`, Datasets).
 - Datasets: none of its own.
 - Progress bars: none; each loop of the block (the syncs and `rmtree` of one shard, the listing of (2)) covers one shard or one listing and ends well under a couple of seconds.

@@ -1,8 +1,8 @@
-"""(4), (F) of specs/gui-stack.md: the mini-batch schedule, the loss (3) over all of S
-and Adam over the schedule, continued from the last checkpoint."""
+"""(4), (F) of specs/gui-stack.md: the loss (3) over all of S and Adam over the schedule
+of training/schedule.py, continued from the last checkpoint."""
 
 import sys
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Sequence
 from functools import partial
 from pathlib import Path
 
@@ -13,6 +13,8 @@ from tqdm import tqdm
 from mcpref.shards.store import complete_shards, shard_path, write_shard
 from mcpref.stacking.config import GuiStackConfig
 from mcpref.stacking.model import init_params, loss, penalty, weighted_nll
+from mcpref.training.devices import cpu_copies
+from mcpref.training.schedule import n_batches, remaining
 from mcpref.vpt.plan import generator
 
 Shard = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
@@ -21,24 +23,6 @@ Read = Callable[[int], Shard]
 Fitted = tuple[list[torch.Tensor], float, float]
 """theta_T, L(theta_0), L(theta_T)."""
 CHECKPOINT = "checkpoint.pt"
-
-
-def schedule(
-    rng: np.random.Generator, sizes: Sequence[int], batch: int
-) -> list[tuple[int, np.ndarray]]:
-    """Notation, (4): one epoch: the shards in the order permutation(Q), the positions
-    of each permutation(|S_q|), cut into consecutive mini-batches of `batch` frames."""
-    batches = []
-    for q in rng.permutation(len(sizes)).tolist():
-        positions = rng.permutation(sizes[q])
-        starts = range(0, sizes[q], batch)
-        batches += [(q, positions[i : i + batch]) for i in starts]
-    return batches
-
-
-def n_batches(sizes: Sequence[int], batch: int) -> int:
-    """Notation: M = sum_q ceil(|S_q| / B)."""
-    return sum((n + batch - 1) // batch for n in sizes)
 
 
 def full_loss(
@@ -70,11 +54,6 @@ def adam(params: Sequence[torch.Tensor], cfg: GuiStackConfig) -> torch.optim.Ada
     )
 
 
-def cpu_copies(params: Sequence[torch.Tensor]) -> list[torch.Tensor]:
-    """Interface checkpoints, model.pt: detached copies of the parameters on the CPU."""
-    return [p.detach().to("cpu", copy=True) for p in params]
-
-
 def started(cfg: GuiStackConfig, read: Read, q: int, c: int, n_labels: int) -> dict:
     """(2), (F): theta_0, L(theta_0) (bar `loss initial`), the start of epoch 1 (a fresh
     schedule generator)."""
@@ -90,20 +69,6 @@ def restored(directory: Path, h: int, device: torch.device) -> dict:
     state["params"] = [p.to(device).requires_grad_() for p in state["params"]]
     print("loss initial: already done", file=sys.stderr)
     return state
-
-
-def remaining(
-    rng: np.random.Generator, sizes: Sequence[int], batch: int, state: dict, epochs: int
-) -> Iterator[tuple[dict, int, np.ndarray]]:
-    """(4): the mini-batches of the schedule after the first `batch_in_epoch` of epoch
-    `epoch` of `state`: (epoch, schedule_rng, batch_in_epoch after it), q, positions."""
-    for e in range(state["epoch"], epochs + 1):
-        before = rng.bit_generator.state
-        done = state["batch_in_epoch"] if e == state["epoch"] else 0
-        for i, (q, positions) in enumerate(schedule(rng, sizes, batch)):
-            if i >= done:
-                position = {"epoch": e, "schedule_rng": before, "batch_in_epoch": i + 1}
-                yield position, q, positions
 
 
 def adam_step(

@@ -108,5 +108,6 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `http` → shared HTTP retries (textures, VPT downloads, VLM client) → the retry rules of `specs/vlm-client.md` (6), `specs/gui-screens.md`, `specs/vpt-gui-frames.md`
 - `cli` → shared one-line failure messages of the command-line entry points
 - `shards` → every block that builds or reads a dataset → `specs/shards.md`
-- `pretrain` → pretraining → `specs/train-index.md`
+- `pretrain` → pretraining → `specs/train-index.md`, `specs/pretrain.md`
 - `runs` → every block with a run.json → `specs/runs.md`
+- `training` → gui-stack, pretraining → `specs/gui-stack.md`, `specs/pretrain.md`

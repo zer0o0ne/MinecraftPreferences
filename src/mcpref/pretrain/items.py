@@ -1,5 +1,5 @@
 """(I), (1)-(3), (4) of specs/train-index.md: the inputs read in one pass with their
-fingerprints, the items of U and R, the split by groups of episodes, the shuffle."""
+fingerprints, the items, the split, the shuffle; (4) of one dataset (pretrain (R) 5)."""
 
 import hashlib
 import json
@@ -71,6 +71,26 @@ def shard_files(
         update()
 
 
+def new_hash(fields: dict | None) -> "hashlib._Hash":
+    """(4): the hash before the shards; json.dumps(fields) fed when not None."""
+    h = hashlib.sha256()
+    if fields is not None:
+        h.update(json.dumps(fields).encode())
+    return h
+
+
+def fingerprint(
+    directory: str, file: str, fields: dict | None, update: Callable[[], object]
+) -> str:
+    """(4) of one dataset: `fields`, then `file` of each complete shard of
+    {directory}/shards/, read one at a time, `update()` after each."""
+    h = new_hash(fields)
+    n = complete_shards(REPO / directory / "shards")
+    for _ in shard_files(directory, file, n, h, update):
+        pass
+    return h.hexdigest()
+
+
 def read_inputs(
     cfg: "TrainIndexConfig", fields: list[dict]
 ) -> tuple[list[Entry], list[str | None]]:
@@ -81,20 +101,18 @@ def read_inputs(
         cfg.clips_dir,
         *([cfg.pair_clips_dir, cfg.pair_labels_dir] if paired else []),
     ]
-    hashes = [hashlib.sha256(json.dumps(f).encode()) for f in fields]
-    if paired:
-        hashes.append(hashlib.sha256())
     n = [complete_shards(REPO / d / "shards") for d in dirs]
-    entries = []
+    entries, clips = [], new_hash(fields[0])
     with shard_bar("index inputs", sum(n), 0, sum(n), 0, "shard") as update:
-        for k, data in shard_files(dirs[0], RECORDS, n[0], hashes[0], update):
+        for k, data in shard_files(dirs[0], RECORDS, n[0], clips, update):
             entries += unlabeled(cfg.clips_dir, k, json.loads(data))
+        fingerprints = [clips.hexdigest()]
         if paired:
-            for _ in shard_files(dirs[1], RECORDS, n[1], hashes[1], update):
-                pass
-            for _, data in shard_files(dirs[2], PAIRS, n[2], hashes[2], update):
+            fingerprints.append(fingerprint(dirs[1], RECORDS, fields[1], update))
+            labels = new_hash(None)
+            for _, data in shard_files(dirs[2], PAIRS, n[2], labels, update):
                 entries += labeled(cfg.pair_clips_dir, json.loads(data))
-    fingerprints = [h.hexdigest() for h in hashes]
+            fingerprints.append(labels.hexdigest())
     return entries, fingerprints + [None] * (3 - len(fingerprints))
 
 

@@ -1,6 +1,8 @@
-"""Fixtures of the tests of specs/train-index.md: a Site (index_run.py) per test."""
+"""Fixtures of the tests of specs/train-index.md: a Site (index_run.py) per test; one
+intra-op torch thread per pytest-xdist worker for the tests of specs/pretrain.md."""
 
 import pytest
+import torch
 
 from .index_run import Site
 from .index_world import CONFIG, HAND, World
@@ -20,3 +22,8 @@ def make_site(tmp_path):
         return site
 
     return make
+
+
+# One intra-op thread per pytest-xdist worker: with torch's default (one per core) the
+# workers oversubscribe the cores (as in tests/stacking/conftest.py).
+torch.set_num_threads(1)

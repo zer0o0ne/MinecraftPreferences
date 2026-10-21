@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 import torch
 from progress_bars import Bar, screen, states
+from training.schedule_oracle import epoch
 
 from . import fit_oracle as fo
 from .fit_run import FIT, SIZES, checkpoint, checkpoints, fit_in
@@ -22,7 +23,7 @@ def last_step(k: int) -> int:
     visits done before it, rounded down to a multiple of N."""
     rng, visits = np.random.Generator(np.random.PCG64(CFG["seed"])), []
     for _ in range(CFG["epochs"]):
-        visits += dict.fromkeys(q for q, _ in fo.epoch(rng, SIZES, CFG["batch"]))
+        visits += dict.fromkeys(q for q, _ in epoch(rng, SIZES, CFG["batch"]))
     done = visits[: max(0, min(k - Q - 1, len(visits)))]
     steps = sum(math.ceil(SIZES[q] / CFG["batch"]) for q in done)
     return steps // CFG["checkpoint_steps"] * CFG["checkpoint_steps"]
