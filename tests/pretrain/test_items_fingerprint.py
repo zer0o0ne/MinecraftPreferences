@@ -1,4 +1,4 @@
-"""`fingerprint` and `new_hash` of src/mcpref/pretrain/items.py against the transcription of
+"""`fingerprint` and `new_hash` of src/mcpref/runs/files.py against the transcription of
 (4) of specs/train-index.md (index_oracle.py; specs/pretrain.md Interface): the directory
 as written, resolved against the repository root; the complete shards only, in order;
 `update()` after each."""
@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from mcpref.pretrain.items import fingerprint, new_hash
+from mcpref.runs.files import fingerprint, new_hash
 
 from .index_oracle import CLIP_FIELDS, field, sha, shard_files
 from .index_run import repo_root

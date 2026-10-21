@@ -8,10 +8,18 @@ from pathlib import Path
 
 from mcpref import REPO
 from mcpref.cli.failure import failed
-from mcpref.clips.collect import collect, load_config
+from mcpref.clips.collect import PerceptionDataConfig, collect, load_config
+from mcpref.clips.episode import Classify
 from mcpref.recognition import classifier
 
 PROG = "mcpref.clips.run"
+
+
+def gamma_of(cfg: PerceptionDataConfig) -> tuple[Classify, str]:
+    """Interface `main`: gamma and gamma_id by load_classifier of specs/gui-classifier.md
+    (the config at REPO / classifier_config, the screens, W, H)."""
+    gamma_cfg = classifier.load_config(REPO / cfg.classifier_config)
+    return classifier.load_classifier(gamma_cfg, cfg.screens, cfg.width, cfg.height)
 
 
 def main(argv: Sequence[str]) -> int:
@@ -21,11 +29,7 @@ def main(argv: Sequence[str]) -> int:
     args = parser.parse_args(argv)
     try:
         cfg = load_config(args.config)
-        gamma_cfg = classifier.load_config(REPO / cfg.classifier_config)
-        gamma, gamma_id = classifier.load_classifier(
-            gamma_cfg, cfg.screens, cfg.width, cfg.height
-        )
-        collect(cfg, gamma, gamma_id)
+        collect(cfg, *gamma_of(cfg))
     except Exception as error:  # noqa: BLE001 (specs/perception-data.md: any Exception)
         return failed(PROG, error)
     return 0

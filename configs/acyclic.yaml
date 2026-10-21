@@ -1,0 +1,14 @@
+# specs/acyclic.md: AcyclicConfig. Paths relative to the repository root; weights: the
+# probability that the first shown clip is better, per token of the answers of votes_dir
+# (null: the refusal); refusal_share: tau.
+votes_dir: "data/pair_votes"
+out_dir: "data/pair_labels"
+weights:
+  MUCH_BETTER: 1.0
+  BETTER: 0.8
+  SLIGHTLY_BETTER: 0.6
+  SLIGHTLY_WORSE: 0.4
+  WORSE: 0.2
+  MUCH_WORSE: 0.0
+  INCOMPARABLE: null
+refusal_share: 0.5

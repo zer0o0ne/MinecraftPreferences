@@ -5,6 +5,7 @@ import dataclasses
 import json
 import math
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,8 +16,8 @@ from tqdm import tqdm
 from mcpref import REPO, config_mapping, integer, number, repo_path
 from mcpref.clips.episode import Classify, Pipeline
 from mcpref.clips.plan import pipeline, write_shards
-from mcpref.clips.store import Pools, json_bytes, read_json, remove, resume
-from mcpref.runs.files import sha256
+from mcpref.clips.store import Pools, read_json, remove, resume
+from mcpref.runs.files import json_bytes, sha256
 from mcpref.shards.store import make_dirs, write_file
 from mcpref.vpt.downloads import download
 from mcpref.vpt.episodes import index
@@ -98,23 +99,28 @@ def load_config(path: Path) -> PerceptionDataConfig:
     return PerceptionDataConfig(**raw)
 
 
-def run_header(pipe: Pipeline, classifier_id: str) -> dict:
-    """(8): the config as written, the SHA-256 of the named files, gamma_id."""
+def hashes(pipe: Pipeline) -> dict[str, str]:
+    """(8): the SHA-256 of the configs named by the config, of the actions config named
+    by the clips config and of the overlay's catalogue."""
     named = {k: REPO / getattr(pipe.cfg, k) for k in CONFIGS}
     files = {"actions": pipe.clips.actions} | named
     files |= {"overlay_screens": pipe.overlay.screens}
-    hashes = {k: sha256(path) for k, path in files.items()}
+    return {k: sha256(path) for k, path in files.items()}
+
+
+def run_header(pipe: Pipeline, classifier_id: str) -> dict:
+    """(8): the config as written, the SHA-256 of the named files, gamma_id."""
     config = dataclasses.asdict(pipe.cfg)
-    return {"config": config, "sha256": hashes, "classifier": classifier_id}
+    return {"config": config, "sha256": hashes(pipe), "classifier": classifier_id}
 
 
-def check_rerun(path: Path, header: dict) -> None:
-    """(8): an existing run.json must hold this run's output fields, hashes and gamma_id,
-    each compared as JSON text."""
+def check_rerun(path: Path, header: dict, fields: Sequence[str], prefix: str) -> None:
+    """(8): an existing run.json must hold this run's output `fields` of `config` (named
+    `prefix` + field), hashes and gamma_id, each compared as JSON text."""
     if not path.exists():
         return
     old = read_json(path)
-    pairs = [(k, old["config"][k], header["config"][k]) for k in OUTPUT_FIELDS]
+    pairs = [(prefix + k, old["config"][k], header["config"][k]) for k in fields]
     pairs += [(f"sha256.{k}", old["sha256"][k], v) for k, v in header["sha256"].items()]
     pairs += [("classifier", old["classifier"], header["classifier"])]
     names = [k for k, a, b in pairs if json.dumps(a) != json.dumps(b)]
@@ -167,7 +173,7 @@ def collect(cfg: PerceptionDataConfig, classify: Classify, classifier_id: str) -
     (7) the complete shards read, (1), (6) the plan continued, the counts added."""
     pipe = pipeline(cfg, classify)
     out, header = pipe.out, run_header(pipe, classifier_id)
-    check_rerun(out / "run.json", header)
+    check_rerun(out / "run.json", header, OUTPUT_FIELDS, "")
     write_file(out / "run.json", json_bytes(header))
     remove(out / "staging")
     with httpx.Client(headers={"x-ms-version": cfg.x_ms_version}) as client:

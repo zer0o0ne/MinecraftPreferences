@@ -55,8 +55,9 @@ def accept(w: o.Work, states: list[int]) -> bool:
 
 
 def sample(w: o.Work, ev: dict, valid: list[int]) -> list[int]:
-    """clips (4) with Generator(PCG64([seed, 1, k])); the starts taken, in order."""
-    g = np.random.Generator(np.random.PCG64([w.f["seed"], 1, w.k]))
+    """clips (4) with Generator(PCG64(key)), key [seed, 1, k] by default; the starts
+    taken, in order."""
+    g = np.random.Generator(np.random.PCG64(w.key or [w.f["seed"], 1, w.k]))
     rest, taken = list(valid), []
     while len(taken) < w.f["per_episode"] and rest:
         p = rest[g.integers(len(rest))]
@@ -92,14 +93,14 @@ def clip_files(e: Ep, row: dict) -> dict:
     }
 
 
-def process(e: Ep, f: dict, k: int, subset: str, broken) -> tuple[dict, list, list]:
-    """(2)-(5) of the candidate of draw k: record fields, its clips in the order taken,
-    its classifier calls."""
+def process(e: Ep, f: dict, k: int, subset: str, broken, key=None) -> tuple[dict, list, list]:  # fmt: skip
+    """(2)-(5) of the candidate of draw k (its generator keyed by `key`, as in Work):
+    record fields, its clips in the order taken, its classifier calls."""
     fields = {"options": json.loads(e.files()["-options.json"]),
               "starts_session": e.session}  # fmt: skip
     if e.video is None or e.stem in broken:
         return fields | {"reason": "video"}, [], []
-    w = o.Work(e, f, k)
+    w = o.Work(e, f, k, key=key)
     w.classify(o.needed(e.script))
     shown = not e.session and o.overlay_shown(f, e.overlay)
     ev = evidence(w, shown)

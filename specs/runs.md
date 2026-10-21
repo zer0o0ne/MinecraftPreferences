@@ -1,5 +1,5 @@
 # Runs
-Status: approved (2026-10-20); 2026-10-20: pretrain a producer and a reader (`specs/pretrain.md`), approved
+Status: approved (2026-10-20); 2026-10-20: pretrain a producer and a reader (`specs/pretrain.md`), approved; 2026-10-20: `shard_files`, `new_hash`, `fingerprint`, `clip_fields` moved here from `pretrain/` (`specs/preference-pool.md`), approved; 2026-10-21: `json_bytes` moved here (`specs/preference-pool.md`), approved
 Stage: every block that writes or reads a `run.json` (`specs/00-overview.md`, block 30)
 
 ## Sources
@@ -13,8 +13,8 @@ Stage: every block that writes or reads a `run.json` (`specs/00-overview.md`, bl
 
   | Marker | Producers | Readers | Value written |
   |---|---|---|---|
-  | `complete` | gui-masks; train-index; the producer of $Q_\ell$ (`specs/train-index.md`); pretrain | gui-stack, gui-classifier (of gui-masks); train-index (R) 4 (of $Q_\ell$); pretrain (R) 1 (of train-index) | `true` |
-  | `clips` | perception-data; preference-pool (in perception-data's format) | train-index (R) 1; pretrain (R) 5 | an integer ≥ 0 |
+  | `complete` | gui-masks; train-index; acyclic (the producer of $Q_\ell$); pretrain; vlm-labels | gui-stack, gui-classifier (of gui-masks); train-index (R) 4 (of $Q_\ell$); pretrain (R) 1 (of train-index); acyclic (R) (of vlm-labels) | `true` |
+  | `clips` | perception-data; preference-pool (in perception-data's format) | train-index (R) 1; pretrain (R) 5; vlm-labels (R) | an integer ≥ 0 |
   | `frames` | vpt-gui-frames | gui-labels (4), gui-masks (R) | an object, possibly `{}` |
 - $D$ — a directory resolved by the caller; `written` — $D$ as written in the caller's config, for messages; `marker` — a top-level key of a run file.
 
@@ -31,8 +31,10 @@ Stage: every block that writes or reads a `run.json` (`specs/00-overview.md`, bl
 - Subpackage `src/mcpref/runs/` (new), module `runs/files.py`:
   - `def finished_run(directory: Path, written: str, marker: str) -> dict` — the parsed `{directory}/run.json` when (1) holds, else `RuntimeError(f"{written} is not complete")` (a missing file included).
   - `def sha256(path: Path) -> str` — (2).
-  - `def write_json(path: Path, value: dict) -> None` — (3).
+  - `def json_bytes(value: object) -> bytes` — the bytes of (3), moved from `clips/store.py` (`specs/preference-pool.md`); `def write_json(path: Path, value: dict) -> None` — (3), writing `json_bytes(value)`.
   - `def check_fingerprints(path: Path, fingerprints: dict, out_dir: str) -> None` — (4).
+  - `HASHED`, `CLIP_FIELDS`, `ABSENT` and `def clip_fields(run: dict) -> dict` — the clip-defining fields of `specs/train-index.md` Notation present in a `run.json`, {dotted name: value}.
+  - `def shard_files(directory: str, file: str, n: int, fingerprint: hashlib._Hash, update: Callable) -> Iterator[tuple[int, bytes]]`, `def new_hash(fields: dict | None) -> hashlib._Hash`, `def fingerprint(directory: str, file: str, fields: dict | None, update: Callable[[], object]) -> str` — (4) of `specs/train-index.md` of one dataset; `file` — any file name of its shards (`specs/pretrain.md` Interface).
 - Callers, each importing these names from `runs/files.py`; behaviour unchanged except the messages named:
   - gui-masks, `recognition/frame_set.py`, (R) first check: `counts = run_counts(finished_run(REPO / frames_dir, frames_dir, "frames"))`; message `{frames_dir} is not complete` (was `{frames_dir}/run.json lacks the counts: the frames are not complete`, and `FileNotFoundError` for a missing file).
   - `gui/label_files.py`: `def run_counts(run: dict) -> dict[str, int]` — `{status: run["frames"].get(status, 0)}` for `ok`, `failed`; `def frame_counts(frames_dir: Path, written: str) -> dict[str, int]` — `run_counts(finished_run(frames_dir, written, "frames"))`, then `RuntimeError(f"no ok frame in {path}")` when `ok` < 1, `path` the resolved `{frames_dir}/run.json` (as before); `sha256`, `write_json`, `check_fingerprints` removed; `write_run` stays, calling `runs.files.write_json`.
@@ -42,6 +44,7 @@ Stage: every block that writes or reads a `run.json` (`specs/00-overview.md`, bl
   - train-index, `pretrain/index.py`: (R) 1 `finished_run(REPO / d, d, "clips")` for $C$ and $Q_c$; (R) 4 `finished_run(REPO / pair_labels_dir, pair_labels_dir, "complete")`; `counted_run` removed.
   - The other importers of `sha256`, `write_json`, `check_fingerprints` (`recognition/{recognise,evaluate,stored}.py`, `clips/collect.py`) import them from `runs/files.py`.
   - `vpt/config.py`: `check_rerun` and `write_run` removed; its module docstring and `check_same`'s narrowed to vpt-gui-frames (d).
+  - The importers of `shard_files`, `new_hash`, `fingerprint`, `clip_fields` and their constants (`pretrain/items.py`, `pretrain/index.py` and the pretrain loop's modules; blocks vlm-labels and acyclic) import them from `runs/files.py`.
 - Revisions of other specs in this cycle ([U]), exact text:
   - `specs/gui-masks.md`: Status gains `; 2026-10-20: run files through \`runs/\` (\`specs/runs.md\`), the frames message, approved`; (R): `` `{frames_dir}/run.json` holds its counts (`{frames_dir}/run.json lacks the counts: the frames are not complete`) `` becomes `` `{frames_dir}/run.json` holds its counts, by `finished_run` of `specs/runs.md` with marker `frames` (`{frames_dir} is not complete`, also when the file is absent) ``; Interface, the `stored.py` sentence: `` ; `def complete_run(…)` … (used by blocks gui-stack and gui-classifier) `` removed, and a sentence added after it: `` The run files go through `runs/files.py` (`specs/runs.md`): `finished_run`, `sha256`, `write_json`, `check_fingerprints`. ``
   - `specs/gui-labels.md`: Status gains `; 2026-10-20: the frames check through \`runs/\` (\`specs/runs.md\`), approved`; (4): `holds its counts (the frames are complete)` becomes `` holds its counts (the frames are complete; `finished_run` of `specs/runs.md` with marker `frames`, message `{frames_dir} is not complete` as written, also when the file is absent) ``; Consumes gains `` `finished_run`, `write_json`, `sha256` (`specs/runs.md`) ``.

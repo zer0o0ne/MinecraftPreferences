@@ -19,7 +19,7 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 - $\phi$ — perception; $z_t = \phi(h_t) \in \mathbb{R}^D$ — internal (latent) state.
 - $\alpha \in \mathbb{R}^D_{>0}$ — per-coordinate metric weights (the user's $a_i$) (Q PER-2); $d_\alpha^2(z, z') = \sum_i \alpha_i^2 (z_i - z'_i)^2$. METRA geometry holds in the coordinates $\alpha \odot z$, the norm bound for $z$.
 - $c$ — norm bound of $z$ (example: 1).
-- $P$ — preference network; $P(x, y) = (p_\succ, p_{cmp})$: probability that $x$ is preferred to $y$, probability that $x, y$ are comparable; $x, y$ are latent histories.
+- $P$ — preference network; $P(x, y) = (p_\succ, p_{inc})$: probability that $x$ is preferred to $y$ given that they are comparable, probability that $x, y$ are incomparable ([U] 2026-10-20; antisymmetry $p_\succ(x, y) = 1 - p_\succ(y, x)$ and the symmetry of $p_{inc}$ imposed by scoring both orders in the loss, `specs/acyclic.md` (5)); $x, y$ are latent histories.
 - $A$ — discrete action set (Q ACT, versions 1 and 2): 34 world actions (`WORLD_ACTIONS` of `specs/vpt-actions.md`) and 361 GUI actions (`gui_action_names` of `specs/vpt-gui-actions.md`: close, left, right, shift and double click on element $i = 1..n_{max}$ of the recognised screen), 395 in all; masked by GUI state, screen type, pitch and hotbar slot (`specs/action-mask.md`); a screen that is not recognised is closed at once (Q ACT-19). An action holds its input until its effect completes, at most $\Delta$, and continues without release while chosen again (Q G-13); $\pi$ learns to lower the logits of masked actions (Q POL-7).
 - $\pi$ — policy; $\pi(\cdot \mid z\text{-history})$ — probabilities over $A$; $\widehat{\Delta z}(a)$, $a \in A$ — predicted latent shift of each action (output $|A| \times D$).
 - $\Delta z_t = z_{t+1} - z_t$ — actual latent shift.
@@ -30,15 +30,15 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 | Net | Input | Output | Trained in |
 |---|---|---|---|
 | $\phi$ perception | $h_t$ (frames + meta) | $z_t$ | pretraining loop (truncated METRA loss; the losses of π and P flow in), R2 (METRA loss) |
-| $P$ preference | two latent histories | $p_\succ$, $p_{cmp}$ | pretraining loop (corrected VLM labels), R3 (corrected self-labels) |
+| $P$ preference | two latent histories | $p_\succ$, $p_{inc}$ | pretraining loop (corrected VLM labels), R3 (corrected self-labels) |
 | $\pi$ policy | last $k_\pi$ latent states | probabilities over $A$, $\widehat{\Delta z}(a)$ for every $a \in A$ | pretraining loop (action + shift regression), R4 (PPO) |
 
 ## Pretraining (VPT dataset)
 - **One loop** ([U] 2026-10-20; blocks 29, 7): P1, P4 and P5 are trained together on unlabeled clips (losses of φ and π) mixed in their natural proportion with labeled pairs of P2, P3 (losses of φ and π on each clip of the pair, plus P's loss); the gradients of π's and P's losses flow into φ; P5 with the one-interval delay of Q MCTS-10.
 - **P1 Perception.** Random dataset pairs $(h_t, h_{t+\Delta})$, with the number $n$ of legal actions of every interval (Q G-12, PER-9). Loss: maximise $d_\alpha(z_t, z_{t+1})$ subject to $d_\alpha^2 \le 1$ via METRA's dual variable, only on transitions that changed something (meta differs or the pixel difference exceeds a threshold); unchanged transitions are dropped (Q PER-8), plus $\beta_c \max(0, \lVert z \rVert_2 - c)^2$ for both $z_t, z_{t+1}$. Large $\alpha_i$ allow long chains along coordinate $i$ inside the ball.
-- **P2 VLM labels.** A random pool of dataset states; each is linked at random to several others of the pool; while there are many components and few cycles, random edges between components are added (Q VLM-2). `Qwen3-VL-30B-A3B-Instruct-FP8`, served on an NVIDIA DGX Spark (`specs/vlm-client.md`), gets each state as several screenshots plus the dataset info (inventory, …) and answers: first preferred, second preferred, or refuses to compare (Q VLM-*).
-- **P3 Correction.** VLM labels → preference graph → $C$ → training labels (Q ACY-*).
-- **P4 Preference.** Inputs: $\phi$ of the same loop applied to each state with its history. Targets: the labels from P3 for both outputs.
+- **P2 VLM labels** (blocks 23, 4). Recording sessions of the VPT dataset, each one world, reconstructed from line 0 of every episode; clips of up to $e$ episodes of a drawn session; inside each session a random comparison graph (random partners, connected, cycles topped up). `Qwen3-VL-30B-A3B-Instruct-FP8`, served on an NVIDIA DGX Spark (`specs/vlm-client.md`), gets each state as its last screenshots plus its inventory and grades the first against the second in six steps (much worse … much better) or refuses; both orders, several samples (`specs/preference-pool.md`, `specs/vlm-labels.md`).
+- **P3 Correction** (block 3). Each grade has a weight in $[0, 1]$; a comparison with a share of refusals above a threshold is incomparable, else its weight $w \ge 0.5$ is the mean grade weight, its arc from the preferred clip with cost $w - 0.5$; $C$ = Eades' acyclic subgraph of the whole graph, removed arcs put back when they close no cycle; arcs still removed become incomparable (`specs/acyclic.md`).
+- **P4 Preference.** Inputs: $\phi$ of the same loop applied to each state with its history. Targets: the labels of P3 — $p_{inc}$ by cross-entropy on every pair, $p_\succ$ by cross-entropy with the soft target $w$ on comparable pairs, each pair scored in both orders (`specs/acyclic.md` (5)).
 - **P5 Policy.** Random consecutive pairs $(t, t+1)$ with history. Input: latent history up to $t$. Targets: the dataset action of the next interval (from $t + 1$) for the action head and, in that action's row of $\widehat{\Delta z}$, $\Delta z_t = z_{t+1} - z_t$ (Q MCTS-10) (Q POL-4).
 
 ## RL cycle (repeats; one cycle = one trajectory)
@@ -68,8 +68,8 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 0 | vlm-client — Python API to the served VLM; `serve_vlm.sh` | P2 | S | `specs/vlm-client.md` |
 | 1 | data — superseded by blocks 22, 25, 29 | — | — | — |
 | 2 | perception — $\phi$ and the P1 loss | P1 | 7 | PER |
-| 3 | acyclic — correction $C$ | P3, R3 | — | ACY |
-| 4 | vlm-labels — prompt, query, parsing, label artifact | P2 | 23 | VLM |
+| 3 | acyclic — verdicts from the VLM's answers, correction $C$ (Eades, put-back), pair labels $Q_\ell$ | P3, R3 | 4 | `specs/acyclic.md` |
+| 4 | vlm-labels — prompt, both orders, samples, parsed answers | P2 | 0, 23 | `specs/vlm-labels.md` |
 | 5 | preference — $P$ and its loss | P4, R3 | 2, 7 | PRF |
 | 6 | policy — $\pi$ and the P5 loss | P5 | 2, 7 | POL |
 | 7 | pretrain — one loop training φ, π and P (pluggable components and losses) | P1, P4, P5 | 29 | G |
@@ -88,7 +88,7 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 20 | vpt-actions — legal world actions of $A$ per interval of a VPT episode, modes, exclusions | P1, P2, P5 data | — | `specs/vpt-actions.md` |
 | 21 | vpt-gui-actions — GUI lines of a VPT episode: clicks → elements (left, right, shift, double), close, digit chains, cut spans; classes from a pluggable classifier | P1, P2, P5 data | 15, 20 | `specs/vpt-gui-actions.md` |
 | 22 | clips — grid of elementary states, interval validity, sampling of non-overlapping clips | P1, P2 data | 20, 21 | `specs/clips.md` |
-| 23 | preference-pool — `collect_preferences_pretrain_data.sh`: clips of $L$ states (the `states` of block 25, the same value) in perception-data's format ($L \ge k_P + k_\phi - 1$), pairs within one game world (not necessarily one episode), then block 4 adds the VLM labels | P2 | 22, 24, 25, 0 | VLM |
+| 23 | preference-pool — `collect_preferences_pretrain_data.sh`: clips of $L$ states (the `states` of block 25, the same value) in perception-data's format ($L \ge k_P + k_\phi - 1$), comparisons within one recording session (sessions reconstructed from line 0 of every episode), then block 4 asks the VLM | P2 | 22, 24, 25, 28 | `specs/preference-pool.md` |
 | 24 | f3-overlay — debug-overlay detector on frame 0 of an episode | P1, P2 data | 20 | `specs/f3-overlay.md` |
 | 25 | perception-data — pipeline over whole VPT episodes (download, two decodes, classifier calls, sampling, storage, rerun); `collect_perception_pretrain_data.sh` with the classifier | P1 | 21, 22, 24, 28 | `specs/perception-data.md` |
 | 26 | action-mask — the mask of $A$ per state from the GUI flag, the screen class, the pitch and the hotbar slot; block 21 drops what it forbids | P5, R1 | 15, 21 | `specs/action-mask.md` |
@@ -111,4 +111,7 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `shards` → every block that builds or reads a dataset → `specs/shards.md`
 - `pretrain` → pretraining → `specs/train-index.md`, `specs/pretrain.md`
 - `runs` → every block with a run.json → `specs/runs.md`
+- `pool` → P2 data → `specs/preference-pool.md`
+- `preferences` → P2, P3 → `specs/vlm-labels.md`, `specs/acyclic.md`
+- `graphs` → train-index, P2 data, P3 (later R3) → `specs/preference-pool.md`, `specs/acyclic.md`
 - `training` → gui-stack, pretraining → `specs/gui-stack.md`, `specs/pretrain.md`

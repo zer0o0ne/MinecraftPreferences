@@ -1,0 +1,18 @@
+# specs/preference-pool.md: PreferencePoolConfig. Paths relative to the repository root.
+perception: "configs/perception-data.yaml"
+head_bytes: 32768
+head_workers: 16
+entries_per_shard: 1000
+tick_ms: 50
+tick_slack: 0.03
+resetting_stats:
+  - "minecraft.custom:minecraft.time_since_rest"
+  - "minecraft.custom:minecraft.time_since_death"
+episodes: 5
+per_episode: 4
+n_clips: 10000
+partners: 2
+cycles: 0.5
+seed: 0
+workers: 4
+out_dir: "data/pair_clips"

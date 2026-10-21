@@ -1,9 +1,7 @@
 """(I), (1)-(3), (4) of specs/train-index.md: the inputs read in one pass with their
-fingerprints, the items, the split, the shuffle; (4) of one dataset (pretrain (R) 5)."""
+fingerprints, the items, the split, the shuffle."""
 
-import hashlib
 import json
-from collections.abc import Callable, Iterator
 from functools import cache
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
@@ -11,7 +9,9 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from mcpref import REPO
+from mcpref.graphs.components import components
 from mcpref.recognition.stored import shard_bar
+from mcpref.runs.files import fingerprint, new_hash, shard_files
 from mcpref.shards.store import complete_shards, shard_path
 
 if TYPE_CHECKING:
@@ -59,38 +59,6 @@ def labeled(directory: str, pairs: list[dict]) -> list[Entry]:
     ]
 
 
-def shard_files(
-    directory: str, file: str, n: int, fingerprint: "hashlib._Hash", update: Callable
-) -> Iterator[tuple[int, bytes]]:
-    """(I): the file of each of the n complete shards of {directory}/shards/ in order,
-    fed to its dataset's fingerprint (4) as read; the bar advanced after each."""
-    for k in range(n):
-        data = (shard_path(REPO / directory / "shards", k) / file).read_bytes()
-        fingerprint.update(data)
-        yield k, data
-        update()
-
-
-def new_hash(fields: dict | None) -> "hashlib._Hash":
-    """(4): the hash before the shards; json.dumps(fields) fed when not None."""
-    h = hashlib.sha256()
-    if fields is not None:
-        h.update(json.dumps(fields).encode())
-    return h
-
-
-def fingerprint(
-    directory: str, file: str, fields: dict | None, update: Callable[[], object]
-) -> str:
-    """(4) of one dataset: `fields`, then `file` of each complete shard of
-    {directory}/shards/, read one at a time, `update()` after each."""
-    h = new_hash(fields)
-    n = complete_shards(REPO / directory / "shards")
-    for _ in shard_files(directory, file, n, h, update):
-        pass
-    return h.hexdigest()
-
-
 def read_inputs(
     cfg: "TrainIndexConfig", fields: list[dict]
 ) -> tuple[list[Entry], list[str | None]]:
@@ -114,27 +82,6 @@ def read_inputs(
                 entries += labeled(cfg.pair_clips_dir, json.loads(data))
             fingerprints.append(labels.hexdigest())
     return entries, fingerprints + [None] * (3 - len(fingerprints))
-
-
-def components(episodes: list[str], edges: list[tuple[str, ...]]) -> list[int]:
-    """Notation: per episode in e order, the j of its group G_j: the connected
-    components of the pairs' edges, ordered by their first episode."""
-    linked = {e: [] for e in episodes}
-    for a, b in edges:
-        linked[a].append(b)
-        linked[b].append(a)
-    group, j = {}, 0
-    for e in episodes:
-        if e in group:
-            continue
-        group[e], stack = j, [e]
-        while stack:
-            for f in linked[stack.pop()]:
-                if f not in group:
-                    group[f] = j
-                    stack.append(f)
-        j += 1
-    return [group[e] for e in episodes]
 
 
 def counts(items: list[list[dict]], parts: list[int]) -> dict:

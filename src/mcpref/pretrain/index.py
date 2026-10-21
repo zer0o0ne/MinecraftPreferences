@@ -6,24 +6,27 @@ import json
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 import yaml
 
-from mcpref import REPO, config_mapping, positive_int
+from mcpref import REPO, config_mapping, positive_int, relative
 from mcpref.cli.failure import FAILURES, failed
 from mcpref.pretrain.items import PARTS, read_inputs, split
 from mcpref.recognition.stored import shard_bar
-from mcpref.runs.files import check_fingerprints, finished_run, sha256, write_json
+from mcpref.runs.files import (
+    CLIP_FIELDS,
+    check_fingerprints,
+    clip_fields,
+    finished_run,
+    sha256,
+    write_json,
+)
 from mcpref.shards.store import complete_shards, write_shard
 
 PROG = "mcpref.pretrain.index"
-HASHED = ("actions", "clips", "screens", "gui_actions", "overlay", "overlay_screens")
-CLIP_FIELDS = ("config.width", "config.height", "config.states")
-CLIP_FIELDS += (*(f"sha256.{k}" for k in HASHED), "classifier")
 PAIR_DIRS = ("pair_clips_dir", "pair_labels_dir")
 FINGERPRINTS = ("config", "clips", "pair_clips", "pair_labels")
-ABSENT = object()
 
 
 @dataclass(frozen=True)
@@ -40,15 +43,6 @@ class TrainIndexConfig:
     items_per_shard: int
 
 
-def relative(name: str, value: object) -> None:
-    """Notation: a non-empty relative path string without a `..` component."""
-    path = PurePosixPath(value) if type(value) is str and value else None
-    if path is None or path.is_absolute() or ".." in path.parts:
-        raise ValueError(
-            f"{name} {value!r} is not a non-empty relative path without .."
-        )
-
-
 def load_config(path: Path) -> TrainIndexConfig:
     """Interface: the YAML file, validated, into TrainIndexConfig as written."""
     raw = config_mapping(yaml.safe_load(path.read_text()), path, TrainIndexConfig)
@@ -62,18 +56,6 @@ def load_config(path: Path) -> TrainIndexConfig:
         raise ValueError(f"seed {raw['seed']!r} is not an integer in [0, 2^32)")
     positive_int("items_per_shard", raw["items_per_shard"])
     return TrainIndexConfig(**raw)
-
-
-def clip_fields(run: dict) -> dict:
-    """Notation: the clip-defining fields present in run.json, {dotted name: value}."""
-    fields = {}
-    for name in CLIP_FIELDS:
-        node = run
-        for key in name.split("."):
-            node = node.get(key, ABSENT) if isinstance(node, dict) else ABSENT
-        if node is not ABSENT:
-            fields[name] = node
-    return fields
 
 
 def checks(cfg: TrainIndexConfig) -> tuple[list[dict], dict | None]:

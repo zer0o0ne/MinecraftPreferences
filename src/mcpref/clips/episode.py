@@ -14,7 +14,7 @@ import numpy as np
 from mcpref.clips.config import ClipsConfig
 from mcpref.clips.evidence import evidence, kept
 from mcpref.clips.sample import Clip, gui_flag, sample
-from mcpref.clips.store import record, stage_clips, staging
+from mcpref.clips.store import record, stage_clips
 from mcpref.clips.validity import valid_starts
 from mcpref.gui.actions import excluded_states, gui_actions, needed_frames
 from mcpref.gui.screens import ScreenClass
@@ -33,13 +33,17 @@ Classify = Callable[[list[np.ndarray]], list[str]]
 
 
 class Candidate(NamedTuple):
-    """(1): the candidate of draw k, its URL stem and its examination."""
+    """(1): the candidate of draw k, its URL stem, its examination; (2), (5): the path of
+    its video, its generator and m (specs/preference-pool.md (3): its own)."""
 
     k: int
     subset: str
     relpath: str
     stem: str
     examined: Examined
+    video: Path
+    g: np.random.Generator
+    m: int
 
 
 def serialised(classify: Classify) -> Classify:
@@ -69,11 +73,11 @@ class Pipeline:
     classify: Classify
 
 
-def fetch_video(cfg: "PerceptionDataConfig", url: str, video: Path) -> bool:
-    """(2): the .mp4 by the ranged fetch (f), on a client of its own, into `video`;
-    False for a 404."""
-    with httpx.Client(headers={"x-ms-version": cfg.x_ms_version}) as client:
-        data = fetch(client, cfg, url)
+def fetch_video(
+    client: httpx.Client, cfg: "PerceptionDataConfig", url: str, video: Path
+) -> bool:
+    """(2): the .mp4 by the ranged fetch (f) on `client` into `video`; False for a 404."""
+    data = fetch(client, cfg, url)
     if data is None:
         return False
     video.parent.mkdir(parents=True, exist_ok=True)
@@ -142,37 +146,35 @@ def start_modes(pipe: Pipeline, session: bool, frame0: bytes) -> tuple[bool, boo
 
 def take_clips(
     pipe: Pipeline,
-    k: int,
-    lines: Sequence[Mapping],
+    cand: Candidate,
     frames: Mapping[int, bytes],
     session: bool,
 ) -> tuple[dict, list[Clip], dict]:
-    """(3)-(5): classes, GUI actions, start, evidence, valid starts, clips sampled with
-    Generator(PCG64([seed, 1, k])); returns computed record fields, clips, classes."""
-    cfg, classes = pipe.cfg, {}
+    """(3)-(5): classes, GUI actions, start, evidence, valid starts, at most m clips by
+    the candidate's generator; returns computed record fields, clips, classes."""
+    cfg, classes, lines = pipe.cfg, {}, cand.examined.lines
     classify_frames(pipe, frames, needed_frames(lines), classes)
     gui = gui_actions(lines, classes, pipe.screens, pipe.double_click_ms)
     start = start_modes(pipe, session, frames[0])
     ev = evidence(lines, gui, start, pipe.actions)
     kappa, delta = kept(ev), pipe.clips.delta
     starts = valid_starts(ev, kappa, delta, cfg.states)
-    g = np.random.Generator(np.random.PCG64([cfg.seed, 1, k]))
     accepted = partial(accept, pipe, lines, frames, classes, gui.cut)
-    clips = sample(ev, kappa, starts, delta, cfg.states, cfg.per_episode, g, accepted)
+    clips = sample(ev, kappa, starts, delta, cfg.states, cand.m, cand.g, accepted)
     return {"overlay_start": start[0], "valid_starts": len(starts)}, clips, classes
 
 
 def from_video(
-    pipe: Pipeline, cand: Candidate, session: bool, video: Path
+    pipe: Pipeline, cand: Candidate, session: bool, client: httpx.Client
 ) -> tuple[str | None, dict, list[str]]:
     """(2)-(5): the reason (`video`: a 404 or a failed decode; `no_clip`), the computed
     record fields and the ids of the staged clips in the order taken."""
-    k, subset, relpath, stem, (_, _, _, jsonl, lines) = cand
-    ok = fetch_video(pipe.cfg, stem + ".mp4", video)
+    k, subset, relpath, stem, (_, _, _, jsonl, lines), video, _, _ = cand
+    ok = fetch_video(client, pipe.cfg, stem + ".mp4", video)
     frames = pass_1(pipe.cfg, video, lines) if ok else None
     if frames is None:
         return "video", {}, []
-    fields, clips, classes = take_clips(pipe, k, lines, frames, session)
+    fields, clips, classes = take_clips(pipe, cand, frames, session)
     if not clips:
         return "no_clip", fields, []
     frames = pass_2(pipe.cfg, video, len(lines) + 1, clips)
@@ -180,14 +182,15 @@ def from_video(
     return None, fields, ids
 
 
-def process(pipe: Pipeline, cand: Candidate) -> tuple[dict, list[str]]:
+def process(
+    pipe: Pipeline, cand: Candidate, client: httpx.Client
+) -> tuple[dict, list[str]]:
     """(2)-(5): the candidate's record (`clips` set when its shard is written) and the
-    ids of its staged clips; its video, staging/<k>.mp4, deleted in every case."""
-    lines, video = cand.examined.lines, staging(pipe.out, cand.k).with_suffix(".mp4")
-    session = starts_session(lines)
+    ids of its staged clips; its video fetched on `client`, deleted in every case."""
+    session = starts_session(cand.examined.lines)
     try:
-        reason, fields, ids = from_video(pipe, cand, session, video)
+        reason, fields, ids = from_video(pipe, cand, session, client)
     finally:
-        video.unlink(missing_ok=True)
+        cand.video.unlink(missing_ok=True)
     computed = {"options": cand.examined.options, "starts_session": session} | fields
     return record(cand.subset, cand.relpath, reason, **computed), ids

@@ -78,27 +78,11 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 
 ## VLM — Labels (P2)
 - **VLM-1** [later] Labelling instruction. **→ [U]** model `Qwen/Qwen3-VL-30B-A3B-Thinking-FP8`, served on a Spark; a Python API sends a set of images and text.
-- **VLM-2** Pair sampling. With uniform random pairs over millions of frames each state is in ~1 pair, the graph has no cycles and $C$ changes nothing. Draw a pool of $N$ states and many pairs inside it? $N$, pairs per state; same episode or across episodes; minimum time gap.
-  **→ [U]** random pool of states; each is linked at random to several others of the pool, with control of graph connectivity and of the presence of cycles. Open: $N$; degree; the exact procedure (e.g. a random $r$-regular graph, connected and full of cycles with high probability for $r \ge 3$, resampled until `is_connected`), what "presence of cycles" requires; pool across episodes; minimum time gap within an episode.
-  **→ [U]** add random edges between components while there are many components and few cycles; thresholds in the config. Proposed measure: number of components and cyclomatic number $|E| - |V| + \#\text{components}$ (independent cycles).
-- **VLM-3** Per state: which frames (count, stride, relation to $k_P$), which info fields as text, format.
-- **VLM-4** Answer space: {first, second, refuse}, or also "equal"? Handling of unparseable answers.
-- **VLM-5** Position bias: also query $(B, A)$? How are the two answers combined?
-- **VLM-6** Edge weights for $C$: answer-token probabilities, votes over several samples, or constant 1?
-- **VLM-7** Decoding: greedy or sampled (temperature)?
 
 ## ACY — Correction $C$ (P3, R3)
-- **ACY-1** [later] The modifications.
-- **ACY-2** Graph: nodes = states, edge $u \to v$ iff $u \succ v$, weight from VLM-6 (P3) / from $(p_\succ, p_{cmp})$ (R3: which function, threshold?). Incomparable pairs: no edge, and their $p_{cmp} = 0$ label kept as is?
-- **ACY-3** Solver: exact (igraph `feedback_arc_set`, `algo="ip"`) or heuristic (Eades); expected graph size.
-- **ACY-4** Output: kept edges → $p_\succ$ label 1 for $(u, v)$; removed edges dropped or reversed; transitive-closure pairs added?
-- **ACY-5** Opposite edges for one pair ($u \to v$ and $v \to u$): merged before $C$ (net weight) or both given to $C$?
+- **ACY-1** [later] The modifications beyond the put-back of `specs/acyclic.md` (3).
 
 ## PRF — Preference network (P4, R3)
-- **PRF-1** Semantics: $p_\succ = P(x \succ y \mid \text{comparable})$, with its loss only on comparable pairs; or a joint probability?
-- **PRF-2** Ties: label $p_\succ = 0.5$, or "incomparable", or absent (VLM-4)?
-- **PRF-3** Symmetry $p_\succ(x, y) = 1 - p_\succ(y, x)$, $p_{cmp}(x, y) = p_{cmp}(y, x)$: by architecture, by training on both orders, or not imposed?
-- **PRF-4** Loss: BCE on both heads; head weights; hard 0/1 or soft targets?
 - **PRF-5** $\phi$ frozen (stop-grad) while $P$ trains, in P4 and R3?
 - **PRF-6** Input history: $k_P$ latent states ending at the state itself, oldest first?
 
@@ -115,11 +99,11 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   **→ [U]** no new networks: PPO uses only $\phi$ and $P$. Details with PPO [later].
 - **POL-6** Is $\widehat{\Delta z}$ trained in R4 too (regression to the actual $\Delta z_t$ under the new $\phi$)?
 - **POL-7** **[U]** (2026-10-15): $\pi$ is trained to lower the logits of masked actions, which helps MCTS expand the most probable actions (imagined nodes have no frame to recognise, hence no mask). So every dataset state keeps what its mask needs (GUI open, recognised class, pitch). Open: the loss term, its weight (config), in P5 and R4.
-- **[U]** (2026-10-21, block action-mask): the mask of `specs/action-mask.md`; the environment presses Respawn at death and the VPT spans of the death screen are cut (replacing "spans opened without an action (death screen) are kept"); a human action the mask of its line forbids is no action (not a P5 target, not counted in $n$); the mask acts only at sampling and in data preparation: a P5 target masked at the state where it is executed is not taken (Q POL-8, block 6), and training applies no mask in the forward pass; the environment idles instead of an action masked where it starts and gives the GUI flag by the data's first-line rule.
+  **→ [U]** (2026-10-21) no mask in the training forward pass and no extra loss term: the targets are zero on masked actions (a target is never a masked action), so the cross-entropy lowers their probabilities; the mask acts only at sampling and in data preparation (`specs/action-mask.md`).
 - **POL-8** With $n \ge 1$ human actions per interval (G-12), the action target of P5: (a) only intervals with $n = 1$, their action; (b) the first action of the interval; (c) all its actions (multi-label). The data blocks keep the actions of every interval, so this can be decided with P5.
 
 ## MCTS (R1)
-- **MCTS-1** Value of an imagined node: $P(\text{node}, \text{root})$, $P(\text{node}, \text{parent})$ summed along the path, …? Scalar from $(p_\succ, p_{cmp})$: e.g. $p_{cmp}(2p_\succ - 1)$, $p_\succ$, $\log p_\succ$?
+- **MCTS-1** Value of an imagined node: $P(\text{node}, \text{root})$, $P(\text{node}, \text{parent})$ summed along the path, …? Scalar from $(p_\succ, p_{inc})$: e.g. $(1 - p_{inc})(2p_\succ - 1)$, $p_\succ$, $\log p_\succ$?
 - **MCTS-2** Selection rule: PUCT with prior $\pi(a \mid \cdot)$ (AlphaZero), $c_{puct}$?
 - **MCTS-3** Expansion: which actions get children — all available, top-$K$ by prior, $K$ sampled, progressive widening?
   **→ [U]** the $l$ most probable unmasked actions ($l$ in the config).
@@ -160,7 +144,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **MEM-6** Number $m$ of picked trajectory states. Pairs only (picked state, found state), or also among found states (graph density for $C$)?
 
 ## PPO (R4)
-- **PPO-1** [later] (with RLS-3) Reward from the stored preferences, e.g. $r_t = p_{cmp}(1 - 2p_\succ)$ for $P(z_t, z_{t+1})$ (result preferred to start = positive). Values stored at sampling, or recomputed with the new $\phi$ and $P$?
+- **PPO-1** [later] (with RLS-3) Reward from the stored preferences, e.g. $r_t = (1 - p_{inc})(1 - 2p_\succ)$ for $P(z_t, z_{t+1})$ (result preferred to start = positive). Values stored at sampling, or recomputed with the new $\phi$ and $P$?
 - **PPO-2** Advantage estimator (GAE with $\gamma, \lambda$ / Monte-Carlo returns), normalisation; critic (POL-5).
 - **PPO-3** Clip $\epsilon$, epochs, minibatch size, entropy and KL coefficients; ratio denominator (MCTS-6).
 - **PPO-4** Policy inputs encoded with the $\phi$ from R2, i.e. new coordinates for both heads?
@@ -176,20 +160,20 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 ## VLMC — VLM client (`specs/vlm-client.md`)
 - **VLMC-1** Prompt layout: (a) an ordered sequence of text and image parts, e.g. "State A:" img … "State B:" img … instruction (draft); (b) all images first, then one text.
 - **VLMC-2** System message: none, the instruction goes into the user message (draft); or a fixed system text.
-- **VLMC-3** Sampling: Qwen README values for Thinking models, T 0.6, top_p 0.95, top_k 20 (draft); `generation_config.json`, T 0.8; greedy (Qwen advises against it for thinking models: repetition loops). Ties to VLM-7.
+- **VLMC-3** Sampling: Qwen README values for Thinking models, T 0.6, top_p 0.95, top_k 20 (draft); `generation_config.json`, T 0.8; greedy (Qwen advises against it for thinking models: repetition loops). Ties to `specs/vlm-labels.md`.
 - **VLMC-4** (→ config) Output limit and attempt bound: (a) `max_tokens` 40960 (Qwen), $T_{out}$ = 3600 s; (b) 16384, $T_{out}$ = 1800 s. Estimate (unverified): ~300 tok/s total at 16 streams ≈ 19 tok/s per request, so 40960 tokens ≈ 36 min.
   **→ [U]** answer limited to 300 tokens; with it, Thinking vs Instruct: VLMC-14.
 - **VLMC-5** (→ config) Image size: `min_pixels` ≤ frame area ≤ `max_pixels` keeps frames at native size (640×360 → 640×352, 220 tokens). Values follow D-3 / D-7.
 - **VLMC-6** Failures: thinking cut by the limit, empty answer, attempt over $T_{out}$ → `None` for that prompt; transport / 5xx after $R$ resends, or any 4xx → the whole call raises (draft). Alternative: every failure → `None`.
 - **VLMC-7** Seed per request from the caller (draft), for reproducible sampling up to batch effects.
-- **VLMC-8** Answer-token probabilities and constrained choice: later, together with VLM-6 (draft), or now.
+- **VLMC-8** Answer-token probabilities and constrained choice: later (the weights of the answers: `specs/acyclic.md`), or now.
 - **VLMC-9** (→ config) $K$ = 16, $R$ = 3, $\delta$ = 10 s.
 - **VLMC-10** Transport: `httpx` (every field explicit, no hidden retries; draft) or the `openai` SDK (vLLM fields via `extra_body`; its default 10 min timeout and 2 retries overridden).
 - **VLMC-11** Connection: `base_url` and `api_key` as arguments; SSH tunnel to the Spark, port bound to localhost there (draft).
-- **VLMC-12** (→ config) $N_{img}$ and $P_{max}$: proposed 32 images and 8192 tokens (20 frames × 222 tokens + 2K text fit), so `--max-model-len` = `max_tokens` + 8192. Follows VLM-3.
+- **VLMC-12** (→ config) $N_{img}$ and $P_{max}$: proposed 32 images and 8192 tokens (20 frames × 222 tokens + 2K text fit), so `--max-model-len` = `max_tokens` + 8192. Follows `specs/vlm-labels.md` ($2 k_V$ images).
 - **VLMC-13** "Spark" = NVIDIA DGX Spark? vLLM v0.31.0 was released 2026-10-05; the Instruct-FP8 sibling is reported working on Spark, this Thinking-FP8 checkpoint on v0.29–0.31 is not; the smoke test (Server, steps 5–6) is the check.
   **→ [U]** NVIDIA DGX Spark.
-- **VLMC-14** With a 300-token limit: (a) Thinking model with a forced thinking budget (vLLM `thinking_token_budget` + `--reasoning-config`): the model is trained to think for thousands of tokens, so a cut at 300 is out of its training distribution; (b) `Qwen/Qwen3-VL-30B-A3B-Instruct-FP8` @ `d9748a51ae66354c4dad665aab2c71f26cf2c8cd`, prompted for a short justification and then the answer: in distribution, its answer-token probability is usable as an edge weight (VLM-6), and this checkpoint is reported working on DGX Spark. Recommended: (b).
+- **VLMC-14** With a 300-token limit: (a) Thinking model with a forced thinking budget (vLLM `thinking_token_budget` + `--reasoning-config`): the model is trained to think for thousands of tokens, so a cut at 300 is out of its training distribution; (b) `Qwen/Qwen3-VL-30B-A3B-Instruct-FP8` @ `d9748a51ae66354c4dad665aab2c71f26cf2c8cd`, prompted for a short justification and then the answer: in distribution, its answer-token probability is usable as an edge weight (`specs/acyclic.md`), and this checkpoint is reported working on DGX Spark. Recommended: (b).
   **→ [U]** (b) Instruct.
 
 ## ACT — Action set $A$
@@ -206,7 +190,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **[U]** (2026-10-15, data blocks): the data unit is a clip of $L$ consecutive elementary states with every interval valid; episodes uniformly over the subsets, clip starts uniformly among the valid ones, at most $m$ non-overlapping clips per episode, $N$ in all; the train / validation split belongs to the training blocks; a clip stores its state frames (raw yuv420p), all `.jsonl` lines of its span, the options file, per interval $n$ and the actions, per state the mask inputs (GUI open, class, pitch); each episode's video is downloaded whole and decoded locally; the classifier is pluggable (`main` and the script are wired when it is chosen); block perception-data is split into `clips` (grid, validity, sampling) and `perception-data` (pipeline, storage, script); the F3 detector is its own block.
 - **[U]** (2026-10-15): a double click (a second left press on the same element within 250 ms, which collects every matching item) is a new action `double_click_`$i$ (90 more; 361 GUI actions, 395 in all), the pair counted as one action; the F3 detector reads the prefix `Minecraft 1.16.5 (`; the classifier is called on batches of frames.
 - **[U]** (2026-10-15, after the audits): actions are masked as much as possible — e.g. `shift_click_`$i$ and `double_click_`$i$ on screens that do not support them (future block action-mask, before P5; its inputs are kept by the data blocks); shift + click maps to `shift_click_`$i$ on every element (the game decides the effect); the first line of a container span is a world line; a key held through a cut span is one segment; the remaining audit points of blocks vpt-gui-actions, clips, perception-data, f3-overlay as recommended. Preference pairs (P2, block preference-pool) are drawn among clips of the same game world, not necessarily of the same episode (how VPT episodes map to worlds: to research).
-  **→ [U]** (2026-10-21) no mask in the training forward pass and no extra loss term: the targets are zero on masked actions (a target is never a masked action), so the cross-entropy lowers their probabilities; the mask acts only at sampling and in data preparation (`specs/action-mask.md`).
+- **[U]** (2026-10-21, block action-mask): the mask of `specs/action-mask.md`; the environment presses Respawn at death and the VPT spans of the death screen are cut (replacing "spans opened without an action (death screen) are kept"); a human action the mask of its line forbids is no action (not a P5 target, not counted in $n$); the mask acts only at sampling and in data preparation: a P5 target masked at the state where it is executed is not taken (Q POL-8, block 6), and training applies no mask in the forward pass; the environment idles instead of an action masked where it starts and gives the GUI flag by the data's first-line rule.
 - **[U]** (2026-10-15): blocks 20–22, 24, 25 are committed as approved; block perception-data's storage (appended `.jsonl` records, the plan replayed instead of a stored RNG state) is revised afterwards under the AGENTS.md Data rule, on a shared shards mechanism (a block of its own, proposed by the session working on vpt-gui-frames). The revision spells out perception-data's own rules where it now says "as in vpt-gui-frames" (run.json, the rerun rule (d), the `indices` bar), since the vpt-gui-frames revision changes them there; the shared code keeps perception-data's current behaviour meanwhile.
 Open:
 - **ACT-16** Grid. Facts (Minecraft 1.16.5 source via MineRL's MCP-Reborn, VPT recordings checked on samples): VPT played at 1280×720 with GUI scale 2, downsampled ×½; MineStudio renders 640×360 at GUI scale 1; so both use the same frame, 1 GUI px = 1 px of the 640×360 frame, identical window origins (e.g. (232, 97) for 176×166 screens); a human click is at GUI (x/2, y/2) of the recorded mouse position. Slot hit areas are 18×18 and tile with no gap; widgets are half-open rectangles. Smallest click targets: recipe-book page arrows 12×17; smaller ones are drag-only scrollbars (merchant 6 px, stonecutter / loom 12 px wide) or text fields (ignored); clicks cannot drag, so list entries beyond the first page of stonecutter, loom and villager trades stay unreachable. Cells tiling 640×360 have a side dividing 40: side 10 (64×36 = 2304 cells) or 8 (80×45) reach every click target; side 20 misses 261. No grid with side ≥ 2 puts all slot borders on cell borders, even within one screen. Human click → cell: (a) the cell containing the click; near a slot border its centre can lie in the neighbouring slot (upper bound for uniformly spread clicks: ~26 % of clicks at side 10, ~13 % at side 5; real clicks cluster at slot centres); (b) data preprocessing only: recognise the open screen from the frame (fixed origins and textures make template matching exact), find the clicked element, and label the click with the cell whose centre lies in that element and is nearest to the click; the agent is unchanged. Which?

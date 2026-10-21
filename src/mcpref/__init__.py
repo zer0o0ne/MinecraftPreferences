@@ -1,8 +1,10 @@
 """Minecraft agent training pipeline (AGENTS.md); REPO: the repository root; the config
 readers shared by the blocks' load_config."""
 
+import math
 from dataclasses import fields
-from pathlib import Path
+from fractions import Fraction
+from pathlib import Path, PurePosixPath
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -26,10 +28,22 @@ def repo_path(name: str, value: object) -> Path:
 
 
 def number(name: str, value: object) -> float:
-    """A YAML integer or float, not a boolean, read with float()."""
+    """A YAML integer or float, not a boolean, read with float(); an integer float()
+    cannot represent is not a number."""
     if type(value) not in (int, float):
         raise ValueError(f"{name} {value!r} is not an integer or float")
-    return float(value)
+    try:
+        return float(value)
+    except OverflowError:
+        raise ValueError(f"{name} {value!r} is too large for a float") from None
+
+
+def exact(name: str, value: object) -> Fraction:
+    """The exact value Fraction(str(x)) of a finite YAML integer or float, not a
+    boolean."""
+    if not math.isfinite(number(name, value)):
+        raise ValueError(f"{name} {value!r} is not finite")
+    return Fraction(str(value))
 
 
 def integer(name: str, value: object, low: float, high: float) -> int:
@@ -44,3 +58,12 @@ def positive_int(name: str, value: object) -> int:
     if type(value) is not int or value < 1:
         raise ValueError(f"{name} {value!r} is not an integer >= 1")
     return value
+
+
+def relative(name: str, value: object) -> None:
+    """A non-empty relative path string without a `..` component."""
+    path = PurePosixPath(value) if type(value) is str and value else None
+    if path is None or path.is_absolute() or ".." in path.parts:
+        raise ValueError(
+            f"{name} {value!r} is not a non-empty relative path without .."
+        )

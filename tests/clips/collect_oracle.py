@@ -14,11 +14,13 @@ NO_ELEMENT = ("other", "pause")  # e_t is none; a span whose first frame is one 
 
 @dataclass
 class Work:
-    """The work of the candidate of draw k; `f`: every config value."""
+    """The work of the candidate of draw k; `f`: every config value; `key`: the seed of
+    its generator, `[seed, 1, k]` when None."""
 
     ep: Ep
     f: dict
     k: int
+    key: list | None = None
     cls: dict = field(default_factory=dict)  # frame -> class
     calls: list = field(default_factory=list)  # frames of each classifier call
 

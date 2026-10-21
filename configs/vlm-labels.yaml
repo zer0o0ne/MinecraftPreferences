@@ -1,0 +1,43 @@
+# specs/vlm-labels.md: VlmLabelsConfig. Paths relative to the repository root.
+# A text ends with \n where another text part follows it directly.
+pool_dir: "data/pair_clips"
+vlm: "configs/vlm.yaml"
+out_dir: "data/pair_votes"
+instruction: "You will see two moments, A and B, from the same game of Minecraft Java
+  Edition 1.16 in survival mode, played by one player in one world. Each moment is shown
+  as a few screenshots taken shortly one after another, oldest first; the last screenshot
+  is the moment itself. After the screenshots comes the player's inventory at that
+  moment.\nJudge which moment is better for the player. A moment is better when the
+  player has made more progress (better tools, weapons and armour; more and rarer
+  resources; food; a shelter; crafting stations; explored places), is safer (not
+  falling, drowning, burning, starving or being attacked) and has better prospects.
+  Refuse to compare only when the two moments really cannot be compared.\n\n"
+first: "Moment A:\n"
+second: "Moment B:\n"
+question: "How good is moment A for the player compared with moment B? Explain in at
+  most three short sentences, then write a last line of the form Answer: TOKEN, with
+  TOKEN one of:\n{answers}"
+answer_line: "{token}: {description}"
+prefix: "Answer: "
+inventory_line: "Inventory: {items}\n\n"
+item_line: "{quantity} {type}"
+no_items: "empty"
+answers:
+  - token: "MUCH_BETTER"
+    description: "A is much better than B"
+  - token: "BETTER"
+    description: "A is better than B"
+  - token: "SLIGHTLY_BETTER"
+    description: "A is slightly better than B"
+  - token: "SLIGHTLY_WORSE"
+    description: "A is slightly worse than B"
+  - token: "WORSE"
+    description: "A is worse than B"
+  - token: "MUCH_WORSE"
+    description: "A is much worse than B"
+  - token: "INCOMPARABLE"
+    description: "A and B cannot be compared"
+frames: 8
+stride: 2
+samples: 1
+seed: 0

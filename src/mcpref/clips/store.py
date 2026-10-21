@@ -13,18 +13,14 @@ import numpy as np
 from tqdm import tqdm
 
 from mcpref.clips.sample import Clip
+from mcpref.runs.files import json_bytes
 from mcpref.shards.store import complete_shards, shard_path, write_shard
-from mcpref.vpt.episodes import episode_name, version_of
+from mcpref.vpt.episodes import Examined, episode_name, version_of
 from mcpref.vpt.plan import generator
 
 Pools = dict[str, tuple[str, list[str]]]
 RECORD = ("subset", "relpath", "reason", "options", "starts_session")
 RECORD += ("overlay_start", "valid_starts", "clips")
-
-
-def json_bytes(value: object) -> bytes:
-    """Notation: a JSON file of this block, json.dumps(value, indent=2) + newline."""
-    return (json.dumps(value, indent=2) + "\n").encode()
 
 
 def read_json(path: Path) -> object:
@@ -42,6 +38,13 @@ def record(subset: str, relpath: str, reason: str | None, **computed) -> dict:
     """Interface records.json: a record, every field null unless computed."""
     fields = {"subset": subset, "relpath": relpath, "reason": reason} | computed
     return dict.fromkeys(RECORD) | fields
+
+
+def rejected(subset: str, relpath: str, ex: Examined) -> dict:
+    """(1): the record of a popped episode that is not a candidate (options parsed for
+    the reason `options`)."""
+    options = ex.options if ex.reason == "options" else None
+    return record(subset, relpath, ex.reason, options=options)
 
 
 def clip_record(
@@ -105,16 +108,15 @@ def stage_clips(
 def write_draw(
     out: Path,
     k: int,
-    records: list[dict],
+    files: Mapping[str, object],
     options: Mapping[str, bytes],
-    state: dict,
     ids: Sequence[str],
 ) -> None:
-    """(6): shard k by write_shard: records.json, state.json, options/<name>.json, the
+    """(6): shard k by write_shard: the JSON `files` by name, options/<name>.json, the
     clips `ids` renamed from staging into clips/<id>/; then staging/<k>/ removed."""
     with write_shard(out / "shards", k) as staged:
-        (staged / "records.json").write_bytes(json_bytes(records))
-        (staged / "state.json").write_bytes(json_bytes(state))
+        for name, value in files.items():
+            (staged / name).write_bytes(json_bytes(value))
         for name, data in options.items():
             (staged / "options").mkdir(exist_ok=True)
             (staged / "options" / f"{name}.json").write_bytes(data)

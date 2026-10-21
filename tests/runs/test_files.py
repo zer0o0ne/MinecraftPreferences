@@ -1,5 +1,6 @@
-"""`finished_run` (1), `sha256` (2) and `write_json` (3) of src/mcpref/runs/files.py against
-specs/runs.md; the helpers its revision removes elsewhere. (4): test_files_fingerprints.py."""
+"""`finished_run` (1), `sha256` (2), `json_bytes` and `write_json` (3) of
+src/mcpref/runs/files.py against specs/runs.md; the helpers its revisions remove or move
+elsewhere. (4): test_files_fingerprints.py."""
 
 import hashlib
 import importlib
@@ -9,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from mcpref.runs.files import finished_run, sha256, write_json
+from mcpref.runs.files import finished_run, json_bytes, sha256, write_json
 
 WRITTEN = "./data/run_as_written/"  # as written in a config: kept verbatim in messages
 MARKERS = {"complete": True, "clips": 4, "frames": {"ok": 2, "failed": 1}}  # the table
@@ -101,13 +102,27 @@ JSON_TEXT = {  # (3) by hand: indent 2, keys in order, non-ASCII escaped, final 
     ),
     "empty": ({}, "{}\n"),
 }
+JSON_VALUES = {  # json_bytes takes any JSON value, not only objects
+    "list": ([1, {"a": None}, []], '[\n  1,\n  {\n    "a": null\n  },\n  []\n]\n'),
+    "string": ("été", '"\\u00e9t\\u00e9"\n'),
+    "number": (0.1, "0.1\n"),
+}
+
+
+@pytest.mark.parametrize("case", {**JSON_TEXT, **JSON_VALUES})
+def test_json_bytes(case):
+    """(3): the UTF-8 bytes of json.dumps(value, indent=2) + "\\n", by hand."""
+    value, text = {**JSON_TEXT, **JSON_VALUES}[case]
+    got = json_bytes(value)
+    assert type(got) is bytes and got == text.encode()
 
 
 @pytest.mark.parametrize("case", JSON_TEXT)
 def test_write_json_bytes(tmp_path, case):
+    """(3): the file holds json_bytes(value), the hand-written text."""
     value, text = JSON_TEXT[case]
     write_json(tmp_path / "run.json", value)
-    assert (tmp_path / "run.json").read_bytes() == text.encode()
+    assert (tmp_path / "run.json").read_bytes() == json_bytes(value) == text.encode()
 
 
 def test_write_json_replaces_a_leftover_part_and_the_old_file(tmp_path):
@@ -151,3 +166,21 @@ REMOVED += [("mcpref.vpt.config", n) for n in ("check_rerun", "write_run")]
 def test_removed_helpers(module, name):
     """Interface: moved to runs/files.py, replaced by finished_run, or dead: absent."""
     assert not hasattr(importlib.import_module(module), name)
+
+
+MOVED = [("mcpref.runs.files", "mcpref.pretrain.items", n) for n in ("shard_files", "new_hash", "fingerprint")]  # fmt: skip
+MOVED += [("mcpref.runs.files", "mcpref.pretrain.index", n) for n in ("HASHED", "CLIP_FIELDS", "ABSENT", "clip_fields")]  # fmt: skip
+MOVED += [("mcpref", "mcpref.pretrain.index", "relative")]
+MOVED += [("mcpref.graphs.components", "mcpref.pretrain.items", "components")]
+MOVED += [("mcpref.runs.files", "mcpref.clips.store", "json_bytes")]
+
+
+@pytest.mark.parametrize("new, old, name", MOVED)
+def test_helpers_moved(new, old, name):
+    """specs/preference-pool.md, Revisions, and specs/runs.md, Interface (`json_bytes`
+    from clips/store.py): defined in their new module; the old module keeps no copy (it
+    may import the moved object)."""
+    moved = getattr(importlib.import_module(new), name)
+    if callable(moved):
+        assert moved.__module__ == new
+    assert getattr(importlib.import_module(old), name, moved) is moved

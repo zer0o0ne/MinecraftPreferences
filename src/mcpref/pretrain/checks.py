@@ -9,10 +9,17 @@ import yaml
 from mcpref import REPO
 from mcpref.pretrain.checkpoints import Modules
 from mcpref.pretrain.config import PretrainConfig
-from mcpref.pretrain.index import FINGERPRINTS, clip_fields
-from mcpref.pretrain.items import PAIRS, RECORDS, fingerprint
+from mcpref.pretrain.index import FINGERPRINTS
+from mcpref.pretrain.items import PAIRS, RECORDS
 from mcpref.recognition.stored import shard_bar
-from mcpref.runs.files import check_fingerprints, finished_run, sha256, write_json
+from mcpref.runs.files import (
+    check_fingerprints,
+    clip_fields,
+    fingerprint,
+    finished_run,
+    sha256,
+    write_json,
+)
 from mcpref.shards.store import complete_shards
 
 MODULES = ("phi", "phi_loss", "pi", "pi_loss", "P", "P_loss")

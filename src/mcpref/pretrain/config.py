@@ -6,8 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from mcpref import config_mapping, integer, number, positive_int
-from mcpref.pretrain.index import relative
+from mcpref import config_mapping, integer, number, positive_int, relative
 from mcpref.training.devices import device
 
 POSITIVE_INTS = ("epochs", "batch", "micro_batch", "checkpoint_steps")

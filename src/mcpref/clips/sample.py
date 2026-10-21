@@ -41,6 +41,11 @@ def clip(ev: Evidence, kappa: Sequence[int], p: int, delta: int, states: int) ->
     return Clip(p, ts, acts, [len(a) for a in acts], gui, pitch)
 
 
+def uniform(g: np.random.Generator, n: int) -> int:
+    """g.integers(n), its defaults low=0, dtype=np.int64, endpoint=False passed."""
+    return int(g.integers(0, n, dtype=np.int64, endpoint=False))
+
+
 def overlaps(kappa: Sequence[int], p: int, q: int, span: int) -> bool:
     """(4): the spans kappa_p..kappa_{p+span} and kappa_q..kappa_{q+span} share a line."""
     return kappa[q] <= kappa[p + span] and kappa[p] <= kappa[q + span]
@@ -60,7 +65,7 @@ def sample(
     overlapping it leave W, a clip rejected leaves alone; clips in the order taken."""
     w, taken, span = list(starts), [], (states - 1) * delta
     while len(taken) < m and w:
-        j = g.integers(0, len(w), dtype=np.int64, endpoint=False)
+        j = uniform(g, len(w))
         p = w[j]
         if accept(state_lines(kappa, p, delta, states)):
             taken.append(clip(ev, kappa, p, delta, states))

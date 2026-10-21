@@ -1,5 +1,5 @@
 # VLM client
-Status: approved (2026-10-10; clarifications after prototype and refactor the same day: transport errors, captured outputs, error messages, library arguments, starting values; 2026-10-14: pixel bounds set by the server only, approved)
+Status: approved (2026-10-10; clarifications after prototype and refactor the same day: transport errors, captured outputs, error messages, library arguments, starting values; 2026-10-14: pixel bounds set by the server only, approved); 2026-10-20: a reference updated (`specs/preference-pool.md` Revisions), approved
 Stage: P2 VLM labels (`specs/00-overview.md`, block 0)
 
 ## Sources
@@ -115,7 +115,7 @@ Known non-determinism: with temperature > 0 and a fixed seed, outputs still depe
 
 ## Out of scope
 - Prompt wording, answer parsing, pair sampling, label storage: block vlm-labels.
-- Answer-token probabilities and constrained choice (Q VLMC-8, VLM-6).
+- Answer-token probabilities and constrained choice (Q VLMC-8; the weights of the answers: `specs/acyclic.md`).
 - Streaming, `n > 1`, video input, system message.
 - Monitoring or restarting a server that dies after it became ready.
 - The Hugging Face cache outside `{server.hf_home}`.
