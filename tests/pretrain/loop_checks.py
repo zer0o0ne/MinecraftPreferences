@@ -44,10 +44,9 @@ def assert_states(got: dict, want: dict) -> None:
             assert_close(got[k][n], v, msg=f"{k}.{n}")
 
 
-def assert_optimizer(got: dict, step: Step, cfg: dict, pairs: bool) -> None:
-    """AdamW's state_dict after step t: its groups in group order with (5) and the config;
-    each parameter's n, m, v as (6), none for a parameter never updated."""
-    groups = group_order(fakes(pairs))
+def assert_optimizer(got: dict, step: Step, cfg: dict, groups: list) -> None:
+    """AdamW's state_dict after step t: its `groups` in group order with (5) and the
+    config; each parameter's n, m, v as (6), none for a parameter never updated."""
     assert len(got["param_groups"]) == len(groups)
     index = 0
     for pg, (q, ps) in zip(got["param_groups"], groups):
@@ -70,12 +69,15 @@ def assert_optimizer(got: dict, step: Step, cfg: dict, pairs: bool) -> None:
             )
 
 
-def assert_run(loop: Loop, steps: list[Step], states: list, kept: int) -> None:
+def assert_run(
+    loop: Loop, steps: list[Step], states: list, kept: int, make=None
+) -> None:
     """Every checkpoint's losses.json, the checkpoint.pt of the last `kept` ones (their
-    position, components, AdamW, torch's generator), model.pt."""
+    position, components, AdamW, torch's generator), model.pt; `make()`: the oracle's
+    components (default the fakes)."""
     cfg, T = loop.config, len(steps)
     at = checkpoint_steps(T, cfg["checkpoint_steps"])
-    pairs = loop.world.n_r > 0
+    groups = group_order(make() if make else fakes(loop.world.n_r > 0))
     for j, t in enumerate(at):
         first = at[j - 1] if j else 0
         got = loop.losses(j)
@@ -90,7 +92,7 @@ def assert_run(loop: Loop, steps: list[Step], states: list, kept: int) -> None:
             assert (ck["step"], ck["epoch"], ck["batch_in_epoch"]) == (t, step.epoch, step.batch_in_epoch)  # fmt: skip
             assert ck["schedule_rng"] == states[step.epoch - 1]
             assert_states(ck["modules"], step.modules)
-            assert_optimizer(ck["optimizer"], step, cfg, pairs)
+            assert_optimizer(ck["optimizer"], step, cfg, groups)
             assert torch.equal(ck["torch_rng"], step.torch_rng)
             assert ck["cuda_rng"] is None
     assert not (loop.out / "checkpoints" / f"{len(at):06d}").exists()

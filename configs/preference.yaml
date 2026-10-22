@@ -1,0 +1,13 @@
+# specs/preference.md: PreferenceConfig. history: L_P; layers: Lambda, the kinds "S" / "X"
+# in order; latency_*: the soft budget of (13), checked by the gpu test.
+history: 16
+width: 256
+heads: 4
+hidden: 768
+layers: ["S", "X", "S", "X"]
+rope_base: 10000.0
+norm_eps: 1.0e-6
+seed: 0
+latency_ms: 3.0
+latency_fail_ms: 10.0
+latency_calls: 100

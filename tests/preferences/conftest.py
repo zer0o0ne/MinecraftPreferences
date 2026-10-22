@@ -1,6 +1,8 @@
-"""Fixtures of the tests of specs/vlm-labels.md: a Site (labels_run.py) per test."""
+"""Fixtures of the tests of specs/vlm-labels.md: a Site (labels_run.py) per test; one
+intra-op torch thread per pytest-xdist worker for the tests of specs/preference.md."""
 
 import pytest
+import torch
 
 from .config_files import TINY
 from .labels_run import Site
@@ -19,3 +21,7 @@ def make_site(tmp_path):
         return site
 
     return make
+
+
+# One intra-op thread per pytest-xdist worker (as in tests/pretrain/conftest.py).
+torch.set_num_threads(1)

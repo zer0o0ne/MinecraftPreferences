@@ -116,10 +116,10 @@ def update(groups, moments, cfg: dict, f: float) -> bool:
     return coef < 1.0
 
 
-def train(world: World, cfg: dict) -> tuple[list[Step], list]:
-    """The steps of a run from fresh components, and the schedule generator's state before
-    the draws of each epoch."""
-    mods = fakes(world.n_r > 0)
+def train(world: World, cfg: dict, make=None) -> tuple[list[Step], list]:
+    """The steps of a run from fresh components (`make()`, default the fakes), and the
+    schedule generator's state before the draws of each epoch."""
+    mods = make() if make else fakes(world.n_r > 0)
     groups = group_order(mods)
     moments = [[None] * len(ps) for _, ps in groups]
     sizes, b = [len(s) for s in world.train], cfg["batch"]

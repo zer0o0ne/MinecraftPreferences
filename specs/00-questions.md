@@ -10,13 +10,16 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   **→ [U]** $\phi$ sees past frames at a stride over a span (example: every 3rd frame over the last 30) plus all meta of those frames. Open: exact stride and span; does the window end at the current frame; $k_P$, $k_\pi$, $k_V$.
   **→ [U]** (2026-10-20) $\phi$'s input is the sequence of elementary states as interleaved (screenshot$_i$, meta$_i$); in training whole clips go through the model; at sampling (R1) $\phi$ runs streaming (each step adds only the new state), and the stream is restarted every $L$ states, so a state sees 1..$L$ states of context, as inside a training clip. Measured: Qwen3.5-2B takes 222 tokens per 640 × 360 frame and ≈ 65–180 tokens per meta as text; its context is 262,144 tokens.
   **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: Notation, Stream, and (9) ($\phi$'s window is the stream since its last restart, no stride).
+  **→ [U]** (2026-10-22) $k_P$ = $L_P$ (`history`) $\le L$: `specs/preference.md` Notation.
 - **G-3** History at an episode start ($t < k$): pad (repeat first state / zeros) or exclude such $t$?
+  **→ [U]** (2026-10-22) for $P$: no padding; a history shorter than $L_P$ (only in the first $L_P - 1$ steps of RL) is used as it is; in pretraining never short (`specs/preference.md` Notation).
 - **G-4** Is the VLM used only in pretraining, so that in RL all preference labels come from the current $P$?
 - **G-5** Per cycle: R2 → R3 → R4 → R5 in this order, once each? Gradient steps / epochs for each.
 - **G-6** Architectures: $\phi$ backbone (VPT pretrained / ImpalaCNN from scratch / pretrained vision encoder), $P$ and $\pi$ (MLP / transformer over latent histories), sizes, $D$.
   **→ [U]** (2026-10-20) $\phi$ = a small standard VLM (e.g. Qwen3.5-2B) over the interleaved states of G-2; its last hidden state goes to an MLP head that maps it to $z$. $P$ and $\pi$ are lightweight (MCTS-5). Open: the exact VLM, the head, $D$, $P$ and $\pi$.
   **→ [U]** (2026-10-20) $\phi$ uses gradient checkpointing (activations recomputed in the backward pass), block 2; the pretraining loop accumulates gradients over micro-batches (`specs/pretrain.md`).
   **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: Notation, $B$, and (7) (`Qwen/Qwen3.5-2B`, an MLP head, $D$ = the length of `alpha`).
+  **→ [U]** (2026-10-22) $P$: `specs/preference.md` (1)–(8).
 - **G-7** Optimisers, learning rates, batch sizes per training stage; fixed in each block spec, or one config file with values from you?
   **→ [U]** every exact number goes into a config, never asked; where and how: G-11.
 - **G-8** Checkpointed across cycles for resuming: nets, optimiser states, METRA $\lambda$, $\mathcal{M}$, $\mathcal{T}$, env state?
@@ -27,6 +30,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **G-11** Config: proposed `configs/<block>.yaml` at the repository root, loaded with PyYAML (already required by MineStudio via hydra-core) into a frozen dataclass per block, defined in the block's module; no defaults in code; secrets (API key) from environment variables. Needs `configs/` in the AGENTS.md Layout.
   **→ [U]** yes; `configs/` added to the AGENTS.md Layout.
 - **G-12** Fixed time step. **[U]** (2026-10-15): human play rarely has states that differ by exactly one action of $A$, so states are taken a fixed $\Delta$ ticks apart (config); the inputs of $\phi$ and $P$ are sequences of states $\Delta$ apart; the agent will act once per $\Delta$; for P1 every interval stores $n$, the number of legal actions of $A$ the human made in it (for METRA's geometry); intervals with $n = 0$ are not used. Supersedes G-1, the tick stride of G-2 and "one action between consecutive states". Consequences: a pair of P1 spans $k_\phi + 1$ states; an input history of $P$ ($k_P$ latent states) needs $k_P + k_\phi - 1$ raw states.
+  **→ [U]** (2026-10-22) with the streaming $\phi$ a history of $L_P$ latents needs $L_P$ states (`specs/preference.md`).
 - **G-13** What an agent action does during its $\Delta$ ticks (replaces ENV-2 (b) "until the effect completes"; fixes how human actions are counted in $n$): (a) its input is applied for the whole interval (keys / buttons held $\Delta$ ticks, a 10° turn or a click at its start); (b) held until its effect completes, at most $\Delta$ ticks, idle for the rest; long effects (breaking, eating) take several actions in a row in both.
   **→ [U]** (2026-10-15) (b), refined: an action holds its input until its effect completes, at most $\Delta$ ticks; a long effect takes several actions; when the next chosen action is the same, its input continues without release, so the effect is not cut at the boundary; it is released when another action is chosen.
 - **G-14** Where $n = 0$ excludes data: (a) only the transition of a P1 pair; (b) every interval of a sequence (the $\phi$ window, the $P$ history), so that human sequences look like agent ones, where every interval holds an action.
@@ -94,7 +98,9 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 
 ## PRF — Preference network (P4, R3)
 - **PRF-5** $\phi$ frozen (stop-grad) while $P$ trains, in P4 and R3?
+  **→ [U]** (2026-10-20) in P4 no stop-gradient: $P$'s loss flows into $\phi$ (`specs/pretrain.md` (1)); R3 open.
 - **PRF-6** Input history: $k_P$ latent states ending at the state itself, oldest first?
+  **→ [U]** (2026-10-22) yes, up to $L_P$ latents: `specs/preference.md` Notation.
 
 ## POL — Policy (P5, R4)
 - **POL-1** Action space. MineStudio's VPT agent action: 8641 button combinations × 121 camera bins (11×11 mu-law), ≈ 1.05M joint actions. No availability mask exists, and the simulator ignores `drop`. Full space or a reduced discrete set? What makes an action "available"?
