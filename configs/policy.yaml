@@ -1,0 +1,17 @@
+# specs/policy.md: PolicyConfig. history: L_pi (= the clip length L, checked by the
+# pretraining main); layers: N_pi; action_dropout: p_none of (2); shift_weight: w_Delta
+# of (9); latency_*: the soft budget of (12), checked by the gpu test.
+history: 16
+width: 256
+heads: 4
+hidden: 768
+layers: 4
+shift_hidden: 512
+rope_base: 10000.0
+norm_eps: 1.0e-6
+action_dropout: 0.3
+shift_weight: 1.0
+seed: 0
+latency_ms: 3.0
+latency_fail_ms: 10.0
+latency_calls: 100

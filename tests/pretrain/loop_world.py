@@ -1,14 +1,13 @@
 """Fake inputs of specs/pretrain.md written as their formats say: $C$, $Q_c$ (perception-data's
 format, with clip files of $L$ state frames of $W \\times H$), $Q_\\ell$ (its contract) and the
 index $X$ of train-index (`run.json`, `train/` and `validation/` shards of items); the
-pretraining config. The clips also as `Clip`s built in memory for the oracles."""
+module configs (loop_configs.py). The clips also as `Clip`s built in memory for the oracles."""
 
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-import yaml
 
 from mcpref.pretrain.clip import Clip
 
@@ -16,12 +15,24 @@ from .index_oracle import clips_fingerprint, items_bytes, labels_fingerprint, na
 from .index_oracle import shard_files as files_of
 from .index_world import clips_run, end, pair, record, write_clips, write_json
 from .index_world import write_labels as write_pairs
+from .loop_configs import write_module_configs
 from .loop_modules import ACTIONS, FRAME, H, L, W
 
 INDEX = {"clips_dir": "w/clips", "pair_clips_dir": "w/pair_clips",
          "pair_labels_dir": "w/pair_labels", "out_dir": "w/index", "validation": "0.3",
          "seed": 7, "items_per_shard": 3}  # fmt: skip
 SIZES = {"config.width": W, "config.height": H, "config.states": L}
+# action names of A for the policy (some masked by specs/action-mask.md (1) at some states)
+POOL = (
+    "forward",
+    "jump",
+    "attack",
+    "use",
+    "hotbar_2",
+    "turn_up",
+    "turn_down",
+    "left_click_1",
+)
 E1, E2, E3, E4 = "6.13/e1.mp4", "6.13/e2.mp4", "6.13/e3.mp4", "6.14/e4.mp4"
 E5, E6 = "6.15/e5.mp4", "6.15/e6.mp4"
 CLIPS = [  # C: 5 clips (one record with clips null)
@@ -87,16 +98,38 @@ NO_PAIRS = World(train=[[u(0), u(1), u(2)], [u(3), u(4)]], pairs=False)
 VALIDATION_PAIRS = World(  # pairs in the index, none in the training part
     train=[[u(0), u(1), u(2)], [u(3), u(4)]], validation=[[p(0), p(1), p(2)], [p(3)]]
 )
+ACYCLIC = [{"p": 0.75, "inc": 0}, {"p": None, "inc": 1}, {"p": 1.0, "inc": 0}]
+
+
+def labeled(j: int) -> dict:
+    """The item p(j) with the labels of specs/acyclic.md (4) (for the real loss of P)."""
+    return {**p(j), "labels": ACYCLIC[j]}
+
+
+LABELED = World(  # WORLD with the labels of specs/acyclic.md (4)
+    train=[[u(0), labeled(0), u(1)], [labeled(1), u(2), u(3)], [labeled(2), u(4)]],
+    validation=[[p(3)]],
+)
 
 
 def content(path: str) -> tuple[bytes, dict, list]:
-    """A clip's frames.yuv bytes, clip.json and lines.jsonl values, fixed by its path."""
+    """A clip's frames.yuv bytes, clip.json and lines.jsonl values, fixed by its path: `a`
+    for the fake loss of pi; the fields of specs/perception-data.md that the policy reads
+    (world states only; the states' lines 0..L-2 and L of the span, line L-1 cut)."""
     rng = np.random.default_rng(list(path.encode()))
     frames = rng.integers(0, 256, size=L * FRAME, dtype=np.uint8).tobytes()
-    info = {"id": path.rsplit("/", 1)[1], "actions": rng.integers(0, ACTIONS, L).tolist(),
+    info = {"id": path.rsplit("/", 1)[1], "a": rng.integers(0, ACTIONS, L).tolist(),
             "relpath": "é"}  # fmt: skip
     w = float(rng.uniform(0.5, 1.5))
+    n = rng.integers(1, 3, L - 1).tolist()
+    first = int(rng.integers(0, 1000))
+    info |= {"states": [first + k for k in [*range(L - 1), L]], "n": n,
+             "actions": [[POOL[k] for k in rng.integers(0, len(POOL), m)] for m in n],
+             "gui": [False] * L, "classes": [None] * L,
+             "pitch": rng.choice([0.0, -90.0, 90.0], L).tolist()}  # fmt: skip
     lines = [{"w": w, "s": "a b\x85c"}] + [{"tick": t} for t in range(L)]
+    for line, h in zip(lines, rng.integers(0, 9, L + 1).tolist()):
+        line["hotbar"] = h
     return frames, info, lines
 
 
@@ -156,7 +189,8 @@ def index_run(world: World, fingerprints: dict) -> dict:
 
 
 def write_world(repo: Path, world: World) -> None:
-    """The inputs and the index X = w/index."""
+    """The inputs, the module configs and the index X = w/index."""
+    write_module_configs(repo)
     run = index_run(world, write_inputs(repo, world.pairs))
     write_json(repo / "w/index/run.json", run)
     for part, shards in [("train", world.train), ("validation", world.validation)]:
@@ -164,37 +198,3 @@ def write_world(repo: Path, world: World) -> None:
             path = repo / "w/index" / part / name(s) / "items.json"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(items_bytes(items))
-
-
-GROUPS = {  # in another order than the groups' (phi_A, phi_c, dual, pi, idle, pref)
-    "pref": {"lr": 0.04, "weight_decay": 0.02},
-    "pi": {"lr": 0.03, "weight_decay": 0.01},
-    "idle": {"lr": 0.2, "weight_decay": 0.5},
-    "dual": {"lr": 0.1, "weight_decay": 0.0},
-    "phi_c": {"lr": 0.02, "weight_decay": 0.0},
-    "phi_A": {"lr": 0.05, "weight_decay": 0.1},
-}
-CONFIG = {
-    "index_dir": "w/index",
-    "out_dir": "w/pretrain",
-    "seed": 5,
-    "epochs": 2,
-    "batch": 2,
-    "micro_batch": 1,
-    "checkpoint_steps": 3,
-    "keep_checkpoints": 2,
-    "warmup_steps": 3,
-    "w_pi": 0.7,
-    "w_P": 1.9,
-    "grad_clip": 1.0,
-    "adam_eps": 1.0e-4,
-    "lr_floor": 0.2,
-    "betas": [0.8, 0.95],
-    "groups": GROUPS,
-    "device": "cpu",
-}
-NO_PREF = CONFIG | {"groups": {k: v for k, v in GROUPS.items() if k != "pref"}}
-
-
-def config_text(config: dict) -> str:
-    return yaml.safe_dump(config, sort_keys=False)

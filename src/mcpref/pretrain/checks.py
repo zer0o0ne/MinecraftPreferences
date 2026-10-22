@@ -7,8 +7,9 @@ import torch
 import yaml
 
 from mcpref import REPO
+from mcpref.gui.mask import load_config as load_mask_config
 from mcpref.pretrain.checkpoints import Modules
-from mcpref.pretrain.config import PretrainConfig
+from mcpref.pretrain.config import CONFIGS, PretrainConfig
 from mcpref.pretrain.index import FINGERPRINTS
 from mcpref.pretrain.items import PAIRS, RECORDS
 from mcpref.recognition.stored import shard_bar
@@ -98,9 +99,12 @@ def check_inputs(cfg: PretrainConfig, run: dict) -> None:
 
 
 def header(cfg: PretrainConfig, path: Path) -> dict:
-    """(R) 6: check_fingerprints of an existing {out_dir}/run.json; run.json written."""
+    """(R) 6: check_fingerprints of an existing {out_dir}/run.json (the config, the
+    index, the module configs, the screen catalogue); run.json written."""
     out = REPO / cfg.out_dir / "run.json"
     sha = {"config": sha256(path), "index": sha256(REPO / cfg.index_dir / "run.json")}
+    sha |= {k: sha256(REPO / getattr(cfg, k)) for k in CONFIGS}
+    sha["screens"] = sha256(REPO / load_mask_config(REPO / cfg.action_mask).screens)
     check_fingerprints(out, sha, cfg.out_dir)
     head = {"config": yaml.safe_load(path.read_text()), "sha256": sha}
     write_json(out, head)

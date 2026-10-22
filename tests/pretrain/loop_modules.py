@@ -1,8 +1,9 @@
 """Tiny fake components implementing the protocol of specs/pretrain.md (Interface), in
 float64, written from the spec alone: a linear $\\phi$ over the first bytes of each state
 frame (drawing from torch's global generator), a loss of $\\phi$ with a parameter (a dual
-variable) and a buffer, a linear $\\pi$ and $P$; $\\phi$ declares two groups. Each records
-its calls (name, training mode, what it was given) in `log` when one is set."""
+variable) and a buffer, a linear $\\pi$ (called with the clips) and $P$; $\\phi$ declares two
+groups. Each records its calls (name, training mode, what it was given) in `log` when one is
+set."""
 
 import numpy as np
 import torch
@@ -83,7 +84,8 @@ class PhiLoss(Fake):
 
 
 class Pi(Fake):
-    """pi(Z) = {logits: Z Wa + ba, shift: Z V} for every state; group pi."""
+    """pi(Z, clips) = {logits: Z Wa + ba, shift: Z V + 0.1 w_i} for every state, w_i the `w`
+    of clip i's first line (row i depends on clip i); group pi."""
 
     def __init__(self):
         super().__init__()
@@ -93,18 +95,28 @@ class Pi(Fake):
             fixed(5, D, D),
         )
 
-    def forward(self, Z: torch.Tensor) -> dict:
-        self.note("pi", Z=Z.detach().clone())
-        return {"logits": Z @ self.Wa + self.ba, "shift": Z @ self.V}
+    def forward(self, Z: torch.Tensor, clips: list) -> dict:
+        self.note("pi", Z=Z.detach().clone(), ids=[c.info["id"] for c in clips])
+        w = torch.tensor([c.lines[0]["w"] for c in clips], dtype=F64)
+        return {
+            "logits": Z @ self.Wa + self.ba,
+            "shift": Z @ self.V + 0.1 * w[:, None, None],
+        }
 
     def groups(self) -> dict:
         return {"pi": [self.Wa, self.ba, self.V]}
 
 
+def pi_terms(logits: torch.Tensor, shift: torch.Tensor, Z: torch.Tensor, clips: list):
+    """sum_t CE(logits_{i,t}, a_{i,t}) + sum_{t < L} ||shift_{i,t} - (Z_{i,t+1} - Z_{i,t})||^2,
+    a_{i,t} the fake's own key `a` of the clip's clip.json."""
+    a = torch.tensor([c.info["a"] for c in clips])
+    ce = -torch.log_softmax(logits, -1).gather(-1, a[..., None])[..., 0].sum(1)
+    return ce + ((shift[:, :-1] - (Z[:, 1:] - Z[:, :-1])) ** 2).sum((1, 2))
+
+
 class PiLoss(Fake):
-    """l_i = sum_t CE(logits_{i,t}, a_{i,t}) + sum_{t < L} ||shift_{i,t} - (Z_{i,t+1} -
-    Z_{i,t})||^2 + 0 k: a_{i,t} the `actions` of the clip's clip.json; k a parameter whose
-    gradient is zero (not None); group idle."""
+    """l_i = pi_terms + 0 k: k a parameter whose gradient is zero (not None); group idle."""
 
     def __init__(self, cut: bool = False):
         super().__init__(cut)
@@ -113,10 +125,7 @@ class PiLoss(Fake):
     def forward(self, out: dict, Z: torch.Tensor, clips: list) -> torch.Tensor:
         self.note("pi_loss", n=len(clips))
         logits, shift, Z = (self.cut_off(x) for x in (out["logits"], out["shift"], Z))
-        a = torch.tensor([c.info["actions"] for c in clips])
-        ce = -torch.log_softmax(logits, -1).gather(-1, a[..., None])[..., 0].sum(1)
-        reg = ((shift[:, :-1] - (Z[:, 1:] - Z[:, :-1])) ** 2).sum((1, 2))
-        return ce + reg + 0.0 * self.k.sum()
+        return pi_terms(logits, shift, Z, clips) + 0.0 * self.k.sum()
 
     def groups(self) -> dict:
         return {"idle": [self.k]}

@@ -18,8 +18,9 @@ from mcpref.pretrain.loop import pretrain
 
 from .index_oracle import name
 from .index_run import repo_root
+from .loop_configs import CONFIG, NO_PREF, config_text
 from .loop_modules import fakes
-from .loop_world import CONFIG, NO_PREF, WORLD, World, config_text, write_world
+from .loop_world import WORLD, World, write_world
 
 
 @dataclass

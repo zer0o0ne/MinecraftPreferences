@@ -2,6 +2,7 @@
 without the skill, with the dual variable log(lambda)."""
 
 import math
+from collections.abc import Callable
 
 import numpy as np
 import torch
@@ -19,6 +20,17 @@ def changed(frames: list[np.ndarray], metas: list[str], tau: float) -> list[bool
         mu != mu_next or np.abs(v_next.astype(np.int64) - v).sum() / v.size > tau
         for v, v_next, mu, mu_next in zip(frames, frames[1:], metas, metas[1:])
     ]
+
+
+def latent_metric(cfg: PerceptionConfig) -> Callable[[Tensor], Tensor]:
+    """Interface: delta -> d_alpha = ||alpha * delta||_2 over the last axis, alpha in
+    delta's dtype on its device."""
+
+    def d_alpha(delta: Tensor) -> Tensor:
+        alpha = torch.tensor(cfg.alpha, dtype=delta.dtype, device=delta.device)
+        return torch.linalg.vector_norm(alpha * delta, ord=2, dim=-1)
+
+    return d_alpha
 
 
 def hinge(z: Tensor, c: float) -> Tensor:
@@ -41,8 +53,7 @@ class PhiLoss(torch.nn.Module):
         frames, metas = clip_states(clip, cfg, self.sprite)
         chi = torch.tensor(changed(frames, metas, cfg.tau), **like)
         n = torch.tensor(clip.info["n"], **like)
-        alpha = torch.tensor(cfg.alpha, **like)
-        d = torch.linalg.vector_norm(alpha * (z[1:] - z[:-1]), ord=2, dim=-1)
+        d = latent_metric(cfg)(z[1:] - z[:-1])
         q = torch.clamp(n.square() - d.square(), max=cfg.dual_slack)
         log_lambda = self.log_lambda.to(z.dtype)
         lam = log_lambda.exp().detach()

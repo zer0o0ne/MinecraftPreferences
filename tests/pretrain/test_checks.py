@@ -8,9 +8,10 @@ import pytest
 from progress_bars import Bar, screen
 
 from .index_world import drop, edit, setting
+from .loop_configs import GROUPS
 from .loop_modules import NAMES, fakes
 from .loop_run import Loop, aborted
-from .loop_world import GROUPS, NO_PAIRS, VALIDATION_PAIRS
+from .loop_world import NO_PAIRS, VALIDATION_PAIRS
 
 X, OUT = "w/index", "w/pretrain"
 INPUTS = Bar("pretrain inputs", 6, 6, "shard")  # C, Q_c, Q_l: two complete shards each

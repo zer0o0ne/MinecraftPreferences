@@ -4,7 +4,8 @@ import torch
 from torch import Tensor
 
 from mcpref.preferences.config import PreferenceConfig
-from mcpref.preferences.layers import LayerS, LayerX, rms_norm
+from mcpref.preferences.layers import LayerS, LayerX
+from mcpref.transformer.layers import decay_groups, rms_norm
 
 KINDS = {"S": LayerS, "X": LayerX}
 """Notation Lambda: the layer class of each kind."""
@@ -20,8 +21,13 @@ class Preference(torch.nn.Module):
         with torch.random.fork_rng(devices=[]):
             torch.random.default_generator.manual_seed(cfg.seed)
             self.embed = torch.nn.Linear(latent, cfg.width, bias=False)
-            self.layers = torch.nn.ModuleList(KINDS[kind](cfg) for kind in cfg.layers)
-            self.norm = rms_norm(cfg)
+            self.layers = torch.nn.ModuleList(
+                KINDS[kind](
+                    cfg.width, cfg.hidden, cfg.heads, cfg.rope_base, cfg.norm_eps
+                )
+                for kind in cfg.layers
+            )
+            self.norm = rms_norm(cfg.width, cfg.norm_eps)
             self.pref = torch.nn.Linear(cfg.width, 1, bias=False)
             self.inc = torch.nn.Linear(cfg.width, 1, bias=True)
 
@@ -42,11 +48,4 @@ class Preference(torch.nn.Module):
     def groups(self) -> dict[str, list[torch.nn.Parameter]]:
         """(12): P - the weights of the Linears, P_no_decay - the gains and b_inc, each
         in named_parameters() order."""
-        linear = {
-            id(m.weight) for m in self.modules() if isinstance(m, torch.nn.Linear)
-        }
-        params = list(self.parameters())
-        return {
-            "P": [p for p in params if id(p) in linear],
-            "P_no_decay": [p for p in params if id(p) not in linear],
-        }
+        return decay_groups(self, "P")

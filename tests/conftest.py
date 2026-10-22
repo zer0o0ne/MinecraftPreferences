@@ -1,4 +1,5 @@
-"""Fixtures shared by every block: the repository root and a fake HTTP server."""
+"""Fixtures shared by every block: the repository root, a fake HTTP server, the approved
+action masks."""
 
 import json
 import select
@@ -144,6 +145,15 @@ def http():
 @pytest.fixture(scope="session")
 def repo() -> Path:
     return REPO
+
+
+@pytest.fixture(scope="session")
+def masks(repo):
+    """`load_masks` of the approved configs/action-mask.yaml (specs/action-mask.md); read-only,
+    shared by the tests of action-mask and of the policy."""
+    from mcpref.gui.mask import load_config, load_masks
+
+    return load_masks(load_config(repo / "configs/action-mask.yaml"))
 
 
 @pytest.fixture

@@ -46,6 +46,14 @@ def positive(name: str, value: object) -> float:
     return x
 
 
+def fraction(name: str, value: object) -> float:
+    """A `number` in [0, 1)."""
+    x = number(name, value)
+    if not 0 <= x < 1:
+        raise ValueError(f"{name} {value!r} is not in [0, 1)")
+    return x
+
+
 def exact(name: str, value: object) -> Fraction:
     """The exact value Fraction(str(x)) of a finite YAML integer or float, not a
     boolean."""
@@ -75,3 +83,9 @@ def relative(name: str, value: object) -> None:
         raise ValueError(
             f"{name} {value!r} is not a non-empty relative path without .."
         )
+
+
+def even_heads(width: int, heads: int) -> None:
+    """`width` divisible by `heads` with an even quotient d_h (the pairs of RoPE)."""
+    if width % heads or width // heads % 2:
+        raise ValueError(f"width {width} is not heads {heads} times an even number")

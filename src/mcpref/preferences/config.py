@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from mcpref import config_mapping, integer, positive, positive_int
+from mcpref import config_mapping, even_heads, integer, positive, positive_int
 
 POSITIVE_INTS = ("history", "width", "heads", "hidden", "latency_calls")
 POSITIVE_REALS = ("rope_base", "norm_eps", "latency_ms", "latency_fail_ms")
@@ -43,7 +43,5 @@ def load_config(path: Path) -> PreferenceConfig:
     read |= {k: positive(k, raw[k]) for k in POSITIVE_REALS}
     read |= {"seed": integer("seed", raw["seed"], 0, 2**32 - 1)}
     read |= {"layers": kinds(raw["layers"])}
-    width, heads = read["width"], read["heads"]
-    if width % heads or width // heads % 2:
-        raise ValueError(f"width {width} is not heads {heads} times an even number")
+    even_heads(read["width"], read["heads"])
     return PreferenceConfig(**read)

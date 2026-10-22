@@ -6,12 +6,22 @@ from pathlib import Path
 
 import yaml
 
-from mcpref import config_mapping, integer, number, positive, positive_int, relative
+from mcpref import (
+    config_mapping,
+    fraction,
+    integer,
+    number,
+    positive,
+    positive_int,
+    relative,
+)
 from mcpref.training.devices import device
 
 POSITIVE_INTS = ("epochs", "batch", "micro_batch", "checkpoint_steps")
 POSITIVE_INTS += ("keep_checkpoints",)
 POSITIVE_REALS = ("w_pi", "w_P", "grad_clip", "adam_eps")
+CONFIGS = ("perception", "action_mask", "policy", "preference")
+PATHS = ("index_dir", "out_dir", *CONFIGS)
 GROUP_KEYS = {"lr", "weight_decay"}
 
 
@@ -21,6 +31,10 @@ class PretrainConfig:
 
     index_dir: str
     out_dir: str
+    perception: str
+    action_mask: str
+    policy: str
+    preference: str
     seed: int
     epochs: int
     batch: int
@@ -38,19 +52,11 @@ class PretrainConfig:
     device: str
 
 
-def beta(value: object) -> float:
-    """Notation: one of `betas`, a `number` in [0, 1)."""
-    x = number("betas", value)
-    if not 0 <= x < 1:
-        raise ValueError(f"betas {value!r} is not in [0, 1)")
-    return x
-
-
 def betas(value: object) -> tuple[float, float]:
     """Notation: a list of exactly two numbers, each in [0, 1)."""
     if not isinstance(value, list) or len(value) != 2:
         raise ValueError(f"betas {value!r} are not a list of two")
-    return beta(value[0]), beta(value[1])
+    return fraction("betas", value[0]), fraction("betas", value[1])
 
 
 def group(name: object, value: object) -> dict[str, float]:
@@ -73,7 +79,7 @@ def groups(value: object) -> dict[str, dict[str, float]]:
 def load_config(path: Path) -> PretrainConfig:
     """Interface: the YAML file, validated, into PretrainConfig."""
     raw = config_mapping(yaml.safe_load(path.read_text()), path, PretrainConfig)
-    for k in ("index_dir", "out_dir"):
+    for k in PATHS:
         relative(k, raw[k])
     device(raw["device"])
     read = {k: positive_int(k, raw[k]) for k in POSITIVE_INTS}

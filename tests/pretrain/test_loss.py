@@ -121,8 +121,8 @@ def test_accumulates_into_existing_gradients():
 
 def test_calls_of_each_micro_batch_in_order():
     """b_mu = 2 on [u0, p0, u1, u2, p1]: per micro-batch its clips read, then phi on K in
-    item order (a, then b), l_phi, pi, l_pi, and with a pair P on the rows i_a, i_b of Z
-    and l_P on the labels; nothing read ahead."""
+    item order (a, then b), l_phi, pi on Z and the clips K, l_pi, and with a pair P on the
+    rows i_a, i_b of Z and l_P on the labels; nothing read ahead."""
     items = [u(0), p(0), u(1), u(2), p(1)]
     mods = fakes(noise=False, stateful=False)
     log = shared_log(mods)
@@ -139,7 +139,9 @@ def test_calls_of_each_micro_batch_in_order():
         names += ["P", "P_loss"] if pairs else []
         calls, log[:] = log[: len(names)], log[len(names) :]
         assert [c[0] for c in calls] == names
-        assert calls[0][2]["ids"] == [x.rsplit("/", 1)[1] for x in paths]
+        ids = [x.rsplit("/", 1)[1] for x in paths]
+        assert calls[0][2]["ids"] == ids
+        assert calls[2][2]["ids"] == ids and calls[2][2]["Z"].equal(calls[1][2]["Z"])
         if pairs:
             Z = calls[1][2]["Z"]
             ia = [paths.index(it["a"]) for it in pairs]

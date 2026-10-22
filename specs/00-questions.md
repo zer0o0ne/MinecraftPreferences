@@ -20,6 +20,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   **→ [U]** (2026-10-20) $\phi$ uses gradient checkpointing (activations recomputed in the backward pass), block 2; the pretraining loop accumulates gradients over micro-batches (`specs/pretrain.md`).
   **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: Notation, $B$, and (7) (`Qwen/Qwen3.5-2B`, an MLP head, $D$ = the length of `alpha`).
   **→ [U]** (2026-10-22) $P$: `specs/preference.md` (1)–(8).
+  **→ [U]** (2026-10-22) $\pi$: `specs/policy.md` (1)–(7).
 - **G-7** Optimisers, learning rates, batch sizes per training stage; fixed in each block spec, or one config file with values from you?
   **→ [U]** every exact number goes into a config, never asked; where and how: G-11.
 - **G-8** Checkpointed across cycles for resuming: nets, optimiser states, METRA $\lambda$, $\mathcal{M}$, $\mathcal{T}$, env state?
@@ -109,14 +110,18 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   Procedures from the literature: frequency mapping (MineRL 2019 winner: 10 actions, frameskip 4; each 4-frame chunk of human data → its most frequent non-camera action + summed camera); k-means over human actions (30–150 clusters; rare important actions get lost at low counts, fixed by adding "necessary" actions); hand-designed functional set (DreamerV3: 25 actions incl. craft / place / equip / smelt macros). Which one, and does the stride of G-9 equal the action chunk?
 - **POL-2** MCTS children and R2 need the shift of a given action, so $\widehat{\Delta z}$ must depend on it: (a) $\widehat{\Delta z} = g(z\text{-history}, a)$ with $a$ as input; (b) one $\widehat{\Delta z}$ output per action (only for a small action set). Which?
   **→ [U]** (b): output $|A| \times D$, one shift per action.
+  **→ [U]** (2026-10-22) (a), replacing (b): the shift of a given action from the history's readout and a learned embedding of the action (`specs/policy.md` (6)).
 - **POL-3** $\widehat{\Delta z}$ deterministic (regression) or a distribution to sample from ("sampled … shift")? Loss: MSE (Euclidean or $d_\alpha$) or NLL.
+  **→ [U]** (2026-10-22) deterministic, in $z$; the loss the squared $d_\alpha$ of the error, $d_\alpha$ given by perception, the target with stop-gradient (`specs/policy.md` (9)).
 - **POL-4** P5 loss: $\mathrm{CE}(a_t) + \beta L_\Delta$; $\beta$; CE over the factorised VPT action; target $\Delta z_t$ from frozen $\phi$; under (a) the shift head is fed the dataset action $a_t$?
+  **→ [U]** (2026-10-22) `specs/policy.md` (9): the cross-entropy with the counts' distribution plus $w_\Delta$ times the shift term, both over the $L - 2$ states with a next interval; the target from $\phi$ of the same loop with stop-gradient; the shift computed for the dataset action of the next interval.
 - **POL-5** PPO usually needs a critic; the description has none. Add a value head, or advantages from returns without a learned baseline?
   **→ [U]** no new networks: PPO uses only $\phi$ and $P$. Details with PPO [later].
 - **POL-6** Is $\widehat{\Delta z}$ trained in R4 too (regression to the actual $\Delta z_t$ under the new $\phi$)?
 - **POL-7** **[U]** (2026-10-15): $\pi$ is trained to lower the logits of masked actions, which helps MCTS expand the most probable actions (imagined nodes have no frame to recognise, hence no mask). So every dataset state keeps what its mask needs (GUI open, recognised class, pitch). Open: the loss term, its weight (config), in P5 and R4.
   **→ [U]** (2026-10-21) no mask in the training forward pass and no extra loss term: the targets are zero on masked actions (a target is never a masked action), so the cross-entropy lowers their probabilities; the mask acts only at sampling and in data preparation (`specs/action-mask.md`).
 - **POL-8** With $n \ge 1$ human actions per interval (G-12), the action target of P5: (a) only intervals with $n = 1$, their action; (b) the first action of the interval; (c) all its actions (multi-label). The data blocks keep the actions of every interval, so this can be decided with P5.
+  **→ [U]** (2026-10-22) (c) as a distribution: the counts of the interval's unmasked actions over their number (`specs/policy.md` (8)).
 
 ## MCTS (R1)
 - **MCTS-1** Value of an imagined node: $P(\text{node}, \text{root})$, $P(\text{node}, \text{parent})$ summed along the path, …? Scalar from $(p_\succ, p_{inc})$: e.g. $(1 - p_{inc})(2p_\succ - 1)$, $p_\succ$, $\log p_\succ$?
@@ -135,6 +140,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **MCTS-8** Imagined nodes have no observation, so after R2 their $z$ are coordinates of the old $\phi$. Re-simulate them from re-encoded real nodes with the current $\pi$, keep them as is, or keep only real nodes?
   **→ [U]** keep as is; the networks must work acceptably in stale coordinates.
 - **MCTS-9** History of an imagined node for $\pi$ and $P$ = real history + imagined path?
+  **→ [U]** (2026-10-22, partial) $\pi$'s input also holds the actions executed in the history (`specs/policy.md` (1), (2)); at RL its history is at most the last $L_\pi = L$ latents, two longer than the longest trained one, accepted. Open for block 8: the history of an imagined node and its $C$.
 
 ## RLS — Sampling (R1)
 - **RLS-1** Environment: `MinecraftSim` is synchronous (the world advances only on `step()`, one tick per step), so the pause is free. Settings: seed, spawn biome, initial inventory, observation size. Death does not end the episode (respawn behaviour unconfirmed); on a time-limit or another `done`, reset (a new world, breaking the single timeline) or never end?

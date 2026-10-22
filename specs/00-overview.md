@@ -21,7 +21,7 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 - $c$ — norm bound of $z$ (example: 1).
 - $P$ — preference network; $P(x, y) = (p_\succ, p_{inc})$ (it returns their logits, `specs/preference.md` (8)): probability that $x$ is preferred to $y$ given that they are comparable, probability that $x, y$ are incomparable ([U] 2026-10-20; antisymmetry $p_\succ(x, y) = 1 - p_\succ(y, x)$ and the symmetry of $p_{inc}$ exact by the tied head, [U] 2026-10-22, `specs/preference.md` (9); the loss of `specs/acyclic.md` (5) over both orders); $x, y$ are latent histories: up to $L_P$ latents ending at the compared state (`specs/preference.md`).
 - $A$ — discrete action set (Q ACT, versions 1 and 2): 34 world actions (`WORLD_ACTIONS` of `specs/vpt-actions.md`) and 361 GUI actions (`gui_action_names` of `specs/vpt-gui-actions.md`: close, left, right, shift and double click on element $i = 1..n_{max}$ of the recognised screen), 395 in all; masked by GUI state, screen type, pitch and hotbar slot (`specs/action-mask.md`); a screen that is not recognised is closed at once (Q ACT-19). An action holds its input until its effect completes, at most $\Delta$, and continues without release while chosen again (Q G-13); $\pi$ learns to lower the logits of masked actions (Q POL-7).
-- $\pi$ — policy; $\pi(\cdot \mid z\text{-history})$ — probabilities over $A$; $\widehat{\Delta z}(a)$, $a \in A$ — predicted latent shift of each action (output $|A| \times D$).
+- $\pi$ — policy (`specs/policy.md`); $\pi(\cdot \mid \text{history})$ — probabilities over $A$ from the latent history and the actions executed in it; $\widehat{\Delta z}(a)$ — the predicted latent shift of a given action $a$, from the history's readout and a learned embedding of $a$ ([U] 2026-10-22, Q POL-2 (a)).
 - $\Delta z_t = z_{t+1} - z_t$ — actual latent shift.
 - $\mathcal{M}$ — memory of past states (Q MEM-1, MEM-2); $\mathcal{T}$ — stored MCTS trees.
 - $C(\cdot)$ — preference correction: maximum-weight acyclic subgraph plus modifications (Q ACY-1).
@@ -31,7 +31,7 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 |---|---|---|---|
 | $\phi$ perception | $h_t$ (frames + meta) | $z_t$ | pretraining loop (truncated METRA loss; the losses of π and P flow in), R2 (METRA loss) |
 | $P$ preference | two latent histories of up to $L_P$ latents | the logits of $p_\succ$, $p_{inc}$ (`specs/preference.md`) | pretraining loop (corrected VLM labels), R3 (corrected self-labels) |
-| $\pi$ policy | last $k_\pi$ latent states | probabilities over $A$, $\widehat{\Delta z}(a)$ for every $a \in A$ | pretraining loop (action + shift regression), R4 (PPO) |
+| $\pi$ policy | last $L_\pi$ latent states and the actions executed in their intervals | the logits over $A$; $\widehat{\Delta z}(a)$ of a given action $a$ (`specs/policy.md`) | pretraining loop (action + shift regression), R4 (PPO) |
 
 ## Pretraining (VPT dataset)
 - **One loop** ([U] 2026-10-20; blocks 29, 7): P1, P4 and P5 are trained together on unlabeled clips (losses of φ and π) mixed in their natural proportion with labeled pairs of P2, P3 (losses of φ and π on each clip of the pair, plus P's loss); the gradients of π's and P's losses flow into φ; P5 with the one-interval delay of Q MCTS-10.
@@ -39,7 +39,7 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 - **P2 VLM labels** (blocks 23, 4). Recording sessions of the VPT dataset, each one world, reconstructed from line 0 of every episode; clips of up to $e$ episodes of a drawn session; inside each session a random comparison graph (random partners, connected, cycles topped up). `Qwen3-VL-30B-A3B-Instruct-FP8`, served on an NVIDIA DGX Spark (`specs/vlm-client.md`), gets each state as its last screenshots plus its inventory and grades the first against the second in six steps (much worse … much better) or refuses; both orders, several samples (`specs/preference-pool.md`, `specs/vlm-labels.md`).
 - **P3 Correction** (block 3). Each grade has a weight in $[0, 1]$; a comparison with a share of refusals above a threshold is incomparable, else its weight $w \ge 0.5$ is the mean grade weight, its arc from the preferred clip with cost $w - 0.5$; $C$ = Eades' acyclic subgraph of the whole graph, removed arcs put back when they close no cycle; arcs still removed become incomparable (`specs/acyclic.md`).
 - **P4 Preference** (block 5, `specs/preference.md`). Inputs: the last $L_P \le L$ latents of each clip of the pair, from $\phi$ of the same loop; $P$ a transformer of S layers (each history alone) and X layers (cross-attention between the histories) with RoPE and a tied linear head. Targets: the labels of P3 — $p_{inc}$ by cross-entropy on every pair, $p_\succ$ by cross-entropy with the soft target $w$ on comparable pairs, each pair scored in both orders (`specs/acyclic.md` (5); one call of $P$ by its exact antisymmetry).
-- **P5 Policy.** Random consecutive pairs $(t, t+1)$ with history. Input: latent history up to $t$. Targets: the dataset action of the next interval (from $t + 1$) for the action head and, in that action's row of $\widehat{\Delta z}$, $\Delta z_t = z_{t+1} - z_t$ (Q MCTS-10) (Q POL-4).
+- **P5 Policy** (block 6, `specs/policy.md`). Every state $s$ of a clip whose next interval lies in the clip; input: the latent history up to $s$ and the actions of its intervals, the one in flight included; $\pi$ a causal transformer (the layers of $P$, one history) with a logit head and a shift MLP on the readout and an action embedding. Targets: the actions of interval $s + 1$ (Q MCTS-10) not masked at $s + 1$, as the distribution of their counts (cross-entropy); with one action in each of the intervals $s$, $s + 1$, its shift regressed to $\mathrm{sg}(z_{s+1} - z_s)$ in squared $d_\alpha$ (Q POL-3, POL-4, POL-8).
 
 ## RL cycle (repeats; one cycle = one trajectory)
 - **R1 Sampling**, $n$ steps from where the previous cycle stopped. Each step:
@@ -71,7 +71,7 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 3 | acyclic — verdicts from the VLM's answers, correction $C$ (Eades, put-back), pair labels $Q_\ell$ | P3, R3 | 4 | `specs/acyclic.md` |
 | 4 | vlm-labels — prompt, both orders, samples, parsed answers | P2 | 0, 23 | `specs/vlm-labels.md` |
 | 5 | preference — $P$ (S and X transformer layers over two latent histories, tied linear head) and its loss | P4, R1, R3 | 2, 7 | `specs/preference.md` |
-| 6 | policy — $\pi$ and the P5 loss; `main` wiring φ, π, P (`Preference(cfg, len(alpha))`, aborting unless $L_P \le L$, `specs/preference.md`) | P5 | 2, 5, 7 | POL |
+| 6 | policy — $\pi$ (causal transformer over latents and executed actions; logits; the shift of a given action) and the P5 loss; `main` of the pretraining loop | P5, R1, R2, R4 | 2, 5, 7, 26 | `specs/policy.md` |
 | 7 | pretrain — one loop training φ, π and P (pluggable components and losses) | P1, P4, P5 | 29 | G |
 | 8 | mcts — search, decision, tree storage | R1 | 5, 6 | MCTS |
 | 9 | env-sampling — environment loop and trajectory record | R1 | 8 | RLS |
@@ -109,10 +109,12 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `http` → shared HTTP retries (textures, VPT downloads, VLM client) → the retry rules of `specs/vlm-client.md` (6), `specs/gui-screens.md`, `specs/vpt-gui-frames.md`
 - `cli` → shared one-line failure messages of the command-line entry points
 - `shards` → every block that builds or reads a dataset → `specs/shards.md`
-- `pretrain` → pretraining → `specs/train-index.md`, `specs/pretrain.md`
+- `pretrain` → pretraining → `specs/train-index.md`, `specs/pretrain.md`, `specs/policy.md` (`run.py`)
 - `runs` → every block with a run.json → `specs/runs.md`
 - `pool` → P2 data → `specs/preference-pool.md`
 - `preferences` → P2, P3, P4 (later R1, R3) → `specs/vlm-labels.md`, `specs/acyclic.md`, `specs/preference.md`
 - `graphs` → train-index, P2 data, P3 (later R3) → `specs/preference-pool.md`, `specs/acyclic.md`
 - `training` → gui-stack, pretraining → `specs/gui-stack.md`, `specs/pretrain.md`
 - `perception` → P1, R1 → `specs/perception.md`
+- `policy` → P5 (later R1, R2, R4) → `specs/policy.md`
+- `transformer` → P4, P5 (layers shared by $P$ and $\pi$) → `specs/preference.md`, `specs/policy.md`

@@ -28,7 +28,7 @@ def terms(items, mods, read, m, k_tot, r_tot, w_pi, w_P) -> tuple:
             labels.append(it["labels"])
     Z = mods["phi"](clips)
     l_phi = mods["phi_loss"](Z, clips)
-    l_pi = mods["pi_loss"](mods["pi"](Z), Z, clips)
+    l_pi = mods["pi_loss"](mods["pi"](Z, clips), Z, clips)
     loss = m / k_tot * (l_phi + w_pi * l_pi).sum()
     l_P = None
     if labels:

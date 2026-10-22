@@ -12,10 +12,14 @@ from progress_bars import Bar, assert_progress, screen
 
 from .index_oracle import json_bytes, sha
 from .loop_checks import assert_run
+from .loop_configs import MODULE_CONFIGS, SCREENS
 from .loop_modules import Phi
 from .loop_oracle import train
 from .loop_run import Loop
 from .loop_world import NO_PAIRS, VALIDATION_PAIRS
+
+FINGERPRINTS = ("config", "index", "perception", "action_mask", "policy", "preference",
+                "screens")  # (R) 6, in this order  # fmt: skip
 
 CASES = {  # sizes 3, 3, 2
     "b 2, micro 1 (T = 10)": {},
@@ -96,7 +100,9 @@ def test_modules_put_in_training_mode(tmp_path):
 
 
 def test_run_json(tmp_path):
-    """After (R) 6 the run's config and fingerprints; after (T) `complete` added."""
+    """After (R) 6 the run's config and its seven fingerprints (the config, the index, the
+    module configs, the catalogue named by the action-mask config); after (T) `complete`
+    added."""
     loop = Loop(tmp_path).write()
     first = {}
 
@@ -109,13 +115,13 @@ def test_run_json(tmp_path):
         mp.setattr(Phi, "forward", forward)
 
     loop.run(patch=peek)
+    files = {"index": "w/index/run.json", **MODULE_CONFIGS, "screens": SCREENS}
     value = {
         "config": yaml.safe_load(loop.path.read_bytes()),
-        "sha256": {
-            "config": sha(loop.path.read_bytes()),
-            "index": sha((loop.repo / "w/index/run.json").read_bytes()),
-        },
+        "sha256": {"config": sha(loop.path.read_bytes())}
+        | {k: sha((loop.repo / v).read_bytes()) for k, v in files.items()},
     }
+    assert list(value["sha256"]) == list(FINGERPRINTS)
     assert first["run"] == json_bytes(value)
     assert (loop.out / "run.json").read_bytes() == json_bytes(
         value | {"complete": True}

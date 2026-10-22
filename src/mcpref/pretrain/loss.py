@@ -34,7 +34,7 @@ def micro_loss(
     k_factor, w_pi, r_factor = factors
     Z = modules["phi"](clips)
     l_phi = modules["phi_loss"](Z, clips)
-    l_pi = modules["pi_loss"](modules["pi"](Z), Z, clips)
+    l_pi = modules["pi_loss"](modules["pi"](Z, clips), Z, clips)
     loss = k_factor * (l_phi + w_pi * l_pi).sum()
     sums = [l_phi.detach().sum().item(), l_pi.detach().sum().item(), 0.0]
     if pairs:

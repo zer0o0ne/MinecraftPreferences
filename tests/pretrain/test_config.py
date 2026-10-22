@@ -12,12 +12,17 @@ import mcpref
 import mcpref.clips.collect
 from mcpref.pretrain.config import PretrainConfig, load_config
 
-NAMES = ["index_dir", "out_dir", "seed", "epochs", "batch", "micro_batch",
-         "checkpoint_steps", "keep_checkpoints", "warmup_steps", "w_pi", "w_P",
-         "grad_clip", "adam_eps", "lr_floor", "betas", "groups", "device"]  # fmt: skip
+PATHS = ["index_dir", "out_dir", "perception", "action_mask", "policy", "preference"]
+NAMES = [*PATHS, "seed", "epochs", "batch", "micro_batch", "checkpoint_steps",
+         "keep_checkpoints", "warmup_steps", "w_pi", "w_P", "grad_clip", "adam_eps",
+         "lr_floor", "betas", "groups", "device"]  # fmt: skip
 VALID = {  # YAML lines of a valid config
     "index_dir": "./x/index",
     "out_dir": "o/p/",
+    "perception": "c/perception.yaml",
+    "action_mask": "./c/action-mask.yaml",
+    "policy": "c/sub/policy.yaml",
+    "preference": "preference.yaml",
     "seed": "4294967295",
     "epochs": "1",
     "batch": "3",
@@ -45,11 +50,17 @@ def load(tmp_path, **changes: str | None) -> PretrainConfig:
 
 
 def test_reads_every_field(tmp_path):
-    """Strings as written, integers, numbers; betas a tuple of floats; groups in the
-    config's order with float lr and weight_decay; frozen."""
+    """The fields, the module configs following out_dir; strings as written, integers,
+    numbers; betas a tuple of floats; groups in the config's order with float lr and
+    weight_decay; frozen."""
     cfg = load(tmp_path)
-    assert {f.name for f in dataclasses.fields(PretrainConfig)} == set(NAMES)
+    fields = [f.name for f in dataclasses.fields(PretrainConfig)]
+    assert set(fields) == set(NAMES) and fields.index("out_dir") + 1 == fields.index("perception")  # fmt: skip
+    assert fields[fields.index("perception") :][:4] == PATHS[2:]
     assert (cfg.index_dir, cfg.out_dir) == ("./x/index", "o/p/")
+    assert (cfg.perception, cfg.action_mask, cfg.policy, cfg.preference) == (
+        "c/perception.yaml", "./c/action-mask.yaml", "c/sub/policy.yaml", "preference.yaml"
+    )  # fmt: skip
     ints = (cfg.seed, cfg.epochs, cfg.batch, cfg.micro_batch, cfg.checkpoint_steps,
             cfg.keep_checkpoints, cfg.warmup_steps)  # fmt: skip
     assert ints == (2**32 - 1, 1, 3, 2, 1, 1, 0) and all(type(v) is int for v in ints)
@@ -104,6 +115,12 @@ BAD = {
     "out_dir ..": {"out_dir": ".."},
     "out_dir not a string": {"out_dir": "3"},
     "out_dir null": {"out_dir": "null"},
+    **{f"{k} missing": {k: None} for k in PATHS[2:]},
+    **{f"{k} empty": {k: '""'} for k in PATHS[2:]},
+    **{f"{k} absolute": {k: "/abs/c.yaml"} for k in PATHS[2:]},
+    **{f"{k} with ..": {k: "c/../../c.yaml"} for k in PATHS[2:]},
+    **{f"{k} not a string": {k: "1"} for k in PATHS[2:]},
+    **{f"{k} a list": {k: "[c.yaml]"} for k in PATHS[2:]},
     "seed 2^32": {"seed": "4294967296"},
     "seed negative": {"seed": "-1"},
     "seed a boolean": {"seed": "true"},
@@ -176,28 +193,31 @@ def group(lr: float, weight_decay: float) -> dict:
     return {"lr": lr, "weight_decay": weight_decay}
 
 
-STARTING_GROUPS = {  # specs/perception.md, then specs/preference.md (Interface)
+STARTING_GROUPS = {  # specs/perception.md, specs/policy.md, specs/preference.md (Interface)
     "phi_vision": group(1e-5, 0.01), "phi_vision_no_decay": group(1e-5, 0.0),
     "phi_llm": group(1e-5, 0.01), "phi_llm_no_decay": group(1e-5, 0.0),
     "phi_head": group(1e-4, 0.01), "phi_head_no_decay": group(1e-4, 0.0),
     "phi_dual": group(1e-4, 0.0),
+    "pi": group(3e-4, 0.01), "pi_no_decay": group(3e-4, 0.0),
     "P": group(3e-4, 0.01), "P_no_decay": group(3e-4, 0.0),
 }  # fmt: skip
 
 
 def test_starting_values(repo):
-    """configs/pretrain.yaml as Interface starts it: the groups of specs/perception.md and
-    specs/preference.md."""
+    """configs/pretrain.yaml as Interface starts it: the module configs; the groups of
+    specs/perception.md, specs/policy.md and specs/preference.md."""
     cfg = load_config(repo / "configs/pretrain.yaml")
     assert torch.device(cfg.device) == torch.device("cuda")
     assert dataclasses.asdict(cfg) | {"device": "cuda"} == {
-        "index_dir": "data/train_index", "out_dir": "data/pretrain", "seed": 0,
+        "index_dir": "data/train_index", "out_dir": "data/pretrain",
+        "perception": "configs/perception.yaml", "action_mask": "configs/action-mask.yaml",
+        "policy": "configs/policy.yaml", "preference": "configs/preference.yaml", "seed": 0,
         "epochs": 1, "batch": 32, "micro_batch": 1, "checkpoint_steps": 500,
         "keep_checkpoints": 2, "warmup_steps": 100, "w_pi": 1.0, "w_P": 1.0,
         "grad_clip": 1.0, "adam_eps": 1e-8, "lr_floor": 0.1, "betas": (0.9, 0.999),
         "groups": STARTING_GROUPS, "device": "cuda",
     }  # fmt: skip
-    assert list(cfg.groups) == list(STARTING_GROUPS)  # the nine groups in this order
+    assert list(cfg.groups) == list(STARTING_GROUPS)  # the eleven groups in this order
 
 
 INTEGERS = {  # value, low, high -> result, or None for ValueError

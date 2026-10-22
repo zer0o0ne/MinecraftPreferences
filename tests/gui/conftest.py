@@ -196,15 +196,7 @@ def lab(tmp_path, repo, catalogue, write_config, fake_ask_many, monkeypatch, cap
     return Lab(tmp_path, cfg, ids, fake, capsys)
 
 
-# specs/action-mask.md: the approved masks and catalogue, read-only.
-@pytest.fixture(scope="session")
-def masks(repo):
-    """`load_masks` of the approved configs/action-mask.yaml."""
-    from mcpref.gui.mask import load_config, load_masks
-
-    return load_masks(load_config(repo / "configs/action-mask.yaml"))
-
-
+# specs/action-mask.md: the approved catalogue, read-only (the masks: tests/conftest.py).
 @pytest.fixture(scope="session")
 def approved_screens(repo) -> dict:
     """`load_screens` of the approved configs/gui-screens.yaml."""

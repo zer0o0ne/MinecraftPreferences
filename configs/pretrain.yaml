@@ -1,7 +1,12 @@
-# specs/pretrain.md: PretrainConfig. Paths relative to the repository root; groups
-# (name: {lr, weight_decay}) filled by the blocks providing the modules.
+# specs/pretrain.md: PretrainConfig. Paths relative to the repository root; perception,
+# action_mask, policy, preference: the module configs; groups (name: {lr, weight_decay})
+# of the blocks providing the modules.
 index_dir: "data/train_index"
 out_dir: "data/pretrain"
+perception: "configs/perception.yaml"
+action_mask: "configs/action-mask.yaml"
+policy: "configs/policy.yaml"
+preference: "configs/preference.yaml"
 seed: 0
 epochs: 1
 batch: 32
@@ -16,6 +21,8 @@ groups:
   phi_head: {lr: 1.0e-4, weight_decay: 0.01}
   phi_head_no_decay: {lr: 1.0e-4, weight_decay: 0.0}
   phi_dual: {lr: 1.0e-4, weight_decay: 0.0}
+  pi: {lr: 3.0e-4, weight_decay: 0.01}
+  pi_no_decay: {lr: 3.0e-4, weight_decay: 0.0}
   P: {lr: 3.0e-4, weight_decay: 0.01}
   P_no_decay: {lr: 3.0e-4, weight_decay: 0.0}
 betas: [0.9, 0.999]
