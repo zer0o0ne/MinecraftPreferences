@@ -1,5 +1,5 @@
 # GUI screens
-Status: approved (2026-10-10; YAML forms and `load_textures_config` added after the gui-masks audit, approved the same day; 2026-10-14: label colours, texts that vary are not labels, approved); revision of 2026-10-15 (AGENTS.md Data: textures written atomically, only the needed set), approved the same day; 2026-10-21: `right_handled` for block action-mask (`specs/action-mask.md`), approved
+Status: approved (2026-10-10; YAML forms and `load_textures_config` added after the gui-masks audit, approved the same day; 2026-10-14: label colours, texts that vary are not labels, approved); revision of 2026-10-15 (AGENTS.md Data: textures written atomically, only the needed set), approved the same day; 2026-10-21: `right_handled` for block action-mask (`specs/action-mask.md`), approved; 2026-10-22: the jar fetched by `download` of `http/retry.py` (`specs/perception.md`), approved
 Stage: GUI-recognition experiment (Q GX), later env (block 14) and the mapping of human clicks (`specs/00-overview.md`, block 15)
 
 ## Sources
@@ -60,7 +60,7 @@ Stage: GUI-recognition experiment (Q GX), later env (block 14) and the mapping o
 | Item | Call | Version | Explicit args | Source read |
 |---|---|---|---|---|
 | loading | `yaml.safe_load` | PyYAML 6.0.3 | — | to vet at implementation |
-| download | `httpx.Client.get` | 0.28.1 | `timeout=httpx.Timeout(http_timeout)`, `follow_redirects=False`; client defaults otherwise (`trust_env=True`: a proxy from the environment may be needed on the internet) | `httpx/_config.py` (audit of 2026-10-10) |
+| download | `httpx.Client.get` through `download` of `mcpref/http/retry.py` | 0.28.1 | `timeout=httpx.Timeout(http_timeout)`, `follow_redirects=False`; client defaults otherwise (`trust_env=True`: a proxy from the environment may be needed on the internet) | `httpx/_config.py` (audit of 2026-10-10) |
 | checksum | `hashlib.sha1` | CPython 3.10.20 | — | — |
 | extraction | `zipfile.ZipFile(io.BytesIO(body))` (mode `"r"`); `getinfo(name)` / `read(name)` | CPython 3.10.20 | members by exact name | `Lib/zipfile.py:1237-1300`, `1347-1420` (central directory; names UTF-8 with flag 0x800, else cp437; the last duplicate wins), `1461-1466`, `1497-1500` (exact lookup; absent → `KeyError`, in `FAILURES`); audit of 2026-10-15 |
 | writing | `mcpref.shards.store` `make_dirs`, `write_file` | this repo | — | `specs/shards.md` |

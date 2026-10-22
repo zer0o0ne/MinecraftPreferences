@@ -1,5 +1,5 @@
 """Retries after a delay: specs/gui-screens.md (textures), specs/vlm-client.md (6),
-specs/vpt-gui-frames.md Retries, (c)."""
+specs/vpt-gui-frames.md Retries, (c); `download` of specs/perception.md."""
 
 import time
 from collections.abc import Callable
@@ -55,3 +55,10 @@ def get(
 ) -> httpx.Response:
     """GET retried on a transport error or HTTP 5xx; a last transport error is raised."""
     return request(client.get, url, timeout, retries, delay)
+
+
+def download(url: str, timeout: float, retries: int, delay: float) -> bytes:
+    """The body of `url` by `get` on a new client, closed after; an HTTP error raises."""
+    with httpx.Client() as client:
+        response = get(client, url, timeout, retries, delay)
+    return response.raise_for_status().content

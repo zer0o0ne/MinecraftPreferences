@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
+from mcpref.perception.meta import inventory_text
 from mcpref.vpt.yuv import yuv420p_to_rgb
 
 if TYPE_CHECKING:
@@ -55,18 +56,8 @@ def requests(cfg: "VlmLabelsConfig", n: int, start: int) -> list[tuple[int, ...]
 
 
 def inventory(cfg: "VlmLabelsConfig", line: Mapping) -> str:
-    """(1): iota(x), `inventory_line` with the inventory of lambda_x, quantities summed
-    per type, types in ascending order."""
-    if not line["inventory"]:
-        return cfg.inventory_line.replace("{items}", cfg.no_items)
-    totals = {}
-    for entry in line["inventory"]:
-        totals[entry["type"]] = totals.get(entry["type"], 0) + entry["quantity"]
-    items = (
-        cfg.item_line.replace("{type}", t).replace("{quantity}", str(totals[t]))
-        for t in sorted(totals)
-    )
-    return cfg.inventory_line.replace("{items}", ", ".join(items))
+    """(1): iota(x) of lambda_x, by `inventory_text` of specs/perception.md."""
+    return inventory_text(line, cfg.inventory_line, cfg.item_line, cfg.no_items)
 
 
 def question(cfg: "VlmLabelsConfig") -> str:

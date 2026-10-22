@@ -9,12 +9,14 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **G-2** History lengths: perception input $k_\phi$, preference $k_P$, policy $k_\pi$, VLM screenshots $k_V$ — equal or separate, values, stride inside a window?
   **→ [U]** $\phi$ sees past frames at a stride over a span (example: every 3rd frame over the last 30) plus all meta of those frames. Open: exact stride and span; does the window end at the current frame; $k_P$, $k_\pi$, $k_V$.
   **→ [U]** (2026-10-20) $\phi$'s input is the sequence of elementary states as interleaved (screenshot$_i$, meta$_i$); in training whole clips go through the model; at sampling (R1) $\phi$ runs streaming (each step adds only the new state), and the stream is restarted every $L$ states, so a state sees 1..$L$ states of context, as inside a training clip. Measured: Qwen3.5-2B takes 222 tokens per 640 × 360 frame and ≈ 65–180 tokens per meta as text; its context is 262,144 tokens.
+  **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: Notation, Stream, and (9) ($\phi$'s window is the stream since its last restart, no stride).
 - **G-3** History at an episode start ($t < k$): pad (repeat first state / zeros) or exclude such $t$?
 - **G-4** Is the VLM used only in pretraining, so that in RL all preference labels come from the current $P$?
 - **G-5** Per cycle: R2 → R3 → R4 → R5 in this order, once each? Gradient steps / epochs for each.
 - **G-6** Architectures: $\phi$ backbone (VPT pretrained / ImpalaCNN from scratch / pretrained vision encoder), $P$ and $\pi$ (MLP / transformer over latent histories), sizes, $D$.
   **→ [U]** (2026-10-20) $\phi$ = a small standard VLM (e.g. Qwen3.5-2B) over the interleaved states of G-2; its last hidden state goes to an MLP head that maps it to $z$. $P$ and $\pi$ are lightweight (MCTS-5). Open: the exact VLM, the head, $D$, $P$ and $\pi$.
   **→ [U]** (2026-10-20) $\phi$ uses gradient checkpointing (activations recomputed in the backward pass), block 2; the pretraining loop accumulates gradients over micro-batches (`specs/pretrain.md`).
+  **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: Notation, $B$, and (7) (`Qwen/Qwen3.5-2B`, an MLP head, $D$ = the length of `alpha`).
 - **G-7** Optimisers, learning rates, batch sizes per training stage; fixed in each block spec, or one config file with values from you?
   **→ [U]** every exact number goes into a config, never asked; where and how: G-11.
 - **G-8** Checkpointed across cycles for resuming: nets, optimiser states, METRA $\lambda$, $\mathcal{M}$, $\mathcal{T}$, env state?
@@ -48,8 +50,10 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   Rejected: MineRL v0 (64×64, MC 1.11), Matrix-Game-MC (not released), PLAICraft (no meta, no env, 200 h), GF-Minecraft (scripted random actions), MineDojo (no action labels).
   **→ [U]** (a); Python 3.10 (G-10).
 - **D-8** Meta encoding for $\phi$: inventory (counts over a fixed item vocabulary?), position (absolute world coordinates differ between worlds: raw, relative to the window's last frame, or relative to episode start?), yaw / pitch (raw or sin / cos), GUI flags, which stat increments. Fixed after D-7.
+  **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: (2).
 - **D-9** Cursor: the raw VPT videos have no cursor (VPT's loader draws a 16×16 cursor sprite on GUI frames from the recorded position), while the MineStudio simulator renders one. Draw it onto VPT GUI frames for $\phi$, as VPT and MineStudio loaders do?
   **→ [U]** yes.
+  **→ [U]** (2026-10-21) drawn when the state's GUI flag (with the first-line rule) is true: `specs/perception.md` (1).
 
 ## PER — Perception pretraining (P1)
 - **PER-1** Weighted distance; with weight $w_i$ per squared difference, one unit step along $i$ moves $1/\sqrt{w_i}$, so the norm bound 1 is reached after $\sqrt{w_i}$ straight steps or $w_i$ random-walk steps:
@@ -65,13 +69,19 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   (b) METRA dual with a pulling term: $\max \mathbb{E}[d_\alpha]$ s.t. $d_\alpha^2 \le 1$, i.e. $L = -\mathbb{E}[d_\alpha + \lambda \min(\varepsilon, 1 - d_\alpha^2)]$, $\lambda$ updated as in METRA;
   (c) other.
   **→ [U]** (b), maximising $d_\alpha$ as in METRA, only on transitions that changed something (frames or meta); actions are chosen so that they likely change something (ACT).
+  **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: (11).
 - **PER-8** "Changed": decoded video frames of a static scene still differ by compression noise. Proposed: changed ⇔ meta differs, or mean $|\Delta \text{pixel}|$ of the last frame > $\tau$ (config). Unchanged transitions: left out of P1 entirely, or kept in the constraint term only?
   **→ [U]** changed ⇔ meta differs or the pixel difference exceeds a config threshold; unchanged transitions are dropped from the pairs, "possibly in the edge-adding loop, so that the gaps are healed by other pairs at once". Open: what heals a gap in P1: (a) replacement pairs are drawn so that the pair count stays the same; (b) a run of unchanged steps is bridged by the pair (last state before the run, first changed state after it)?
+  **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: (10).
 - **PER-4** Norm penalty: plain $\lVert z \rVert_2$ or weighted; $\max(0, \lVert z\rVert - c)$ or its square; on both $z_t, z_{t+1}$; coefficient; $c$.
   **→ [U]** plain $\lVert z \rVert_2$, on both $z$ and $z'$, squared hinge $\beta_c \max(0, \lVert z \rVert_2 - c)^2$; $\beta_c$, $c$ in the config.
+  **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: (11) ($\beta \max(0, \lVert z \rVert_2^2 - c^2)$).
 - **PER-9** With $n$ legal actions in the interval of a pair (G-12): constraint $d_\alpha(z_t, z_{t+\Delta}) \le n$, i.e. $d_\alpha^2 \le n^2$, or another form? Decided with the perception block.
+  **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: (11) ($d_\alpha^2 \le n^2$).
 - **PER-5** "Truncated loss" = METRA perception loss without $(\phi(s') - \phi(s))^\top z$, i.e. P1 loss = PER-3 + PER-4 only?
+  **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: (11) (the pushing term $-d_\alpha$ kept).
 - **PER-6** Output layer: unbounded linear or bounded (tanh)?
+  **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: (7).
 - **PER-7** $\phi$ per frame ($z_t = \phi(o_t)$; "history" = sequence of per-frame $z$) or on a window $\phi(o_{t-k_\phi+1..t})$?
   **→ [U]** on a window (G-2).
   **→ [U]** (2026-10-20) the window is the stream since its last restart, at most $L$ states (G-2).

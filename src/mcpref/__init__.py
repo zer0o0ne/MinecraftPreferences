@@ -38,6 +38,14 @@ def number(name: str, value: object) -> float:
         raise ValueError(f"{name} {value!r} is too large for a float") from None
 
 
+def positive(name: str, value: object) -> float:
+    """A `number` > 0."""
+    x = number(name, value)
+    if not x > 0:
+        raise ValueError(f"{name} {value!r} is not > 0")
+    return x
+
+
 def exact(name: str, value: object) -> Fraction:
     """The exact value Fraction(str(x)) of a finite YAML integer or float, not a
     boolean."""

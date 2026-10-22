@@ -172,8 +172,22 @@ def test_violated_constraints_raise_value_error(tmp_path, changes):
         load(tmp_path, **changes)
 
 
+def group(lr: float, weight_decay: float) -> dict:
+    return {"lr": lr, "weight_decay": weight_decay}
+
+
+STARTING_GROUPS = {  # specs/perception.md, then specs/preference.md (Interface)
+    "phi_vision": group(1e-5, 0.01), "phi_vision_no_decay": group(1e-5, 0.0),
+    "phi_llm": group(1e-5, 0.01), "phi_llm_no_decay": group(1e-5, 0.0),
+    "phi_head": group(1e-4, 0.01), "phi_head_no_decay": group(1e-4, 0.0),
+    "phi_dual": group(1e-4, 0.0),
+    "P": group(3e-4, 0.01), "P_no_decay": group(3e-4, 0.0),
+}  # fmt: skip
+
+
 def test_starting_values(repo):
-    """configs/pretrain.yaml as Interface starts it."""
+    """configs/pretrain.yaml as Interface starts it: the groups of specs/perception.md and
+    specs/preference.md."""
     cfg = load_config(repo / "configs/pretrain.yaml")
     assert torch.device(cfg.device) == torch.device("cuda")
     assert dataclasses.asdict(cfg) | {"device": "cuda"} == {
@@ -181,8 +195,9 @@ def test_starting_values(repo):
         "epochs": 1, "batch": 32, "micro_batch": 1, "checkpoint_steps": 500,
         "keep_checkpoints": 2, "warmup_steps": 100, "w_pi": 1.0, "w_P": 1.0,
         "grad_clip": 1.0, "adam_eps": 1e-8, "lr_floor": 0.1, "betas": (0.9, 0.999),
-        "groups": {}, "device": "cuda",
+        "groups": STARTING_GROUPS, "device": "cuda",
     }  # fmt: skip
+    assert list(cfg.groups) == list(STARTING_GROUPS)  # the nine groups in this order
 
 
 INTEGERS = {  # value, low, high -> result, or None for ValueError

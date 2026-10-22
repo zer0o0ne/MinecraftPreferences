@@ -9,12 +9,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-import httpx
-
 from mcpref import REPO
 from mcpref.cli.failure import FAILURES, failed
 from mcpref.gui.screens import ScreenClass, fields, keys, load_screens, read_catalogue
-from mcpref.http.retry import get
+from mcpref.http import retry
 from mcpref.shards.store import make_dirs, write_file
 
 PREFIX = "assets/minecraft/textures/"
@@ -58,11 +56,7 @@ def missing(out_dir: Path, T: set[str]) -> list[str]:
 
 def download(cfg: TexturesConfig) -> bytes:
     """The body of `url`; at most `http_retries` retries after `retry_delay` each."""
-    with httpx.Client() as client:
-        response = get(
-            client, cfg.url, cfg.http_timeout, cfg.http_retries, cfg.retry_delay
-        )
-    return response.raise_for_status().content
+    return retry.download(cfg.url, cfg.http_timeout, cfg.http_retries, cfg.retry_delay)
 
 
 def check_sha1(cfg: TexturesConfig, body: bytes) -> None:

@@ -1,0 +1,31 @@
+# specs/perception.md: PerceptionConfig. `cursor` relative to the repository root.
+model: "Qwen/Qwen3.5-2B"
+revision: "15852e8c16360a2fea060d615a32b45270f8a8fc"
+seed: 0
+alpha: [1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 8, 8, 8, 8, 16, 16, 16, 16, 32, 32, 32, 32, 64, 64, 64, 64, 128, 128, 128, 128, 256, 256, 256, 256, 512, 512, 512, 512]
+head_layers: 1
+head_width: 1024
+c: 1.0
+beta: 1.0
+dual_init: 30.0
+dual_slack: 1.0e-3
+tau: 1.0
+min_pixels: 65536
+max_pixels: 16777216
+rescale_factor: 0.00392156862745098
+image_mean: [0.5, 0.5, 0.5]
+image_std: [0.5, 0.5, 0.5]
+decimals: 1
+meta: "{inventory}Hotbar: {hotbar}\nYaw: {yaw}\nPitch: {pitch}\nPosition: {x} {y} {z}\n"
+inventory_line: "Inventory: {items}\n"
+item_line: "{quantity} {type}"
+no_items: "empty"
+marker: "<|im_end|>"
+cursor: "data/cursor/mouse_cursor_white_16x16.png"
+cursor_url: "https://raw.githubusercontent.com/openai/Video-Pre-Training/095519fbd4ee0e9281d19f19601e45629de9ac3f/cursors/mouse_cursor_white_16x16.png"
+cursor_sha256: "8e4ff0fbbff52c1db89a4fe4ede8f3ecc5cdbc0b35d596b60a65307b55e4f805"
+cursor_crop: 16
+mouse_height: 720
+http_timeout: 30
+http_retries: 5
+retry_delay: 10

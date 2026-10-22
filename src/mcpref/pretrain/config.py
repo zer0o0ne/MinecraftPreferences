@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from mcpref import config_mapping, integer, number, positive_int, relative
+from mcpref import config_mapping, integer, number, positive, positive_int, relative
 from mcpref.training.devices import device
 
 POSITIVE_INTS = ("epochs", "batch", "micro_batch", "checkpoint_steps")
@@ -43,14 +43,6 @@ def beta(value: object) -> float:
     x = number("betas", value)
     if not 0 <= x < 1:
         raise ValueError(f"betas {value!r} is not in [0, 1)")
-    return x
-
-
-def positive(name: str, value: object) -> float:
-    """Notation: a `number` > 0."""
-    x = number(name, value)
-    if not x > 0:
-        raise ValueError(f"{name} {value!r} is not > 0")
     return x
 
 

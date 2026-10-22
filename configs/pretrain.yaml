@@ -8,7 +8,16 @@ batch: 32
 micro_batch: 1
 w_pi: 1.0
 w_P: 1.0
-groups: {}
+groups:
+  phi_vision: {lr: 1.0e-5, weight_decay: 0.01}
+  phi_vision_no_decay: {lr: 1.0e-5, weight_decay: 0.0}
+  phi_llm: {lr: 1.0e-5, weight_decay: 0.01}
+  phi_llm_no_decay: {lr: 1.0e-5, weight_decay: 0.0}
+  phi_head: {lr: 1.0e-4, weight_decay: 0.01}
+  phi_head_no_decay: {lr: 1.0e-4, weight_decay: 0.0}
+  phi_dual: {lr: 1.0e-4, weight_decay: 0.0}
+  P: {lr: 3.0e-4, weight_decay: 0.01}
+  P_no_decay: {lr: 3.0e-4, weight_decay: 0.0}
 betas: [0.9, 0.999]
 adam_eps: 1.0e-8
 warmup_steps: 100

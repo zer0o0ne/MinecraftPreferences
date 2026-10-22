@@ -35,7 +35,7 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 
 ## Pretraining (VPT dataset)
 - **One loop** ([U] 2026-10-20; blocks 29, 7): P1, P4 and P5 are trained together on unlabeled clips (losses of φ and π) mixed in their natural proportion with labeled pairs of P2, P3 (losses of φ and π on each clip of the pair, plus P's loss); the gradients of π's and P's losses flow into φ; P5 with the one-interval delay of Q MCTS-10.
-- **P1 Perception.** Random dataset pairs $(h_t, h_{t+\Delta})$, with the number $n$ of legal actions of every interval (Q G-12, PER-9). Loss: maximise $d_\alpha(z_t, z_{t+1})$ subject to $d_\alpha^2 \le 1$ via METRA's dual variable, only on transitions that changed something (meta differs or the pixel difference exceeds a threshold); unchanged transitions are dropped (Q PER-8), plus $\beta_c \max(0, \lVert z \rVert_2 - c)^2$ for both $z_t, z_{t+1}$. Large $\alpha_i$ allow long chains along coordinate $i$ inside the ball.
+- **P1 Perception** (block 2, `specs/perception.md`). Clips of $L$ consecutive states, with the number $n$ of legal actions of every interval (Q G-12, PER-9); $\phi$ over each clip as one stream. Loss per pair of neighbouring states, averaged over the clip: METRA's perception loss without the skill — maximise $d_\alpha(z_t, z_{t+1})$ subject to $d_\alpha^2 \le n^2$ via METRA's dual variable and slack — on the pairs whose meta or pixels changed (Q PER-8), plus $\beta \max(0, \lVert z \rVert_2^2 - c^2)$ for both $z_t, z_{t+1}$. Large $\alpha_i$ allow long chains along coordinate $i$ inside the ball.
 - **P2 VLM labels** (blocks 23, 4). Recording sessions of the VPT dataset, each one world, reconstructed from line 0 of every episode; clips of up to $e$ episodes of a drawn session; inside each session a random comparison graph (random partners, connected, cycles topped up). `Qwen3-VL-30B-A3B-Instruct-FP8`, served on an NVIDIA DGX Spark (`specs/vlm-client.md`), gets each state as its last screenshots plus its inventory and grades the first against the second in six steps (much worse … much better) or refuses; both orders, several samples (`specs/preference-pool.md`, `specs/vlm-labels.md`).
 - **P3 Correction** (block 3). Each grade has a weight in $[0, 1]$; a comparison with a share of refusals above a threshold is incomparable, else its weight $w \ge 0.5$ is the mean grade weight, its arc from the preferred clip with cost $w - 0.5$; $C$ = Eades' acyclic subgraph of the whole graph, removed arcs put back when they close no cycle; arcs still removed become incomparable (`specs/acyclic.md`).
 - **P4 Preference.** Inputs: $\phi$ of the same loop applied to each state with its history. Targets: the labels of P3 — $p_{inc}$ by cross-entropy on every pair, $p_\succ$ by cross-entropy with the soft target $w$ on comparable pairs, each pair scored in both orders (`specs/acyclic.md` (5)).
@@ -67,7 +67,7 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | S | spark-env — `setup_env.sh`, `pyproject.toml`, `uv.lock`; script conventions | all | — | `specs/spark-env.md` |
 | 0 | vlm-client — Python API to the served VLM; `serve_vlm.sh` | P2 | S | `specs/vlm-client.md` |
 | 1 | data — superseded by blocks 22, 25, 29 | — | — | — |
-| 2 | perception — $\phi$ and the P1 loss | P1 | 7 | PER |
+| 2 | perception — $\phi$ and the P1 loss | P1, R1 | 7 | `specs/perception.md` |
 | 3 | acyclic — verdicts from the VLM's answers, correction $C$ (Eades, put-back), pair labels $Q_\ell$ | P3, R3 | 4 | `specs/acyclic.md` |
 | 4 | vlm-labels — prompt, both orders, samples, parsed answers | P2 | 0, 23 | `specs/vlm-labels.md` |
 | 5 | preference — $P$ and its loss | P4, R3 | 2, 7 | PRF |
@@ -115,3 +115,4 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `preferences` → P2, P3 → `specs/vlm-labels.md`, `specs/acyclic.md`
 - `graphs` → train-index, P2 data, P3 (later R3) → `specs/preference-pool.md`, `specs/acyclic.md`
 - `training` → gui-stack, pretraining → `specs/gui-stack.md`, `specs/pretrain.md`
+- `perception` → P1, R1 → `specs/perception.md`
