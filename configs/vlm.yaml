@@ -12,7 +12,7 @@ client:
   max_tokens: 300
   min_pixels: 65536
   max_pixels: 230400
-  max_in_flight: 16
+  max_in_flight: 48
   attempt_timeout: 300
   max_resends: 3
   resend_delay: 10
@@ -26,7 +26,7 @@ server:
   port: 8100
   gpu_memory_utilization: 0.5
   max_images: 32
-  max_prompt_tokens: 8192
+  max_prompt_tokens: 5120
   seed: 0
   stack_ulimit: 67108864
   ready_timeout: 1800
