@@ -8,10 +8,10 @@ tick_slack: 0.03
 resetting_stats:
   - "minecraft.custom:minecraft.time_since_rest"
   - "minecraft.custom:minecraft.time_since_death"
-episodes: 5
+episodes: 10
 per_episode: 4
 n_clips: 10000
-partners: 2
+partners: 100
 cycles: 0.5
 seed: 0
 workers: 4

@@ -18,7 +18,7 @@ required_options:
 width: 640
 height: 360
 fps: 20
-n_frames: 5000
+n_frames: 50000
 per_episode: 5
 seed: 0
 workers: 8
