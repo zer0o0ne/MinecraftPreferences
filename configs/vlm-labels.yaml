@@ -37,7 +37,7 @@ answers:
     description: "A is much worse than B"
   - token: "INCOMPARABLE"
     description: "A and B cannot be compared"
-frames: 8
+frames: 6
 stride: 2
 samples: 1
 seed: 0
