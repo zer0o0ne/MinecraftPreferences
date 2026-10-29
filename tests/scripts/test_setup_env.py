@@ -1,5 +1,6 @@
 """scripts/setup_env.sh and the project files against specs/spark-env.md; step (7) against
-specs/vpt-gui-frames.md (Interface: `scripts/setup_env.sh` step (7))."""
+specs/vpt-gui-frames.md (Interface: `scripts/setup_env.sh` step (7)); steps (5a), (9) and
+the project files against specs/engine.md (Behaviour, Interface: `pyproject.toml`)."""
 
 import importlib
 import os
@@ -30,6 +31,20 @@ NOT_PINNED = {
     "libavfilter9 at another version": {"libavfilter9": ("installed", "9:8.0.2-1")},
     "libpostproc57 removed, version kept": {"libpostproc57": ("config-files", V)},
 }
+
+
+# Step (5a) of specs/engine.md: database changes after which dpkg-query does not print one
+# line `installed` per package.
+NOT_INSTALLED = {
+    "openjdk-8-jre unknown": {"openjdk-8-jre": None},
+    "xvfb removed": {"xvfb": ("config-files", "2:21.1.12-1ubuntu1")},
+    "libx11-dev half-installed": {"libx11-dev": ("half-installed", "2:1.8.7-1build1")},
+    "build-essential not installed": {"build-essential": ("not-installed", "")},
+}
+JAVA_MESSAGE = 'setup_env.sh: java on PATH is not Java 8; run "sudo update-alternatives --config java"'
+JAVA_11 = (
+    'openjdk version "11.0.22" 2024-01-16\nOpenJDK Runtime Environment (build 11)\n'
+)
 
 
 @pytest.fixture
@@ -73,7 +88,7 @@ def test_committed_config_drives_the_steps(make_spark, repo):
     "where, argv", [("cwd", None), ("repo/scripts", ["./setup_env.sh"])]
 )
 def test_runs_in_repository_root(spark, where, argv):
-    spark.set_debs({})  # step (7) installs: sudo and the apt tools run too
+    spark.set_debs({})  # steps (5a), (7) install: sudo and the apt tools run too
     result = spark.run(cwd=spark.tmp / where, argv=argv)
     assert result.returncode == 0, result.stderr
     assert {os.path.realpath(c) for c in result.cwds} == {os.path.realpath(spark.repo)}
@@ -101,7 +116,9 @@ def test_second_run_installs_nothing(spark):
     home = spark.home_files()
     second = spark.run()
     assert (first.returncode, second.returncode) == (0, 0), second.stderr
-    install = spark.expected(spark.uv_install(), ffmpeg=spark.ffmpeg_install())
+    install = spark.expected(
+        spark.uv_install(), ffmpeg=spark.ffmpeg_install(), engine=spark.engine_install()
+    )
     assert first.events == install
     assert second.events == spark.expected(spark.uv_check(UV))
     assert spark.home_files() == home
@@ -161,8 +178,10 @@ def test_failed_download_fails_uv_step(spark):
 
 
 @pytest.mark.parametrize(
-    "step, command", [("python", "python"), ("sync", "sync"), ("vlm", "run")]
-)
+    "step, command",
+    [("python", "python"), ("sync", "sync"), ("vlm", "run"),
+     ("engine", "mcpref.engine.prepare")],
+)  # fmt: skip
 def test_failed_uv_command_fails_its_step(spark, step, command):
     spark.fail = command
     events = spark.expected(spark.uv_check(UV), step)
@@ -171,7 +190,8 @@ def test_failed_uv_command_fails_its_step(spark, step, command):
 
 @pytest.mark.parametrize("state", ["no package known", *NOT_PINNED])
 def test_ffmpeg_not_pinned_is_installed_and_held_with_sudo(spark, state):
-    spark.set_debs(spark.pinned(**NOT_PINNED[state]) if state in NOT_PINNED else {})
+    pinned = spark.pinned(**NOT_PINNED[state]) if state in NOT_PINNED else None
+    spark.set_debs(pinned or spark.installed())  # step (5a)'s packages installed
     result = spark.run()
     assert result.returncode == 0, result.stderr
     install = spark.ffmpeg_install()
@@ -183,7 +203,7 @@ def test_ffmpeg_not_pinned_is_installed_and_held_with_sudo(spark, state):
     [("sudo", 2), ("apt-get update", 3), ("apt-get install", 5), ("apt-mark hold", 7)],
 )
 def test_failed_ffmpeg_command_fails_its_step(spark, command, calls):
-    spark.set_debs({})
+    spark.set_debs(spark.installed())
     spark.fail = command
     ffmpeg = spark.ffmpeg_install()[:calls]
     events = spark.expected(spark.uv_check(UV), "ffmpeg", ffmpeg)
@@ -236,3 +256,111 @@ def test_pytest_tiers(pytestconfig):
     markers = {m.split(":")[0].strip() for m in pytestconfig.getini("markers")}
     assert {"gpu", "slow"} <= markers
     assert pytestconfig.getini("addopts") == shlex.split(ADDOPTS)
+
+
+def none_installed(spark) -> dict:
+    """The database without step (5a)'s packages."""
+    return spark.pinned(**dict.fromkeys(spark.installed()))
+
+
+@pytest.mark.parametrize("state", ["no package known", *NOT_INSTALLED])
+def test_engine_deps_not_installed_are_installed_with_sudo(spark, state):
+    """(5a): `sudo apt-get update`, `sudo apt-get install -y` of the six packages, then the
+    Java check; dpkg-query's stderr shown."""
+    changes = NOT_INSTALLED.get(state, dict.fromkeys(spark.installed()))
+    spark.set_debs(spark.pinned(**changes))
+    result = spark.run()
+    assert result.returncode == 0, result.stderr
+    engine = spark.engine_install()
+    assert result.events == spark.expected(spark.uv_check(UV), engine=engine)
+    unknown = [p for p, entry in changes.items() if entry is None]
+    for package in unknown:
+        assert f"dpkg-query: no packages found matching {package}" in result.stderr
+
+
+def test_engine_deps_second_run_installs_nothing(spark):
+    spark.set_debs(none_installed(spark))
+    assert spark.run().returncode == 0
+    second = spark.run()
+    assert second.returncode == 0, second.stderr
+    assert second.events == spark.expected(spark.uv_check(UV))
+
+
+@pytest.mark.parametrize(  # `calls`: the failing call is the last; sudo, then the apt tool
+    "command, calls", [("sudo", 2), ("apt-get update", 3), ("apt-get install", 5)]
+)
+def test_failed_engine_deps_command_fails_its_step(spark, command, calls):
+    spark.set_debs(spark.pinned(xvfb=None))
+    spark.fail = command
+    engine = spark.engine_install()[:calls]
+    assert_failed(
+        spark.run(),
+        spark.expected(spark.uv_check(UV), "engine-deps", engine=engine),
+        "engine-deps",
+    )
+
+
+@pytest.mark.parametrize(
+    "java, fd, rc",
+    [
+        (None, 2, 0),  # None: OpenJDK 1.8.0_504 of [R], on stderr
+        ("Picked up JAVA_TOOL_OPTIONS: -Xmx2g\n", 2, 0),  # a first line before it
+        ('java version "1.8.0_391"\nJava(TM) SE Runtime Environment\n', 2, 0),
+        (None, 1, 0),  # on stdout: the combined output is checked
+        (None, 2, 3),  # its exit status ignored
+    ],
+)
+def test_java_8_passes_silently(spark, java, fd, rc):
+    """The captured output contains `version "1.8.`; nothing of it printed."""
+    if java is None or java.startswith("Picked"):
+        java = (java or "") + spark.java
+    spark.java, spark.java_fd, spark.java_rc = java, fd, rc
+    result = spark.run()
+    assert result.returncode == 0, result.stderr
+    assert result.events == spark.expected(spark.uv_check(UV))
+    assert "1.8.0" not in result.stderr + result.log
+
+
+@pytest.mark.parametrize(
+    "java",
+    [JAVA_11, 'openjdk version "17.0.9" 2023-10-17\n', 'openjdk version "11.8.0"\n',
+     'openjdk version "1.8"\n', 'version 1.8.0_504\n', ""],
+)  # fmt: skip
+def test_java_other_than_8_fails(spark, java):
+    events = spark.expected(spark.uv_check(UV), "engine-deps")
+    spark.java = java
+    assert_failed(spark.run(), events, "engine-deps", JAVA_MESSAGE)
+
+
+def test_java_checked_after_an_install(spark):
+    """The Java check runs also when the packages were installed in this run."""
+    spark.set_debs(none_installed(spark))
+    spark.java = JAVA_11
+    events = spark.expected(
+        spark.uv_check(UV), "engine-deps", engine=spark.engine_install()
+    )
+    assert_failed(spark.run(), events, "engine-deps", JAVA_MESSAGE)
+
+
+@pytest.mark.skipif(
+    shutil.which("java", path="/usr/bin:/bin") is not None,
+    reason="a java in /usr/bin or /bin would be found on the fake Spark's PATH",
+)
+def test_java_missing_fails(spark):
+    spark.java = None
+    events = spark.expected(spark.uv_check(UV), "engine-deps")[:-1]  # no java to record
+    assert_failed(spark.run(), events, "engine-deps", JAVA_MESSAGE)
+
+
+def test_engine_dependencies_and_override(pyproject, repo):
+    """specs/engine.md Interface: the four pins, the networkx override, the version
+    uv.lock holds."""
+    pins = {"minestudio==1.1.6", "opencv-python==4.8.0.74",
+            "opencv-python-headless==4.8.0.74", "psutil==7.2.2"}  # fmt: skip
+    assert pins <= set(pyproject["project"]["dependencies"])
+    assert pyproject["tool"]["uv"]["override-dependencies"] == ["networkx==3.4.2"]
+    lock = tomli.loads((repo / "uv.lock").read_text())["package"]
+    locked = {(p["name"], p["version"]) for p in lock}
+    assert {("networkx", "3.4.2"), ("minestudio", "1.1.6"), ("psutil", "7.2.2"),
+            ("opencv-python", "4.8.0.74"), ("opencv-python-headless", "4.8.0.74")} <= locked  # fmt: skip
+    assert [p["version"] for p in lock if p["name"] == "networkx"] == ["3.4.2"]

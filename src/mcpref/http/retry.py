@@ -1,5 +1,6 @@
 """Retries after a delay: specs/gui-screens.md (textures), specs/vlm-client.md (6),
-specs/vpt-gui-frames.md Retries, (c); `download` of specs/perception.md."""
+specs/vpt-gui-frames.md Retries, (c); `download` of specs/perception.md; specs/engine.md
+(2), (3)."""
 
 import time
 from collections.abc import Callable
@@ -40,14 +41,19 @@ def retryable(outcome: Outcome) -> bool:
     return isinstance(outcome, httpx.TransportError) or outcome.is_server_error
 
 
+def last_response(outcome: Outcome) -> httpx.Response:
+    """The last outcome of `retried`: a transport error is raised, a response returned."""
+    if isinstance(outcome, httpx.TransportError):
+        raise outcome
+    return outcome
+
+
 def request(
     method: Method, url: str, timeout: float, retries: int, delay: float
 ) -> httpx.Response:
     """A request retried on a transport error or HTTP 5xx; a last transport error is raised."""
-    outcome = retried(partial(attempt, method, url, timeout), retryable, retries, delay)
-    if isinstance(outcome, httpx.TransportError):
-        raise outcome
-    return outcome
+    call = partial(attempt, method, url, timeout)
+    return last_response(retried(call, retryable, retries, delay))
 
 
 def get(

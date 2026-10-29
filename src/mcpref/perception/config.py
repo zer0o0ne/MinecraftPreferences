@@ -1,13 +1,21 @@
 """Notation of specs/perception.md: configs/perception.yaml."""
 
 import math
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
-from mcpref import config_mapping, integer, number, positive, positive_int, repo_path
+from mcpref import (
+    SHA256,
+    config_mapping,
+    integer,
+    non_empty,
+    number,
+    positive,
+    positive_int,
+    repo_path,
+)
 
 POSITIVE_INTS = ("head_width", "min_pixels", "max_pixels", "cursor_crop")
 POSITIVE_INTS += ("mouse_height",)
@@ -20,7 +28,6 @@ PLACEHOLDERS = {
     "inventory_line": ("{items}",),
     "item_line": ("{type}", "{quantity}"),
 }
-SHA256 = re.compile("[0-9a-f]{64}")
 
 
 @dataclass(frozen=True)
@@ -58,13 +65,6 @@ class PerceptionConfig:
     http_timeout: float
     http_retries: int
     retry_delay: float
-
-
-def non_empty(name: str, value: object) -> str:
-    """Notation: a non-empty string."""
-    if type(value) is not str or not value:
-        raise ValueError(f"{name} {value!r} is not a non-empty string")
-    return value
 
 
 def template(name: str, value: object) -> str:

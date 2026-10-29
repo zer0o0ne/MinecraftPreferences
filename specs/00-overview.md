@@ -7,7 +7,7 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 - The game is paused while networks train; every sampling phase resumes from the state where the previous one stopped.
 - Every input of the preference network is encoded by the current perception.
 - Pretraining uses the VPT dataset and VLM labels; RL uses the environment, the networks and the memory (Q G-4).
-- Data and environment: the original VPT recordings (640×360, every tick) plus BASALT 2022; RL and new human recordings in the MineStudio simulator (MC 1.16.5). Python 3.10.
+- Data and environment: the original VPT recordings (640×360, every tick) plus BASALT 2022; RL in the MineStudio simulator (MC 1.16.5); human recordings only in pretraining ([U] 2026-10-29). Python 3.10.
 - Elementary states are a fixed $\Delta$ ticks apart; the agent acts once per $\Delta$; human data carries, per interval, the number $n$ of legal actions of $A$ made in it, and only sequences with $n \ge 1$ in every interval are used (Q G-12, G-13, G-14).
 - Every exact number (hyperparameters, thresholds, API constants) is a config field (Q G-11).
 - Inference speed ([U] 2026-10-20): the agent's inference as fast as possible; all of perception ideally within 150 ms per step with a ~2B transformer inside; every component on the per-step path states a latency budget in its spec.
@@ -79,7 +79,7 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 11 | memory — storage, nearest states, beam search | R3, R5 | 5 | MEM |
 | 12 | ppo — policy update, with backward updates on past trees mixed in | R4 | 6, 8 | PPO, EBU |
 | 13 | rl-cycle — orchestration of R1–R5 | R1–R5 | 8–12 | G |
-| 14 | env — MineStudio wrapper: macro actions, masks, endless timeline | R1, recordings | 15 | ENV, ACT |
+| 14 | env — MineStudio wrapper: macro actions, masks, endless timeline | R1 | 15, 31 | ENV, ACT |
 | 15 | gui-screens — catalogue of survival screens: window, textures, dynamic regions, elements with canonical numbering | P1, P5, R1 | S | ACT, GX |
 | 16 | vpt-gui-frames — random VPT frames with an open GUI, fetched without whole videos; `download_data.sh` | GX experiment | S | GX |
 | 17 | gui-labels — screen type of each sampled frame by the VLM | GX experiment | 0, 15, 16 | GX |
@@ -96,6 +96,7 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 28 | gui-classifier — the pipeline's screen classifier: variant (d) of block 18 from its templates and thresholds; latency budget | P1, P2 data, R1 (env) | 18 | GX |
 | 29 | train-index — shuffled index shards: references to unlabeled clips and labeled pairs, train / validation split by groups of episodes linked by pairs | P1, P4, P5 data | 25, 23, 3 | — |
 | 30 | runs — the run files of the blocks: completeness of another block's output, fingerprints, JSON files, file hashes | all | 27 | — |
+| 31 | engine — MineStudio simulator install on the Spark (apt, engine jar with LWJGL 3.2.3 arm64, Python deps), `check_sim.sh` | R1 | S, 27 | `specs/engine.md` |
 
 ## Package map
 Filled as block specs are approved: subpackage → stage(s) → spec.
@@ -106,7 +107,7 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `recognition` → GUI-recognition experiment, P1, P2 data, later env → `specs/gui-masks.md`, `specs/f3-overlay.md`, `specs/gui-classifier.md`
 - `clips` → P1, P2 data → `specs/clips.md`, `specs/perception-data.md`
 - `stacking` → GUI-recognition experiment → `specs/gui-stack.md`
-- `http` → shared HTTP retries (textures, VPT downloads, VLM client) → the retry rules of `specs/vlm-client.md` (6), `specs/gui-screens.md`, `specs/vpt-gui-frames.md`
+- `http` → shared HTTP retries (textures, VPT downloads, VLM client, engine download) → the retry rules of `specs/vlm-client.md` (6), `specs/gui-screens.md`, `specs/vpt-gui-frames.md`
 - `cli` → shared one-line failure messages of the command-line entry points
 - `shards` → every block that builds or reads a dataset → `specs/shards.md`
 - `pretrain` → pretraining → `specs/train-index.md`, `specs/pretrain.md`, `specs/policy.md` (`run.py`)
@@ -118,3 +119,4 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `perception` → P1, R1 → `specs/perception.md`
 - `policy` → P5 (later R1, R2, R4) → `specs/policy.md`
 - `transformer` → P4, P5 (layers shared by $P$ and $\pi$) → `specs/preference.md`, `specs/policy.md`
+- `engine` → R1 (simulator install and check) → `specs/engine.md`

@@ -38,6 +38,17 @@ fi
 step python
 uv python install "$python_version"
 
+step engine-deps
+engine_debs=(openjdk-8-jre xvfb libgl1-mesa-dri libglx-mesa0 build-essential libx11-dev)
+expected=$(printf 'installed%.0s\n' "${engine_debs[@]}")
+if [[ $(dpkg-query -W -f='${db:Status-Status}\n' "${engine_debs[@]}") != "$expected" ]]; then
+  sudo apt-get update
+  sudo apt-get install -y "${engine_debs[@]}"
+fi
+java_version=$(java -version 2>&1 || true)
+[[ $java_version == *'version "1.8.'* ]] ||
+  fail 'java on PATH is not Java 8; run "sudo update-alternatives --config java"'
+
 step sync
 uv sync --locked --python "$python_version"
 
@@ -53,3 +64,6 @@ fi
 
 step vlm
 uv run --locked python -m mcpref.vlm.server prepare configs/vlm.yaml
+
+step engine
+uv run --locked python -m mcpref.engine.prepare configs/engine.yaml

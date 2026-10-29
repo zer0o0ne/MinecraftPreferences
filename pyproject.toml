@@ -6,8 +6,12 @@ dependencies = [
     "fla-core==0.5.2 ; platform_machine == 'aarch64' and sys_platform == 'linux'",
     "httpx==0.28.1",
     "igraph==1.0.0",
+    "minestudio==1.1.6",
     "numpy==1.26.4",
+    "opencv-python==4.8.0.74",
+    "opencv-python-headless==4.8.0.74",
     "pillow==12.3.0",
+    "psutil==7.2.2",
     "pyyaml==6.0.3",
     "texttable==1.7.0",
     "tokenizers==0.23.3",
@@ -30,6 +34,7 @@ addopts = "-m 'not gpu and not slow' -n auto --timeout=10 --durations=10"
 
 [tool.uv]
 required-version = "==0.12.19"
+override-dependencies = ["networkx==3.4.2"]
 
 [dependency-groups]
 dev = [

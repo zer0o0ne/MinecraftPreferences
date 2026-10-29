@@ -1,12 +1,14 @@
 """Minecraft agent training pipeline (AGENTS.md); REPO: the repository root; the config
-readers shared by the blocks' load_config."""
+readers shared by the blocks' load_config, SHA256 the pattern of a sha256 they check."""
 
 import math
+import re
 from dataclasses import fields
 from fractions import Fraction
 from pathlib import Path, PurePosixPath
 
 REPO = Path(__file__).resolve().parents[2]
+SHA256 = re.compile("[0-9a-f]{64}")
 
 
 def config_mapping(raw: object, path: Path, cls: type) -> dict:
@@ -25,6 +27,13 @@ def repo_path(name: str, value: object) -> Path:
     if isinstance(value, str):
         return REPO / value
     raise ValueError(f"{name} {value!r} is not a path string")
+
+
+def non_empty(name: str, value: object) -> str:
+    """A non-empty string."""
+    if type(value) is not str or not value:
+        raise ValueError(f"{name} {value!r} is not a non-empty string")
+    return value
 
 
 def number(name: str, value: object) -> float:

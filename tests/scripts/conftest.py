@@ -1,5 +1,5 @@
-"""Fake DGX Spark for the scripts: Tests items of specs/spark-env.md, specs/vlm-client.md
-and specs/vpt-gui-frames.md (setup_env.sh step (7))."""
+"""Fake DGX Spark for the scripts: Tests items of specs/spark-env.md, specs/vlm-client.md,
+specs/vpt-gui-frames.md (setup_env.sh step (7)) and specs/engine.md (steps (5a), (9))."""
 
 import re
 import shlex
@@ -12,13 +12,22 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 DIRS = ("repo/scripts", "repo/configs", "home/.local/bin", "sysbin", "ctl", "cwd")
-STEPS = ["config", "arch", "driver", "docker", "uv", "python", "sync", "ffmpeg", "vlm"]
+STEPS = ["config", "arch", "driver", "docker", "uv", "python", "engine-deps", "sync",
+         "ffmpeg", "vlm", "engine"]  # fmt: skip
 NVIDIA_SMI_ARGS = ("--query-gpu=driver_version", "--format=csv,noheader")
 # Step (7) of specs/vpt-gui-frames.md: the nine packages, in the order of its dpkg-query
 # call; `apt-get install` and `apt-mark hold` may take them in any order (see `canonical`).
 DEBS = ("ffmpeg", "libavcodec60", "libavdevice60", "libavfilter9", "libavformat60",
         "libavutil58", "libpostproc57", "libswresample4", "libswscale7")  # fmt: skip
 DPKG_QUERY = ("dpkg-query", "-W", r"-f=${db:Status-Status} ${Version}\n", *DEBS)
+# Step (5a) of specs/engine.md: the six packages, in the order of its dpkg-query call.
+ENGINE_DEBS = ("openjdk-8-jre", "xvfb", "libgl1-mesa-dri", "libglx-mesa0", "build-essential",
+               "libx11-dev")  # fmt: skip
+ENGINE_QUERY = ("dpkg-query", "-W", r"-f=${db:Status-Status}\n", *ENGINE_DEBS)
+JAVA_VERSION = ("java", "-version")
+JAVA_8 = ('openjdk version "1.8.0_504"\nOpenJDK Runtime Environment (build '
+          '1.8.0_504-8u504-ga~us1-0ubuntu1~24.04-b07)\nOpenJDK 64-Bit Server VM (build '
+          '25.504-b07, mixed mode)\n')  # fmt: skip
 UNORDERED = (("apt-get", "install"), ("apt-mark", "hold"))
 DOCKER_INFO = "Server Version: fake-docker-info"
 RECORD = r"""{ printf 'CALL\037%s\037%s' @NAME@ "$PWD"; for a in "$@"; do printf '\037%s' "$a"; done; echo; } >> @LOG@
@@ -32,8 +41,10 @@ CURL = r"""[ "$(cat @CTL@/fail)" != curl ] || exit 22
 echo "V=${BASH_REMATCH[1]}"
 cat @CTL@/install.sh
 """
+# `fail` names a uv subcommand ($1) or the module of `uv run --locked python -m` ($5).
 UV = r"""[ "$1" != --version ] || echo "uv $V (fake 2026-10-10)"
-[ "$1" != "$(cat @CTL@/fail)" ] || exit 1
+f=$(cat @CTL@/fail)
+if [ -n "$f" ] && { [ "$1" = "$f" ] || [ "${5-}" = "$f" ]; }; then exit 1; fi
 """
 INSTALL_SH = r"""{ printf 'CALL\037install.sh\037%s' "$PWD"; printf '\037UV_INSTALL_DIR=%s' "${UV_INSTALL_DIR-<unset>}"; printf '\037UV_NO_MODIFY_PATH=%s\n' "${UV_NO_MODIFY_PATH-<unset>}"; } >> @LOG@
 dir=${UV_INSTALL_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}
@@ -59,12 +70,21 @@ done
 """
 # dpkg-query -W -f=FORMAT PACKAGE...: one line per database entry (`name` or `name:arch`)
 # matching a requested name, in name order; an unmatched name is reported and exits 1.
-DPKG = r"""[ "$1 $2" = '-W -f=${db:Status-Status} ${Version}\n' ] || { echo "fake dpkg-query: unsupported $*" >&2; exit 2; }
+# FORMAT: status and version (step (7)) or status alone (step (5a) of specs/engine.md).
+DPKG = r"""case "$1 $2" in
+  '-W -f=${db:Status-Status} ${Version}\n') version=1 ;;
+  '-W -f=${db:Status-Status}\n') version=0 ;;
+  *) echo "fake dpkg-query: unsupported $*" >&2; exit 2 ;;
+esac
 shift 2
-sort @CTL@/dpkg | awk -v pkgs="$*" '
+sort @CTL@/dpkg | awk -v pkgs="$*" -v version=$version '
   BEGIN { n = split(pkgs, want, " ") }
-  { split($1, name, ":"); for (i = 1; i <= n; i++) if (name[1] == want[i]) { print $2 " " $3; found[i] = 1; break } }
+  { split($1, name, ":"); for (i = 1; i <= n; i++) if (name[1] == want[i]) { print (version ? $2 " " $3 : $2); found[i] = 1; break } }
   END { for (i = 1; i <= n; i++) if (!found[i]) { print "dpkg-query: no packages found matching " want[i] > "/dev/stderr"; rc = 1 }; exit rc }'
+"""
+# java -version: the text of ctl/java on the descriptor of ctl/java_fd, exit ctl/java_rc.
+JAVA = r"""cat @CTL@/java >&"$(cat @CTL@/java_fd)"
+exit "$(cat @CTL@/java_rc)"
 """
 
 
@@ -77,6 +97,7 @@ FAKES = [  # (path under tmp, recorded name, body)
     ("sysbin/apt-get", "apt-get", AS_ROOT + APT_GET),
     ("sysbin/apt-mark", "apt-mark", AS_ROOT),
     ("sysbin/dpkg-query", "dpkg-query", DPKG),
+    ("sysbin/java", "java", JAVA),
     ("home/.local/bin/curl", "curl", CURL),
 ]
 
@@ -118,10 +139,12 @@ def parse(log: str) -> tuple[list, set]:
 class Spark:
     """Temp repository with a copy of `script`, a fake HOME and recording fakes.
 
-    uname, nvidia-smi, docker, sudo and the dpkg/apt tools sit on the caller's PATH (steps
-    1-3 run before step 4 prepends $HOME/.local/bin); curl and uv only in $HOME/.local/bin.
-    curl on the caller's PATH is a guard that records and fails. The dpkg database starts
-    with the nine packages of step (7) installed at `ffmpeg_deb_version`, if `cfg` has it.
+    uname, nvidia-smi, docker, sudo, java and the dpkg/apt tools sit on the caller's PATH
+    (steps 1-3 run before step 4 prepends $HOME/.local/bin); curl and uv only in
+    $HOME/.local/bin. curl on the caller's PATH is a guard that records and fails. The dpkg
+    database starts with the six packages of step (5a) installed and the nine packages of
+    step (7) installed at `ffmpeg_deb_version`, if `cfg` has it. `java` is the text `java
+    -version` prints (None: no java), on `java_fd`, exiting `java_rc`.
     """
 
     docker_info = DOCKER_INFO  # what the fake `docker info` prints on stdout
@@ -137,9 +160,11 @@ class Spark:
         self.write_config(cfg)
         self.write_fakes()
         self.set_uv(cfg["uv_version"])
-        self.set_debs(self.pinned() if "ffmpeg_deb_version" in cfg else {})
+        self.set_debs(
+            self.pinned() if "ffmpeg_deb_version" in cfg else self.installed()
+        )
         self.arch, self.driver, self.docker = "aarch64", cfg["driver_min"], "ok"
-        self.fail = ""
+        self.fail, self.java, self.java_fd, self.java_rc = "", JAVA_8, 2, 0
         self.env = {
             "HOME": str(self.home),
             "PATH": f"{tmp / 'sysbin'}:/usr/bin:/bin",
@@ -181,16 +206,24 @@ class Spark:
         text = "".join(f"{p} {status} {v}\n" for p, (status, v) in debs.items())
         (self.ctl / "dpkg").write_text(text)
 
-    def pinned(self, **changes) -> dict:
-        """The nine packages of step (7) installed at `ffmpeg_deb_version`, with `changes`
-        (package -> (status, version), or None for a package dpkg does not know)."""
-        version = self.cfg["ffmpeg_deb_version"]
-        debs = {p: ("installed", version) for p in DEBS} | changes
+    def installed(self, **changes) -> dict:
+        """The six packages of step (5a) installed, with `changes` (package -> (status,
+        version), or None for a package dpkg does not know)."""
+        debs = {p: ("installed", "1:fake-1") for p in ENGINE_DEBS} | changes
         return {p: entry for p, entry in debs.items() if entry is not None}
 
+    def pinned(self, **changes) -> dict:
+        """`installed()` and the nine packages of step (7) installed at
+        `ffmpeg_deb_version`, with `changes` as in `installed`."""
+        version = self.cfg["ffmpeg_deb_version"]
+        return self.installed(**{p: ("installed", version) for p in DEBS} | changes)
+
     def run(self, cwd: Path | None = None, argv: list | None = None) -> Result:
-        for key in ("arch", "driver", "docker", "fail"):
+        for key in ("arch", "driver", "docker", "fail", "java_fd", "java_rc"):
             (self.ctl / key).write_text(f"{getattr(self, key)}\n")
+        (self.ctl / "java").write_text(self.java or "")
+        if self.java is None:
+            (self.tmp / "sysbin/java").unlink(missing_ok=True)
         self.log.write_text("")
         with self.log.open("a") as out:
             proc = subprocess.run(
@@ -230,6 +263,19 @@ class Spark:
         calls = [e for c in root for e in (("sudo", *c), c)]
         return [DPKG_QUERY] + [canonical(e) for e in calls]
 
+    def engine_install(self) -> list:
+        """Step (5a) when the check fails: the dpkg-query check, each sudo command followed
+        by the fake it runs as root (canonical), then `java -version`."""
+        root = [("apt-get", "update"), ("apt-get", "install", "-y", *ENGINE_DEBS)]
+        calls = [canonical(e) for c in root for e in (("sudo", *c), c)]
+        return [ENGINE_QUERY, *calls, JAVA_VERSION]
+
+    def engine_prepare(self) -> tuple:
+        """Step (9): `uv run --locked python -m mcpref.engine.prepare configs/engine.yaml`."""
+        uv = f"uv@{self.cfg['uv_version']}"
+        run = ("run", "--locked", "python", "-m", "mcpref.engine.prepare")
+        return (uv, *run, "configs/engine.yaml")
+
     def vlm_server(self, command: str) -> tuple:
         """`uv run --locked python -m mcpref.vlm.server <command> configs/vlm.yaml`."""
         uv = f"uv@{self.cfg['uv_version']}"
@@ -237,10 +283,15 @@ class Spark:
         return (uv, *run, command, "configs/vlm.yaml")
 
     def expected(
-        self, uv_calls: list, last: str = "vlm", ffmpeg: list | None = None
+        self,
+        uv_calls: list,
+        last: str = "engine",
+        ffmpeg: list | None = None,
+        engine: list | None = None,
     ) -> list:
         """Steps (0)..`last` of Behaviour: header `== <name>`, then the step's calls;
-        step (7) is the dpkg-query check alone unless `ffmpeg` is given."""
+        step (7) is the dpkg-query check alone unless `ffmpeg` is given, step (5a) the
+        dpkg-query check and `java -version` unless `engine` is given."""
         v, py = self.cfg["uv_version"], self.cfg["python_version"]
         calls = {
             "config": [],
@@ -249,9 +300,11 @@ class Spark:
             "docker": [("docker", "info")],
             "uv": uv_calls,
             "python": [(f"uv@{v}", "python", "install", py)],
+            "engine-deps": [ENGINE_QUERY, JAVA_VERSION] if engine is None else engine,
             "sync": [(f"uv@{v}", "sync", "--locked", "--python", py)],
             "ffmpeg": [DPKG_QUERY] if ffmpeg is None else ffmpeg,
             "vlm": [self.vlm_server("prepare")],
+            "engine": [self.engine_prepare()],
         }
         steps = STEPS[: STEPS.index(last) + 1]
         return [e for s in steps for e in [("==", s), *calls[s]]]

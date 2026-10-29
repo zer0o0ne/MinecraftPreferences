@@ -1,5 +1,5 @@
 # Spark environment
-Status: approved (2026-10-10, amended and re-approved the same day; test tiers added; driver minimum and docker check corrected after the first run on the Spark, with the user)
+Status: approved (2026-10-10, amended and re-approved the same day; test tiers added; driver minimum and docker check corrected after the first run on the Spark, with the user); 2026-10-29: steps (5a) and (9) of block engine (`specs/engine.md`), approved
 Stage: infrastructure for every stage run on the NVIDIA DGX Spark (`specs/00-overview.md`); implemented first: it creates the project files every other block builds on.
 
 ## Sources
@@ -19,9 +19,11 @@ Stage: infrastructure for every stage run on the NVIDIA DGX Spark (`specs/00-ove
 (3) `docker`: `docker info >/dev/null` succeeds — else stderr contains `sudo usermod -aG docker $USER` and `log in again`. GPU access inside containers is checked by step (8) (block vlm-client), with the vLLM image itself: on DGX OS the NVIDIA Container Toolkit serves `--gpus all` without registering a `nvidia` runtime (found on the user's Spark, 2026-10-10).
 (4) `uv`: `PATH="$HOME/.local/bin:$PATH"`. If the second field of `uv --version` is not `uv_version` (or uv is absent): `curl -LsSf https://astral.sh/uv/<uv_version>/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" UV_NO_MODIFY_PATH=1 sh`.
 (5) `python`: `uv python install <python_version>`.
+(5a) `engine-deps`, added by block engine (`specs/engine.md`).
 (6) `sync`: `uv sync --locked --python <python_version>`.
 (7) `ffmpeg`, added by block vpt-gui-frames: ffmpeg for frame extraction over HTTPS.
 (8) `vlm`, added by block vlm-client: `uv run --locked python -m mcpref.vlm.server prepare configs/vlm.yaml`.
+(9) `engine`, added by block engine: `uv run --locked python -m mcpref.engine.prepare configs/engine.yaml`.
 
 Every other script in `scripts/` starts the same way: `set -euo pipefail`, `cd "$(dirname "$0")/.."`, `PATH="$HOME/.local/bin:$PATH"`, and calls Python only as `uv run --locked python -m mcpref.…`.
 
@@ -42,8 +44,8 @@ Every other script in `scripts/` starts the same way: `set -euo pipefail`, `cd "
 | (5), (6) | `uv python install`, `uv sync --locked` | `uv_version` | `--locked`, `--python` | [UV] CLI help, tested on 0.12.19 |
 
 ## Out of scope
-- Installing Docker, the NVIDIA driver or the container toolkit; joining the `docker` group (a precondition, see (3)); any `sudo` except step (7) of block vpt-gui-frames.
-- Java and MineStudio's simulator (block env, later).
+- Installing Docker, the NVIDIA driver or the container toolkit; joining the `docker` group (a precondition, see (3)); any `sudo` except step (7) of block vpt-gui-frames and step (5a) of block engine.
+- Java and MineStudio's simulator: block engine (`specs/engine.md`).
 - Running `setup_env.sh` on other machines (this machine runs `uv sync --locked` directly).
 
 ## Exceptions to AGENTS.md (approved 2026-10-10)
