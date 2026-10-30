@@ -50,7 +50,7 @@ Code holds no numeric defaults; secrets come from environment variables, never f
 Code shared by several stages lives in a subpackage named after what it is (e.g. `rl/`), never `utils`/`common`/`helpers`.
 
 ## Tests
-- No GPU on this machine: tests run on CPU. GPU-only tests are marked `@pytest.mark.gpu` and skipped here; the user runs them elsewhere.
+- This machine is the Spark: a GPU is available (apart from the memory already used by other processes), so tests may run on GPU. GPU-only tests are marked `@pytest.mark.gpu` and run here; the tier budgets below still apply.
 - Tests check the spec, not the implementation: oracles never reuse `src/` logic.
 - Two tiers. Fast (default `uv run pytest`): each test ≤ 5 s (fails at 10 s), the whole tier ≤ 10 min. Slow (`@pytest.mark.slow`, `uv run pytest -m slow`): statistical checks, long scenarios; each test ≤ 5 min (fails at 10 min), the whole tier ≤ 1 h.
 - Tests are independent (no shared files, no order) and run in parallel (`pytest-xdist`).
