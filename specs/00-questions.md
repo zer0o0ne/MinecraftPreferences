@@ -18,6 +18,8 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **G-6** Architectures: $\phi$ backbone (VPT pretrained / ImpalaCNN from scratch / pretrained vision encoder), $P$ and $\pi$ (MLP / transformer over latent histories), sizes, $D$.
   **→ [U]** (2026-10-20) $\phi$ = a small standard VLM (e.g. Qwen3.5-2B) over the interleaved states of G-2; its last hidden state goes to an MLP head that maps it to $z$. $P$ and $\pi$ are lightweight (MCTS-5). Open: the exact VLM, the head, $D$, $P$ and $\pi$.
   **→ [U]** (2026-10-20) $\phi$ uses gradient checkpointing (activations recomputed in the backward pass), block 2; the pretraining loop accumulates gradients over micro-batches (`specs/pretrain.md`).
+  **→ [U]** (2026-11-01) gradient checkpointing is disabled after profiling; gradient accumulation remains (`specs/perception.md`).
+  **→ [U]** (2026-11-03) gradient checkpointing is re-enabled because pretraining runs out of memory; `micro_batch: 1` and gradient accumulation remain (`specs/perception.md`).
   **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: Notation, $B$, and (7) (`Qwen/Qwen3.5-2B`, an MLP head, $D$ = the length of `alpha`).
   **→ [U]** (2026-10-22) $P$: `specs/preference.md` (1)–(8).
   **→ [U]** (2026-10-22) $\pi$: `specs/policy.md` (1)–(7).
@@ -125,22 +127,31 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 
 ## MCTS (R1)
 - **MCTS-1** Value of an imagined node: $P(\text{node}, \text{root})$, $P(\text{node}, \text{parent})$ summed along the path, …? Scalar from $(p_\succ, p_{inc})$: e.g. $(1 - p_{inc})(2p_\succ - 1)$, $p_\succ$, $\log p_\succ$?
+  **→ [U]** (2026-11-03) $P(\text{node}, \text{parent})$, $V=(p_{inc}+m_{min})(2p_\succ-1)$, $m_{min}$ = `min_p`: `specs/mcts.md` (2).
 - **MCTS-2** Selection rule: PUCT with prior $\pi(a \mid \cdot)$ (AlphaZero), $c_{puct}$?
+  **→ [U]** (2026-11-03) PUCT with the unnormalised prior: `specs/mcts.md` (4).
 - **MCTS-3** Expansion: which actions get children — all available, top-$K$ by prior, $K$ sampled, progressive widening?
   **→ [U]** the $l$ most probable unmasked actions ($l$ in the config).
+  **→ [U]** (2026-11-03) the top $\min(l,n_{allowed})$ actions, with the current root mask: `specs/mcts.md` (3).
 - **MCTS-4** Backup: mean or max; discount $\gamma$.
+  **→ [U]** (2026-11-03) the discounted mean: `specs/mcts.md` (5).
 - **MCTS-5** Budget: simulations per decision, maximum depth.
   **→ [U]** (2026-10-20) the agent acts every ≈ 300 ms (one $\Delta$, ≈ 6 ticks at 20 Hz); within it several dozen MCTS iterations, each one call of $P$ and $\pi$: 100–150 ms for 20–30 calls, the rest of the interval for $\phi$ (streaming, G-2) and the other per-step components; speed matters only at sampling. The simulator runs in parallel with the agent's computation, in real time at 20 Hz (its budget is the whole interval). Open: MCTS-10.
+  **→ [U]** (2026-11-03) `specs/mcts.md` Starting config values and Behaviour (latency).
 - **MCTS-10** With the simulator running in parallel, the action chosen during interval $t$ (from state $t$) takes effect only from $t + 1$, while action $a_t$ is still being executed. Plan from the root $z_t$ as if $a_t$ had not happened, or from the imagined state after it ($z_t + \widehat{\Delta z}_t(a_t)$, its shift predicted by $\pi$)? The human data of P5 has no such delay.
   **→ [U]** (2026-10-20) the human pretraining gets the same delay, simulating the human reaction time (the P300, from receiving information to the first reaction): in P5 the action target of state $t$ (history up to $t$) is the action of the next interval, from $t + 1$, so the agent and the human data share the one-interval latency. Open (POL, MCTS blocks): (a) the shift target of that action — $z_{t+2} - z_{t+1}$ (its own effect) or $z_{t+2} - z_t$ (including the in-flight $a_t$); (b) how the tree accounts for the in-flight $a_t$ at the root; (c) POL-8 still applies to the delayed interval; (d) the last interval of a clip has no delayed target.
   **→ [U]** (2026-10-20) (b) the in-flight $a_t$ is not accounted for: the tree is built from $z_t$; (c) yes, POL-8 is decided for the delayed interval; (d) yes, the last interval of a clip gives no P5 target. (a) asked again: the user's formula $z_{t+1} - z_t$ and the words "the shift with the delay" admit two readings.
   **→ [U]** (2026-10-20) (a): from the history up to $z_t$, $\pi$ predicts the action chosen at $z_t$ (executed from $t + 1$), and the shift head's row of that action gets the target $z_{t+1} - z_t$, though that change is caused by the action still in flight. Reason: a human deciding the action has only $z_t$ and models its consequences from there; the one-interval offset is absorbed in RL ($\pi$ and $\phi$ learn that they work with a delay), and $\pi$ sees several past latent states, so it can estimate the dynamics.
 - **MCTS-6** Decision: most visited child, sample $\propto N^{1/\tau}$, or max value? Which probabilities are stored for PPO — the network's $\pi(\cdot)$ or the visit distribution? PPO's ratio needs the probability with which the executed action was actually chosen.
+  **→ [U]** (2026-11-03) sample $\propto N^{1/\tau}$ and store that visit distribution: `specs/mcts.md` (6).
 - **MCTS-7** [later] Tree reuse: how the real $z_{t+1}$ attaches (re-root at the executed child with its $z$ replaced, a new root linked to it, …); what "extended by future decisions" means structurally.
+  **→ [U]** (2026-11-03) exact and quantised latents, accumulated discrepancies, executed-child-first matching and re-root with the subtree and statistics kept: `specs/mcts.md` (7).
 - **MCTS-8** Imagined nodes have no observation, so after R2 their $z$ are coordinates of the old $\phi$. Re-simulate them from re-encoded real nodes with the current $\pi$, keep them as is, or keep only real nodes?
   **→ [U]** keep as is; the networks must work acceptably in stale coordinates.
+  **→ [U]** (2026-11-03) coordinates and cached values are not recomputed: `specs/mcts.md` Domain.
 - **MCTS-9** History of an imagined node for $\pi$ and $P$ = real history + imagined path?
   **→ [U]** (2026-10-22, partial) $\pi$'s input also holds the actions executed in the history (`specs/policy.md` (1), (2)); at RL its history is at most the last $L_\pi = L$ latents, two longer than the longest trained one, accepted. Open for block 8: the history of an imagined node and its $C$.
+  **→ [U]** (2026-11-03) the working latents of the real + imagined path, with one-hot executed actions in $C$; exact latents are not network inputs: `specs/mcts.md` (1), (3).
 
 ## RLS — Sampling (R1)
 - **RLS-1** Environment: `MinecraftSim` is synchronous (the world advances only on `step()`, one tick per step), so the pause is free. Settings: seed, spawn biome, initial inventory, observation size. Death does not end the episode (respawn behaviour unconfirmed); on a time-limit or another `done`, reset (a new world, breaking the single timeline) or never end?

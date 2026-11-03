@@ -8,6 +8,13 @@ Minecraft agent training pipeline (MineStudio, VPT dataset). Stages and data flo
 - If this becomes clear only mid-task, stop: report what is done and propose subtasks for the rest.
 - Judge harshly: splitting a task you could have completed whole is better than taking one you then fail to complete at full quality.
 
+## Orchestrator (main session only)
+- The main session coordinates agents; it never writes `src/` or `tests/` itself. Talk to the user in Russian; write files in English.
+- The Task size rules include the linked protocol. Propose subtasks to the user and start only once the user accepts them.
+- Every piece of logic the user requests is a block and follows `.claude/skills/run-block/SKILL.md`; specification clarification follows `.claude/skills/clarify-spec/SKILL.md`.
+- Agent roles: `.claude/agents/spec-auditor.md`, `.claude/agents/prototyper.md`, `.claude/agents/refactorer.md`, `.claude/agents/tester.md`. Their preloaded skills are part of the procedure; do not duplicate those rules here.
+- Edit permissions and the commit boundary: `CLAUDE.md`, section “What you may change”.
+
 ## Source of truth
 - A block is defined by `specs/<block>.md` with `Status: approved`: math, interface, library mapping, out-of-scope.
 - Code implements exactly the approved spec: every equation and interface item has code; every piece of code traces to the spec.

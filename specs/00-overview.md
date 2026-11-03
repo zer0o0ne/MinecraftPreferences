@@ -73,7 +73,7 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 5 | preference — $P$ (S and X transformer layers over two latent histories, tied linear head) and its loss | P4, R1, R3 | 2, 7 | `specs/preference.md` |
 | 6 | policy — $\pi$ (causal transformer over latents and executed actions; logits; the shift of a given action) and the P5 loss; `main` of the pretraining loop | P5, R1, R2, R4 | 2, 5, 7, 26 | `specs/policy.md` |
 | 7 | pretrain — one loop training φ, π and P (pluggable components and losses) | P1, P4, P5 | 29 | G |
-| 8 | mcts — search, decision, tree storage | R1 | 5, 6 | MCTS |
+| 8 | mcts — search, decision, tree storage | R1 | 5, 6 | `specs/mcts.md` |
 | 9 | env-sampling — environment loop and trajectory record | R1 | 8 | RLS |
 | 10 | metra — METRA perception loss | R2 | 2 | MET |
 | 11 | memory — storage, nearest states, beam search | R3, R5 | 5 | MEM |
@@ -118,5 +118,6 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `training` → gui-stack, pretraining → `specs/gui-stack.md`, `specs/pretrain.md`
 - `perception` → P1, R1 → `specs/perception.md`
 - `policy` → P5 (later R1, R2, R4) → `specs/policy.md`
+- `mcts` → R1 → `specs/mcts.md`
 - `transformer` → P4, P5 (layers shared by $P$ and $\pi$) → `specs/preference.md`, `specs/policy.md`
 - `engine` → R1 (simulator install and check) → `specs/engine.md`

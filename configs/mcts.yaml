@@ -1,0 +1,12 @@
+# specs/mcts.md: MctsConfig; latency_* is the soft decision budget of Behaviour.
+simulations: 24
+depth: 8
+width: 8
+latency_calls: 10
+c_puct: 1.25
+discount: 0.99
+temperature: 1.0
+min_p: 0.5
+epsilon: 0.05
+latency_ms: 150.0
+latency_fail_ms: 300.0

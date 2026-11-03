@@ -30,6 +30,6 @@ adam_eps: 1.0e-8
 warmup_steps: 100
 lr_floor: 0.1
 grad_clip: 1.0
-checkpoint_steps: 500
+checkpoint_steps: 100
 keep_checkpoints: 2
 device: "cuda"
