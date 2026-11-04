@@ -9,6 +9,7 @@ from mcpref.mcts.tree import LatentHistory, Node
 def config(**changes) -> MctsConfig:
     values = {
         "simulations": 1,
+        "min_n_sampling": 1,
         "depth": 1,
         "width": 4,
         "latency_calls": 1,

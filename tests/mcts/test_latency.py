@@ -49,7 +49,7 @@ def test_decision_latency(repo):
     def fresh_decision():
         tree = Tree(real)
         rng = np.random.default_rng(0)
-        decide(tree, mask, pi, P, alpha, cfg, rng)
+        decide(tree, mask, pi, P, alpha, cfg, rng, deadline=float("inf"))
 
     times = []
     with torch.no_grad():
@@ -59,7 +59,7 @@ def test_decision_latency(repo):
             rng = np.random.default_rng(0)
             torch.cuda.synchronize()
             start = time.perf_counter()
-            decide(tree, mask, pi, P, alpha, cfg, rng)
+            decide(tree, mask, pi, P, alpha, cfg, rng, deadline=float("inf"))
             torch.cuda.synchronize()
             stop = time.perf_counter()
             times.append(stop - start)

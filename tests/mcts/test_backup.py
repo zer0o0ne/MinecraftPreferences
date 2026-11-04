@@ -22,6 +22,7 @@ def choose(tree, children, cfg):
         torch.ones(1, dtype=torch.float64),
         cfg,
         np.random.default_rng(0),
+        float("inf"),
     )
     return preference
 
@@ -66,6 +67,7 @@ def test_backup_discounted_running_means_along_whole_path():
         torch.ones(1, dtype=torch.float64),
         config(depth=2, discount=0.5, min_p=0.25),
         np.random.default_rng(0),
+        float("inf"),
     )
     # V=1/2 at depth 2: the first edge gets .5**2*V=.125, the second .5*V=.25.
     assert (first.n, leaf.n) == (2, 3)

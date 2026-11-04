@@ -29,9 +29,9 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 ## Networks
 | Net | Input | Output | Trained in |
 |---|---|---|---|
-| $\phi$ perception | $h_t$ (frames + meta) | $z_t$ | pretraining loop (truncated METRA loss; the losses of π and P flow in), R2 (METRA loss) |
-| $P$ preference | two latent histories of up to $L_P$ latents | the logits of $p_\succ$, $p_{inc}$ (`specs/preference.md`) | pretraining loop (corrected VLM labels), R3 (corrected self-labels) |
-| $\pi$ policy | last $L_\pi$ latent states and the actions executed in their intervals | the logits over $A$; $\widehat{\Delta z}(a)$ of a given action $a$ (`specs/policy.md`) | pretraining loop (action + shift regression), R4 (PPO) |
+| $\phi$ perception | $h_t$ (frames + meta) | $z_t$ | pretraining loop (truncated METRA loss; the losses of π and P flow in), joint RL loop (METRA; the losses of π and P flow in) |
+| $P$ preference | two latent histories of up to $L_P$ latents | the logits of $p_\succ$, $p_{inc}$ (`specs/preference.md`) | pretraining loop (corrected VLM labels), joint RL loop (fixed corrected self-labels) |
+| $\pi$ policy | last $L_\pi$ latent states and the actions executed in their intervals | the logits over $A$; $\widehat{\Delta z}(a)$ of a given action $a$ (`specs/policy.md`) | pretraining loop (action + shift regression), joint RL loop (PPO + factual-shift regression) |
 
 ## Pretraining (VPT dataset)
 - **One loop** ([U] 2026-10-20; blocks 29, 7): P1, P4 and P5 are trained together on unlabeled clips (losses of φ and π) mixed in their natural proportion with labeled pairs of P2, P3 (losses of φ and π on each clip of the pair, plus P's loss); the gradients of π's and P's losses flow into φ; P5 with the one-interval delay of Q MCTS-10.
@@ -42,22 +42,22 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 - **P5 Policy** (block 6, `specs/policy.md`). Every state $s$ of a clip whose next interval lies in the clip; input: the latent history up to $s$ and the actions of its intervals, the one in flight included; $\pi$ a causal transformer (the layers of $P$, one history) with a logit head and a shift MLP on the readout and an action embedding. Targets: the actions of interval $s + 1$ (Q MCTS-10) not masked at $s + 1$, as the distribution of their counts (cross-entropy); with one action in each of the intervals $s$, $s + 1$, its shift regressed to $\mathrm{sg}(z_{s+1} - z_s)$ in squared $d_\alpha$ (Q POL-3, POL-4, POL-8).
 
 ## RL cycle (repeats; one cycle = one trajectory)
-- **R1 Sampling**, $n$ steps from where the previous cycle stopped. Each step:
+- **R1 Sampling**, $N$ steps from where the previous cycle stopped. Each step:
   1. Encode the current history; run MCTS with $\pi$ and $P$: $\pi$ gives action probabilities and $\widehat{\Delta z}$ → move to the imagined state $z + \widehat{\Delta z}$ → evaluate $P$ there → $\pi$ again; repeated as in classic MCTS (Q MCTS-*).
   2. Choose the action from the tree; act; observe $o_{t+1}$.
-  3. Store: action probabilities, the action, $\Delta z_t$ and $\widehat{\Delta z}_t$, and $P$ between the start point and the result (both outputs) (Q RLS-3).
-  4. Keep the tree: later decisions extend it; it is used for retrospective training (Q MCTS-7). Imagined nodes keep their latent coordinates after $\phi$ changes; the networks must cope with stale coordinates.
-- **R2 Perception.** METRA perception loss on the trajectory with $\widehat{\Delta z}_t$ as METRA's skill $z$, in the coordinates $\alpha \odot z$: $(\alpha \odot \Delta z_t)^\top (\alpha \odot \widehat{\Delta z}_t)$ s.t. $d_\alpha^2 \le 1$ (Q MET-*).
-- **R3 Preference.** Pick random trajectory states. For each: nearest past states in $\mathcal{M}$, then a beam search in $\mathcal{M}$ along most / least preferred states (Q MEM-5) → several memory states (the trajectory itself is in $\mathcal{M}$). Label the pairs with the current $P$ on inputs encoded by the $\phi$ from R2 → $C$ → labels → fine-tune $P$.
-- **R4 Policy.** PPO maximizing the preferences observed in the trajectory, both between close points and over the episode or its large parts; no networks beyond $\phi$, $P$, $\pi$ (Q PPO-*). Past trees from $\mathcal{T}$ are trained on as in Episodic Backward Update (Lee, Sung, Choi, NeurIPS 2019, arXiv:1805.12375); this retrospective training is mixed into the fresh trajectory, to learn from errors and successes of the distant past (Q EBU-*).
-- **R5 Memory update** (Q MEM-1).
+  3. Store the raw histories needed for re-encoding, the action, its MCTS visit distribution, the trees and trajectory/RNG state. PPO preferences and latents are recomputed during training rather than taken from sampling-time values (Q RLS-3).
+  4. Keep the tree: later decisions extend it. Imagined nodes keep their latent coordinates after $\phi$ changes; the networks must cope with stale coordinates. Retrospective EBU training is deferred (Q EBU-*).
+- **R3 Pair production before training** (block 32, `specs/rl-preference-pairs.md`). Run the separate pair-sampling algorithm on the fresh trajectory and incoming memory with the start-of-cycle $\phi,P$. Correct the self-labels and freeze the pair references and labels for the whole training loop. The fresh trajectory is available here before its permanent R5 insertion.
+- **R2+R3+R4 Joint training** (blocks 10, 12, 13). Fresh-transition, newly eligible pending-PPO and fixed preference items are mixed in their natural proportion, as in pretraining. Each optimizer step re-encodes raw histories with the current $\phi$ and recomputes PPO advantages with the current $\phi,P$. One accumulated update trains $\phi,P,\pi$ together: METRA with a stop-gradient predicted skill, preference loss into $P,\phi$, PPO and factual-shift regression into $\pi,\phi$. PPO's advantage and the factual shift target are stop-gradient. A preference item contributes only preference loss; a fresh transition contributes shift/METRA and, when its $H$-step horizon is complete, PPO; a pending item contributes only PPO.
+- **R5 Memory update** (Q MEM-1): insert the fresh trajectory after training, encoding its memory latents with the final $\phi$. Save the incomplete PPO tail for the next cycle, then resume R1 with the final networks and rebuilt perception streams.
 
 ## Data flow
 ```
 VPT dataset ─perception-data→ clips ─────────────────────────────────────────────┐
 VPT dataset ─preference-pool→ pair clips ─P2 (VLM)→ labels ─P3 (C)→ pair labels ─┤
                                                                                  └─ train-index → pretraining loop → φ0, P0, π0
-(φ, P, π, M, T) + env ─R1→ trajectory τ, trees ─R2→ φ' ─R3 (M, P, φ')→ P' ─R4 (τ, T, π)→ π' ─R5→ M' ─→ R1 …
+(φ, P, π, M, T) + env ─R1→ trajectory τ, trees ─R3 pair production→ fixed pairs
+       └──────────────────────→ joint METRA + preference + PPO/shift loop → (φ', P', π') ─R5→ M' ─→ R1 …
 ```
 
 ## Candidate blocks
@@ -74,12 +74,12 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 6 | policy — $\pi$ (causal transformer over latents and executed actions; logits; the shift of a given action) and the P5 loss; `main` of the pretraining loop | P5, R1, R2, R4 | 2, 5, 7, 26 | `specs/policy.md` |
 | 7 | pretrain — one loop training φ, π and P (pluggable components and losses) | P1, P4, P5 | 29 | G |
 | 8 | mcts — search, decision, tree storage | R1 | 5, 6 | `specs/mcts.md` |
-| 9 | env-sampling — environment loop and trajectory record | R1 | 8 | RLS |
+| 9 | env-sampling — environment loop and trajectory record | R1 | 2, 5, 6, 7, 8, 14 | `specs/env-sampling.md` |
 | 10 | metra — METRA perception loss | R2 | 2 | MET |
 | 11 | memory — storage, nearest states, beam search | R3, R5 | 5 | MEM |
-| 12 | ppo — policy update, with backward updates on past trees mixed in | R4 | 6, 8 | PPO, EBU |
-| 13 | rl-cycle — orchestration of R1–R5 | R1–R5 | 8–12 | G |
-| 14 | env — MineStudio wrapper: macro actions, masks, endless timeline | R1 | 15, 31 | ENV, ACT |
+| 12 | ppo — independent $H$-step preference advantages, clipped policy loss and factual-shift regression; EBU deferred | R4 | 2, 5, 6, 8, 9 | `specs/ppo.md` (draft), EBU |
+| 13 | rl-cycle — R1–R5 orchestration and the one joint METRA + preference + PPO/shift training loop | R1–R5 | 8–12, 32 | `specs/rl-cycle.md` (draft) |
+| 14 | env — MineStudio wrapper: macro actions, masks, endless timeline | R1 | 15, 26, 28, 31 | `specs/env.md` |
 | 15 | gui-screens — catalogue of survival screens: window, textures, dynamic regions, elements with canonical numbering | P1, P5, R1 | S | ACT, GX |
 | 16 | vpt-gui-frames — random VPT frames with an open GUI, fetched without whole videos; `download_data.sh` | GX experiment | S | GX |
 | 17 | gui-labels — screen type of each sampled frame by the VLM | GX experiment | 0, 15, 16 | GX |
@@ -97,6 +97,7 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 29 | train-index — shuffled index shards: references to unlabeled clips and labeled pairs, train / validation split by groups of episodes linked by pairs | P1, P4, P5 data | 25, 23, 3 | — |
 | 30 | runs — the run files of the blocks: completeness of another block's output, fingerprints, JSON files, file hashes | all | 27 | — |
 | 31 | engine — MineStudio simulator install on the Spark (apt, engine jar with LWJGL 3.2.3 arm64, Python deps), `check_sim.sh` | R1 | S, 27 | `specs/engine.md` |
+| 32 | rl-preference-pairs — fresh-trajectory/History pair sampling, self-label correction and the fixed preference dataset for one RL cycle | R3 | 2, 3, 5, 9 | `specs/rl-preference-pairs.md` |
 
 ## Package map
 Filled as block specs are approved: subpackage → stage(s) → spec.
@@ -121,3 +122,6 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `mcts` → R1 → `specs/mcts.md`
 - `transformer` → P4, P5 (layers shared by $P$ and $\pi$) → `specs/preference.md`, `specs/policy.md`
 - `engine` → R1 (simulator install and check) → `specs/engine.md`
+- `env` → R1 → `specs/env.md`
+- `sampling` → R1 → `specs/env-sampling.md`
+- `rl_pairs` → R3 → `specs/rl-preference-pairs.md`

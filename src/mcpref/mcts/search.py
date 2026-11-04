@@ -1,5 +1,6 @@
 """(2)-(6) of specs/mcts.md: PUCT simulation and the visit-count decision."""
 
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -107,10 +108,13 @@ def decide(
     alpha: Tensor,
     cfg: MctsConfig,
     rng: np.random.Generator,
+    deadline: float,
 ) -> Decision:
-    """(1)-(6): run the simulations and sample a root child from its visit counts."""
+    """(1)-(6): bounded complete simulations, then a draw from root visit counts."""
     with torch.no_grad():
-        for _ in range(cfg.simulations):
+        for completed in range(cfg.simulations):
+            if completed >= cfg.min_n_sampling and time.perf_counter() >= deadline:
+                break
             simulate(tree, mask, pi, P, alpha, cfg)
     children = tree.root.children
     weights = np.array(

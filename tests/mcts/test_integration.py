@@ -63,7 +63,7 @@ def test_several_decisions_match_independent_simulation_oracle():
     for _ in range(3):
         policy, preference = networks()
         ref_policy, ref_preference = networks()
-        result = decide(actual, mask, policy, preference, alpha, cfg, rng)
+        result = decide(actual, mask, policy, preference, alpha, cfg, rng, float("inf"))
         action, probabilities = ref_decide(
             expected, mask, ref_policy, ref_preference, alpha, cfg, expected_rng
         )

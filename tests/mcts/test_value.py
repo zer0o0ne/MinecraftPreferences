@@ -31,6 +31,7 @@ def test_leaf_value_compares_working_history_with_parent():
         torch.ones(1, dtype=torch.float64),
         config(min_p=0.25),
         np.random.default_rng(0),
+        float("inf"),
     )
     # sigmoid(log 3) = 3/4 for both outputs, hence V = (3/4 + 1/4)(2*3/4 - 1) = 1/2.
     assert child.value == 0.5
@@ -60,6 +61,7 @@ def test_cached_leaf_value_is_reused_without_network_calls():
             torch.ones(1, dtype=torch.float64),
             config(simulations=2),
             np.random.default_rng(0),
+            float("inf"),
         )
         assert len(preference.calls) == 1
     assert child.n == 4
@@ -79,6 +81,7 @@ def test_root_value_field_is_ignored_and_root_is_not_backed_up():
         torch.ones(1, dtype=torch.float64),
         config(),
         np.random.default_rng(0),
+        float("inf"),
     )
     assert preference.calls == 0
     assert tree.root.value == 123.0

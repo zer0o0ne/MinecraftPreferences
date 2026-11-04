@@ -1,0 +1,76 @@
+# Env
+Status: approved (2026-11-03)
+Stage: block 14 of `specs/00-overview.md` — the MineStudio wrapper: macro actions, masks and the endless timeline for R1
+
+## Sources
+- [U] the user, 2026-10-09/15/21, Q ENV, ACT and G-13: one survival timeline at 20 Hz; an action holds its input until its effect completes, at most $\Delta$ ticks, then idles; an unfinished long action continues without release when chosen again; Auto-Jump is on; a masked action idles; an unrecognised screen is closed without giving it to the agent; death causes Respawn without a death-screen state.
+- [U] the user, 2026-11-03: Escape handles `close` and automatic GUI closing; any executable change must be reproducible through `setup_env.sh`. The initial rules are Auto-Jump, `doImmediateRespawn`, `sendCommandFeedback false`, `difficulty medium`, `keepInventory false` and `doDaylightCycle true`, with the default spawn and empty inventory. Automatic closing may continue beyond $\Delta$. Jump ends on its statistic; the container first-line rule follows the action that opened it.
+- [A] the audited draft: the existing engine's Escape path is sufficient, so no executable changes; a `HumanSurvival` subclass adds Escape and removes episode termination; exact observation, tick, click, configuration and smoke-test rules below.
+- [MS] MineStudio 1.1.6, installed wheel: `MinecraftSim` (`simulator/entry.py:90-325`) constructs `HumanSurvival` with one-tick steps and exposes `step`, `reset`, `noop_action`, `close` and `env.execute_cmd`; `HumanSurvival` (`env_specs/human_survival_specs.py:26-105`) provides inventory, location and stats observations, filters Escape out of its actions and installs `ServerQuitWhenAnyAgentFinishes`; `mc.py:680-712` maps `key.keyboard.escape` to `ESC` and strips an item's `minecraft:` prefix. `EnvSpec.reset()` rebuilds handlers and spaces; `_multiagent.py:447-482` resets them again at a world reset.
+- [E] Engine jar `mcprec-6.13.jar`, bytecode checked 2026-11-03: `com/minerl/multiagent/env/EnvServer.class`, method `actionToKey(String)`, loads `ESC` at bytecode offset 180 and `key.keyboard.escape` at 189; the existing engine needs no Escape patch. `MinecraftSim._is_real_time` starts false (`_multiagent.py:124-127`), so the wrapper adds no sleep.
+- [G] MCP-Reborn of `specs/gui-screens.md`: GUI hit rectangles and click points; `MouseHelper.grabMouse` and `ungrabMouse` centre the cursor when a GUI closes or opens; Escape is key 256. Earlier engine research in `specs/00-questions.md` measured 20/3 GUI pixels per camera degree.
+- `specs/engine.md`, `specs/gui-screens.md`, `specs/gui-classifier.md`, `specs/action-mask.md`, `specs/vpt-actions.md`, `specs/vpt-gui-actions.md`, `specs/clips.md`, `specs/perception.md` (approved): the engine, catalogue, classifier, masks, action names, $\Delta$, state frames and meta lines.
+
+## Notation
+- $A$ and $\iota(a)$ — the 395 actions and indices of `specs/action-mask.md`; $\Delta$ — `delta` of `configs/clips.yaml`, ticks per ordinary agent interval, $\Delta\ge5$; $\rho$ — `turn_deg` of `configs/vpt-actions.yaml`; $\sigma$ — `cursor_scale`, GUI pixels per camera degree.
+- Raw step result: $(o_k,r_k,d^T_k,d^X_k,i_k)$ = `MinecraftSim.step`; $o_k$[`image`] is the RGB frame and $i_k$ the cumulative info mapping. Raw reset returns $(o_0,i_0)$. Reward is ignored.
+- State $s_k$: frame $v_k$, perception line $\ell_k$, GUI flag $g_k$, class $c_k$ when $g_k$, hotbar $h_k$ and mask $M_k$. $\ell_k$ has `inventory`, `hotbar`, `yaw`, `pitch`, `xpos`, `ypos`, `zpos` of `specs/perception.md` (2). Completion also reads raw `isGuiOpen` and the cumulative `mine_block`, `use_item` and `custom` stats.
+- $a\in A$ — the requested action; $a_{held}$ — the previous long action without a completion signal; $q_k$ — the low-level action dictionary at tick $k$; $b_k$ — the macro action that caused raw tick $k$.
+- $C_i$ — left/right/shift/double click on canonical element $i$; $(x_i,y_i)$ its `click` point; $(u,v)$ the tracked GUI cursor, initially $(320,180)$ at every raw GUI opening or closing; camera arrays are $(\Delta\theta,\Delta\psi)$ = (pitch, yaw), `numpy.float32`.
+
+## Domain
+- One `Env` construction at a time; its runtime directory and simulator are not shared. `reset` is called once before any `step`; `close` is called once. A step action is an int in $0..|A|-1$. Raw observations have the MineStudio formats of [MS]; `frame` has shape $(H,W,3)$ and dtype `uint8` from `render_size`; `mask` has shape $(|A|,)$ and dtype bool. Escape closes a GUI and immediate respawn continues without an episode end, as checked by the real smoke test.
+
+## Behaviour
+(1) Construction [A]: load the dependent configs, call `use_engine` before importing MineStudio, then load the masks and the classifier with `action_mask.screens` and `engine.render_size`. `EndlessHumanSurvival(HumanSurvival)` adds `KeybasedCommandAction("ESC", "ESC")` after the ordinary actionables and returns no server quit producers. During `MinecraftSim` construction only, `minestudio.simulator.entry.HumanSurvival` is replaced by this subclass and then restored. Construct with `action_type="env"`, `obs_size=render_size`, `render_size=render_size`, `seed=seed`; other arguments stay at the defaults of `specs/engine.md`. No installed Python file or jar is modified. `close` delegates to `MinecraftSim.close`; callers use `finally`.
+
+(2) Initial timeline [U,A]: before the first reset, atomically write `autoJump:true\n` as `{minestudio_dir}/runtime/options.txt` by `write_file`; other game options take their defaults. Call `reset` once. Then execute, in order, `/gamerule doImmediateRespawn true`, `/gamerule sendCommandFeedback false`, `/difficulty medium`, `/gamerule keepInventory false`, `/gamerule doDaylightCycle true`, one `env.execute_cmd` per command; the last result is the initial state. No later world reset occurs. The spawn and empty inventory are the `MinecraftSim` defaults.
+
+(3) State conversion [A]: the frame is `obs["image"]`. From `info["player_pos"]`, map `x`, `y`, `z`, `yaw`, `pitch` to `xpos`, `ypos`, `zpos`, `yaw`, `pitch` as floats. `hotbar` is the wrapper's $h_k$, initially 0 and set to $j-1$ after `hotbar_j` completes. `inventory` is the raw inventory's slot values in slot-index order: strip `minecraft:` from each `type`, omit `air`, and keep each {`type`, `quantity`} entry.
+
+(4) GUI observation [A,U]: raw `isGuiOpen` false implies $g_k$ false and $c_k$ none. On a raw false→true transition with $b_k$ = `use`, the first raw state has $g_k$ false; with $b_k$ = `open_inventory`, or on any later raw state, $g_k$ is true. When $g_k$ is true, $c_k=\gamma([v_k])[0]$ before any mask is computed. If $c_k$ is `other` or `pause`, execute Escape press then release on consecutive ticks, checking raw `isGuiOpen` after each release and repeating the pair while it is true; these automatic-close ticks may exceed $\Delta$, and no such state is returned. Any `terminated`, `truncated` or info `error` aborts with `RuntimeError("episode ended")`.
+
+(5) Mask and interval [A]: $M_k$ = `state_mask(masks, g_k, c_k, pitch, h_k)` after automatic closing. A requested $a$ with $M_k[\iota(a)]$ false releases any hold on the first tick and idles for $\Delta$ ticks. Otherwise execute (6)–(9). A call performs $\Delta$ ordinary ticks plus any subsequent automatic-close ticks of (4), and returns the final valid $s_k$.
+
+(6) Long world actions [U]: movement and `sneak` set their low-level keys through all $\Delta$ ticks. `jump` and jump/movement complete on an increment of `minecraft.custom:minecraft.jump`; `attack` on an increment of any `mine_block` value or of `custom` `minecraft.custom:minecraft.damage_dealt`, `…damage_dealt_absorbed`, `…damage_dealt_resisted`; `use` on an increment of any `use_item` value or raw `isGuiOpen` becoming true. A missing stat is zero; comparison is `>` against the previous raw result. After completion, remaining ticks idle. With no signal, the action reaches $\Delta$. If the next request is the same and no completion occurred, its key/button is not released at the boundary; every other request releases the previous hold at its first tick.
+
+(7) Immediate world actions [A]: turns send one camera delta on the first tick: left $(0,-\rho)$, right $(0,\rho)$, up $(-\rho,0)$, down $(\rho,0)$. `hotbar_j` presses `hotbar.j` for one tick. `open_inventory` holds `inventory` until raw `isGuiOpen` is true, at most $\Delta$ ticks. Remaining ticks idle; the game clamps pitch.
+
+(8) GUI actions [A]: `close` presses and releases Escape on consecutive ticks until raw `isGuiOpen` is false. For $C_i$, the first tick sends camera $( (y_i-v)/\sigma, (x_i-u)/\sigma )$ and sets $(u,v)=(x_i,y_i)$; no camera is sent on later ticks. A single left/right click then presses on the second tick and releases on the third (`attack`/`use` respectively). `shift_click_i` uses left click with `sneak=1` on both press and release ticks. `double_click_i` presses and releases left on ticks 2, 3, 4 and 5 respectively. After the last click tick, the interval idles. The cursor is not clipped because every click point and the centre lie inside the frame.
+
+(9) Low-level dictionaries [A]: each tick starts with a fresh `sim.noop_action()`. Movement maps W/S to `forward`/`back`, A/D to `left`/`right` exactly as `specs/vpt-actions.md` (1), with `jump=1` for jump variants; `sneak`, `attack`, `use`, `inventory`, `hotbar.j`, `ESC` and camera are set only as (6)–(8) require. No chat, sprint, drop, offhand, perspective, debug-overlay or HUD command is emitted.
+
+(10) Death and latency [A,U]: no server quit producer ends the mission; `doImmediateRespawn` keeps the same world timeline and no death screen is returned. Any episode end is therefore unrecoverable and follows (4). A call ordinarily executes $\Delta$ ticks, with no additional real-time sleep; automatic closing may extend it. The GUI classifier keeps its own soft budget. The whole action-selection deadline belongs to block 9.
+
+## Interface
+- `configs/env.yaml` → `@dataclass(frozen=True) class EnvConfig`, fields in order: `engine`, `classifier`, `action_mask`, `clips` (non-empty relative config path strings without `..`, kept as written and resolved against the repository root where read); `cursor_scale` (`number`, > 0). `load_config` also rejects `clips.delta < 5` with `ValueError("delta must be >= 5")`. Starting values: `configs/engine.yaml`, `configs/gui-classifier.yaml`, `configs/action-mask.yaml`, `configs/clips.yaml`, `cursor_scale` = 6.666666666666667.
+- `src/mcpref/env/config.py`: `EnvConfig`; `def load_config(path: Path) -> EnvConfig`.
+- `src/mcpref/env/state.py`: `@dataclass(frozen=True) class EnvState` with fields in order `frame: np.ndarray` ($(H,W,3)$ `uint8`), `line: Mapping`, `gui: bool`, `cls: str | None`, `hotbar: int`, `mask: np.ndarray` ($( |A|, )$ bool); raw reset/step conversion of (3), (4).
+- `src/mcpref/env/minestudio.py`: `EndlessHumanSurvival`; simulator construction and the initial options/commands of (1), (2).
+- `src/mcpref/env/actions.py`: low-level dictionaries, completion checks, holds and cursor/click schedules of (6)–(9).
+- `src/mcpref/env/wrapper.py`: `class Env`; `__init__(cfg: EnvConfig)`; `reset() -> EnvState` (once, including (2)); `step(action: int) -> EnvState` ((4)–(10)); `close() -> None`.
+- `src/mcpref/env/check.py`: `main(argv: Sequence[str]) -> int`, one config path as in `mcpref.engine.check`; the real smoke sequence of Tests, `close` in `finally`, any `Exception` reported by `failed("mcpref.env.check", error)`. `scripts/check_env.sh`: the standard prelude, then `uv run --locked python -m mcpref.env.check configs/env.yaml`.
+- Consumes: engine, classifier, masks, catalogue, $\Delta,\rho$ and their configs; no dataset files. Produces: `EnvState` for block 9 and `PhiStream`; `{minestudio_dir}/runtime/options.txt` is installation state, not a dataset. No datasets or checkpoints.
+- Progress bars: `env init` (unit `command`) — the five commands of (2), advanced after each; `env check` (unit `action`) — total 12 work items of the smoke sequence, advanced after each action call or `/kill`. No bar in `step` or the automatic-close wait.
+
+## Tests
+- CPU with fake simulator/classifier: config checks; raw reset/step conversion, air removal and slot order; every low-level dictionary; exactly $\Delta$ ordinary ticks; masked idles; all completion signals and continuation at boundaries; turns, hotbar, inventory; cursor deltas and all click schedules; automatic Escape beyond $\Delta$ and mask construction only after closing; no quit producers; `ESC` registration and restoration; no jar mutation; `close` in `finally`; smoke command and progress bars.
+- Real engine on the Spark, `scripts/check_env.sh`: reset; open inventory and close by `close`; reopen and exercise left, right, shift and double click on element 1, then close; `attack` and `use` for one interval each; `/kill`, followed by $\Delta$ no-op ticks through masked current-hotbar selection; print `env: ok`. This checks the existing jar's Escape, all click timings and continued stepping after respawn. The container first-line rule and physical Auto-Jump behaviour are not claimed by this smoke test.
+
+## Library mapping
+| Item | Call | Version | Explicit args | Source read |
+|---|---|---|---|---|
+| (1) | `use_engine`; `MinecraftSim`; `KeybasedCommandAction`; `EndlessHumanSurvival` | this repo; MineStudio 1.1.6 | engine config; `action_type`, `obs_size`, `render_size`, `seed`; `"ESC"` | `specs/engine.md`; [MS], [E] |
+| (2), (5)–(9) | `MinecraftSim.reset`, `step`, `noop_action`, `close`; `env.execute_cmd` | MineStudio 1.1.6 | one fresh action dictionary per tick; commands of (2) | [MS] |
+| (2) | `mcpref.shards.store.write_file` | this repo | `autoJump:true\n` | `specs/shards.md` |
+| (3) | `strip_item_prefix` | MineStudio 1.1.6 | each raw item type | [MS] |
+| (4) | `load_classifier`; $\gamma([v_k])$ | this repo | classifier config, catalogue, width, height | `specs/gui-classifier.md` |
+| (5) | `load_masks`, `state_mask` | this repo | $g_k,c_k,\theta_k,h_k$ | `specs/action-mask.md` |
+| (8) | `ScreenClass.elements`; `numpy.array` | this repo; numpy 1.26.4 | canonical $i$; camera `dtype=numpy.float32` | `specs/gui-screens.md`; [MS] |
+
+## Revisions on approval
+- `specs/00-overview.md`: block 14's Questions becomes `` `specs/env.md` `` and its dependencies become `15, 26, 28, 31`; the package map gains `env` → R1 → `specs/env.md`.
+- `specs/00-questions.md`: ENV-2, ENV-3 and ENV-6 gain links to this spec; RLS-1 links the initial timeline here. No `setup_env.sh` change is needed because the existing engine already supports Escape.
+
+## Out of scope
+- Sampling, $\phi$, MCTS, trajectory shards and the overall action-selection deadline (block 9); R2–R5; recording human play; rebuilding GUI templates; a hard real-time guarantee; changing game physics to accelerate breaking, eating or bows; manual edits of installed files or jars.

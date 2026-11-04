@@ -28,6 +28,7 @@ def run_root(policy, mask, cfg):
         torch.tensor([1.0, 2.0], dtype=torch.float64),
         cfg,
         np.random.default_rng(0),
+        float("inf"),
     )
     return tree
 
@@ -98,6 +99,7 @@ def test_imagined_expansion_ignores_root_mask():
         torch.tensor([1.0, 2.0], dtype=torch.float64),
         config(depth=2),
         np.random.default_rng(0),
+        float("inf"),
     )
     assert [grandchild.action for grandchild in child.children] == [3, 2, 1, 0]
     Y, C = policy.readout_calls[0]
@@ -118,6 +120,7 @@ def test_depth_limit_evaluates_but_never_expands():
         torch.ones(2, dtype=torch.float64),
         config(depth=1),
         np.random.default_rng(0),
+        float("inf"),
     )
     assert policy.calls == 0
     assert child.children == []

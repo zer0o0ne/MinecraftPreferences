@@ -101,7 +101,8 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 
 ## PRF — Preference network (P4, R3)
 - **PRF-5** $\phi$ frozen (stop-grad) while $P$ trains, in P4 and R3?
-  **→ [U]** (2026-10-20) in P4 no stop-gradient: $P$'s loss flows into $\phi$ (`specs/pretrain.md` (1)); R3 open.
+  **→ [U]** (2026-10-20) in P4 no stop-gradient: $P$'s loss flows into $\phi$ (`specs/pretrain.md` (1)).
+  **→ [U]** (2026-11-03) R3 also keeps this gradient: pair references and corrected labels are fixed before training, raw pair histories are re-encoded by the current $\phi$, and preference loss flows into $P,\phi$ (`specs/rl-preference-pairs.md`, `specs/rl-cycle.md`, drafts).
 - **PRF-6** Input history: $k_P$ latent states ending at the state itself, oldest first?
   **→ [U]** (2026-10-22) yes, up to $L_P$ latents: `specs/preference.md` Notation.
 
@@ -118,8 +119,9 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **POL-4** P5 loss: $\mathrm{CE}(a_t) + \beta L_\Delta$; $\beta$; CE over the factorised VPT action; target $\Delta z_t$ from frozen $\phi$; under (a) the shift head is fed the dataset action $a_t$?
   **→ [U]** (2026-10-22) `specs/policy.md` (9): the cross-entropy with the counts' distribution plus $w_\Delta$ times the shift term, both over the $L - 2$ states with a next interval; the target from $\phi$ of the same loop with stop-gradient; the shift computed for the dataset action of the next interval.
 - **POL-5** PPO usually needs a critic; the description has none. Add a value head, or advantages from returns without a learned baseline?
-  **→ [U]** no new networks: PPO uses only $\phi$ and $P$. Details with PPO [later].
+  **→ [U]** no new networks: the independent $H$-step preference reward itself is the advantage, with no critic, returns, GAE, second discounting or normalisation (`specs/ppo.md`, draft).
 - **POL-6** Is $\widehat{\Delta z}$ trained in R4 too (regression to the actual $\Delta z_t$ under the new $\phi$)?
+  **→ [U]** (2026-11-03) yes: on every factual successor, in the coordinates of the current $\phi$, with the factual target stop-gradient; this loss joins PPO in the joint loop (`specs/ppo.md` (4), `specs/rl-cycle.md`, drafts).
 - **POL-7** **[U]** (2026-10-15): $\pi$ is trained to lower the logits of masked actions, which helps MCTS expand the most probable actions (imagined nodes have no frame to recognise, hence no mask). So every dataset state keeps what its mask needs (GUI open, recognised class, pitch). Open: the loss term, its weight (config), in P5 and R4.
   **→ [U]** (2026-10-21) no mask in the training forward pass and no extra loss term: the targets are zero on masked actions (a target is never a masked action), so the cross-entropy lowers their probabilities; the mask acts only at sampling and in data preparation (`specs/action-mask.md`).
 - **POL-8** With $n \ge 1$ human actions per interval (G-12), the action target of P5: (a) only intervals with $n = 1$, their action; (b) the first action of the interval; (c) all its actions (multi-label). The data blocks keep the actions of every interval, so this can be decided with P5.
@@ -155,32 +157,48 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 
 ## RLS — Sampling (R1)
 - **RLS-1** Environment: `MinecraftSim` is synchronous (the world advances only on `step()`, one tick per step), so the pause is free. Settings: seed, spawn biome, initial inventory, observation size. Death does not end the episode (respawn behaviour unconfirmed); on a time-limit or another `done`, reset (a new world, breaking the single timeline) or never end?
+  **→ [U]** (2026-11-03) the initial settings and the endless respawning timeline are defined by `specs/env.md` (1), (2), (10).
 - **RLS-2** $n$ per cycle.
+  **→ [U]** (2026-11-04) `steps`, initially 1000, in `specs/env-sampling.md` Notation and its starting config values.
 - **RLS-3** "Preference of the start point over the action's result": $P(z_t, z_{t+1})$ (state before the action), or $P(z_0, z_{t+1})$ (trajectory start)?
-  **→ [U]** both kinds are useful: between close points and over the whole episode or its large parts. Exact math with PPO [later]; it also fixes what R1 stores.
+  **→ [U]** (2026-11-03) PPO compares each origin $t$ independently with every consequence $t+k$, $k=1..H$, by the MCTS value and sums with $\gamma^k$. R1 stores raw histories, the action and its MCTS visit distribution; preferences and latents are recomputed with the current $\phi,P$ on every optimizer step (`specs/ppo.md` (1), (2), draft).
+  **→ [U]** (2026-11-04) R1 additionally stores both result-first preference logit pairs as sampling records; their delayed computation and trajectory-start history are in `specs/env-sampling.md` (5), (6).
 - **RLS-4** Stored $\Delta z_t$ uses $\phi$ at sampling time; stored $\widehat{\Delta z}_t$ is for the executed action?
+  **→ [U]** (2026-11-03) RL training does not use the sampling-time latents or shift as its targets: both factual latents and the current prediction are recomputed with the current $\phi,\pi$; the factual target and the METRA skill are stop-gradient (`specs/ppo.md` (4), `specs/rl-cycle.md` (2), drafts).
+  **→ [U]** (2026-11-04) the executed child's exact predicted shift and the sampling-time factual shift are nevertheless recorded by `specs/env-sampling.md` (5).
+- **RLS-5** Action-selection latency. **→ [U]** (2026-11-03) the top-level sampling operation owns the whole path from receiving the environment state through data transfers, $\phi$ inference, history/mask preparation, MCTS and the final action choice. On entry it takes $t_0$ and sets the soft deadline $t_0 + (\Delta\cdot 50 - \text{safety_limit})/1000$, with `safety_limit` in ms; the absolute deadline is passed to MCTS. Once the current decision has completed at least `min_n_sampling` simulations and the deadline has been reached, no new simulation starts. A running simulation is never interrupted, and `min_n_sampling` takes priority over the deadline. The action is then drawn from the accumulated root visits and its visit distribution is stored as in `specs/mcts.md` (6). Overshoot by non-interruptible work is possible: this is not a hard real-time barrier.
+  **→ [U]** (2026-11-04) the complete timed pipeline, delayed preferences, MCTS signature and storage details are in `specs/env-sampling.md` (3)–(7).
 
 ## MET — Perception fine-tuning (R2)
 - **MET-1** METRA (arXiv:2310.08887) dual form $L_\phi = -\mathbb{E}[(\phi(s') - \phi(s))^\top z + \lambda \min(\varepsilon, 1 - \lVert \phi(s') - \phi(s) \rVert^2)]$ with $z := \widehat{\Delta z}_t$. Constraint with plain Euclidean norm (METRA) or $d_\alpha$ (P1); $\le 1$ (METRA) or $= 1$ (P1)? Given PER-1, in the coordinates $\alpha \odot z$: $(\alpha \odot (\phi(s') - \phi(s)))^\top (\alpha \odot \widehat{\Delta z})$ with $d_\alpha^2 \le 1$, or another combination?
   **→ [U]** yes: $(\alpha \odot (\phi(s') - \phi(s)))^\top (\alpha \odot \widehat{\Delta z})$ with $d_\alpha^2 \le 1$.
 - **MET-2** $\widehat{\Delta z}_t$ raw or normalised to unit length (METRA normalises continuous skills — to verify); the one stored at sampling or recomputed with the current $\pi$ and $\phi$; stop-grad.
+  **→ [U]** (2026-11-03, partial) recompute the executed action's shift with the current $\pi,\phi$ on every optimizer step and detach it as METRA's skill. Raw versus unit-normalised remains open for block 10.
 - **MET-3** P1 norm penalty kept in R2?
 - **MET-4** $\lambda$: initial value, slack $\varepsilon$, log-parametrisation, learning rate (METRA code: 30, $10^{-3}$ — to verify); persists across cycles?
 - **MET-5** Data: only the current trajectory's $n$ transitions, or also transitions from $\mathcal{M}$? Epochs, minibatches.
+  **→ [U]** (2026-11-03) METRA uses each fresh trajectory transition once per epoch, not preference-only memory pairs or already trained pending items. It shares the joint loop's natural mixed-item schedule and epochs (`specs/rl-cycle.md`, draft).
 
 ## MEM — Memory and pair mining (R3, R5)
 - **MEM-1** [later] Memory update rule, capacity, eviction.
 - **MEM-2** Stored per state: the observation(s) needed to rebuild its history and re-encode it; trees; past labels? Is the VPT dataset (or the P2 pool) in $\mathcal{M}$ at the start of RL?
 - **MEM-3** After R2: re-encode all of $\mathcal{M}$, or only candidates during the search?
 - **MEM-4** "Nearest": metric (Euclidean or $d_\alpha$; on $z$ or on histories), count $K$; exclude states of the current trajectory near $t$?
+  **→ [U]** (2026-11-04) $d_\alpha$ on insertion-time latent keys, the nearest `nearest_per_state` History vertices outside the current episode; old keys are not re-encoded (`specs/rl-preference-pairs.md` (4)).
 - **MEM-5** [later] Beam search: the relation used for "most / least preferred" (current $P$ on the fly, stored labels, corrected graph), beam width, depth, both directions?
+  **→ [U]** (2026-11-04) recursive per-seed expansion over averaged raw-P edges, ranked by the polarity $J$ of `specs/rl-preference-pairs.md` (5), with `branch`, `beam_width` and `beam_depth` of the config (6).
 - **MEM-6** Number $m$ of picked trajectory states. Pairs only (picked state, found state), or also among found states (graph density for $C$)?
+  **→ [U]** (2026-11-04) `sample_states` seeds scored against their immediate predecessors; only seed–alternative History pairs, no alternative–alternative pairs. Selected references and corrected labels are fixed before joint training (`specs/rl-preference-pairs.md` (1)–(3), (7)–(9)).
 
 ## PPO (R4)
 - **PPO-1** [later] (with RLS-3) Reward from the stored preferences, e.g. $r_t = (1 - p_{inc})(1 - 2p_\succ)$ for $P(z_t, z_{t+1})$ (result preferred to start = positive). Values stored at sampling, or recomputed with the new $\phi$ and $P$?
+  **→ [U]** (2026-11-03) $A_t=\mathrm{sg}(\sum_{k=1}^H\gamma^k(p_{inc,t,k}+m_{min})(2p_{\succ,t,k}-1))$ for $P(Y_{t+k},Y_t)$. Recompute with the current $\phi,P$ on every optimizer step; positions without all $H$ consequences wait for the next cycle (`specs/ppo.md` (1), (2), draft).
 - **PPO-2** Advantage estimator (GAE with $\gamma, \lambda$ / Monte-Carlo returns), normalisation; critic (POL-5).
+  **→ [U]** (2026-11-03) the reward itself is the advantage: no critic, returns, GAE, second discounting, learned baseline or advantage normalisation (`specs/ppo.md`, draft).
 - **PPO-3** Clip $\epsilon$, epochs, minibatch size, entropy and KL coefficients; ratio denominator (MCTS-6).
+  **→ [U]** (2026-11-03, partial) the denominator is the stored MCTS visit probability; the clipped loss is `specs/ppo.md` (3). Epochs and minibatches follow the joint natural mixed-item schedule. Numeric clip/schedule values and entropy/KL remain open.
 - **PPO-4** Policy inputs encoded with the $\phi$ from R2, i.e. new coordinates for both heads?
+  **→ [U]** (2026-11-03) yes, and not just once: every occurrence of an item re-encodes its raw histories with the current $\phi$; gradients of policy and preference losses flow into $\phi$ (`specs/rl-cycle.md`, draft).
 
 ## EBU — Retrospective training on past trees (R4)
 - **EBU-1** [later] Details of the adaptation of Episodic Backward Update (Lee, Sung, Choi, NeurIPS 2019, arXiv:1805.12375).
@@ -249,9 +267,12 @@ Facts (MineStudio @ 278aa85 and its engine jar `mcprec-6.13.jar` from `CraftJarv
 - death sets `done` and the Python env refuses steps until reset (clearing `done` flags is an untested workaround); `doImmediateRespawn` skips the death screen; no time limit by default; commands via `execute_cmd('/…')`; `sendCommandFeedback false` hides command output; the world is created in survival, difficulty hard.
 - **ENV-2** "No waiting time" (ACT): (a) game rules: Haste ≤ 127 makes most blocks break on the click (×26.6), eating and bow need a patched engine; (b) one action holds its button until the completion signal above or a tick limit; world time passes meanwhile, the agent sees only the result; matches the human recordings; (c) both: Haste for breaking, holding for eating and bow. Which?
   **→ [U]** (b): an action runs until its effect completes (or a tick limit), then the agent picks the next one; it cannot be interrupted. No game-rule changes.
+  **→ [U]** (2026-11-03) exact completion and continuation rules: `specs/env.md` (5)–(7).
 - **ENV-3** Action execution: hotbar shift via `hotbar.k` from a tracked slot, or add the wheel handler; a cell click = cursor move from the tracked cursor position + press + release (2 steps inside one action); close = ESC (handler to add).
+  **→ [U]** (2026-11-03) the existing jar's `ESC` path is registered by `EndlessHumanSurvival`; tracked hotbar/cursor and click schedules: `specs/env.md` (1), (7)–(9).
 - **ENV-4** GUI geometry → $N_{cell}$ and the cell side: researched, see ACT-16.
 - **ENV-6** One endless timeline: gamerules `doImmediateRespawn true`, `sendCommandFeedback false`; difficulty; `keepInventory`; `doDaylightCycle`; keep stepping after a death (workaround to verify on the real simulator).
+  **→ [U]** (2026-11-03) `difficulty medium`, `keepInventory false`, `doDaylightCycle true`; no server quit producers and immediate respawn without a world reset: `specs/env.md` (1), (2), (10).
 - **ENV-7** No Java on this machine: simulator code can be tested here only against a fake env; real runs happen on your GPU machine.
 
 ## GX — GUI-recognition experiment

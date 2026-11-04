@@ -10,6 +10,7 @@ VALID = {
     "latency_calls": "2",
     "depth": "3",
     "simulations": "4",
+    "min_n_sampling": "2",
     "width": "5",
     "c_puct": "1.25",
     "discount": "0.99",
@@ -20,8 +21,8 @@ VALID = {
     "latency_fail_ms": "300",
 }
 FIELDS = [
-    "simulations", "depth", "width", "latency_calls", "c_puct", "discount",
-    "temperature", "min_p", "epsilon", "latency_ms", "latency_fail_ms",
+    "simulations", "min_n_sampling", "depth", "width", "latency_calls", "c_puct",
+    "discount", "temperature", "min_p", "epsilon", "latency_ms", "latency_fail_ms",
 ]  # fmt: skip
 
 
@@ -35,7 +36,9 @@ def load(tmp_path, **changes):
 def test_reads_fields_in_order_and_is_frozen(tmp_path):
     cfg = load(tmp_path)
     assert [field.name for field in dataclasses.fields(MctsConfig)] == FIELDS
-    assert dataclasses.astuple(cfg) == (4, 3, 5, 2, 1.25, 0.99, 2, 0.5, 0.05, 150, 300)
+    assert dataclasses.astuple(cfg) == (
+        4, 2, 3, 5, 2, 1.25, 0.99, 2, 0.5, 0.05, 150, 300,
+    )  # fmt: skip
     with pytest.raises(dataclasses.FrozenInstanceError):
         cfg.width = 8
 
@@ -43,6 +46,8 @@ def test_reads_fields_in_order_and_is_frozen(tmp_path):
 @pytest.mark.parametrize(
     "name, text, value",
     [
+        ("min_n_sampling", "1", 1),
+        ("min_n_sampling", "4", 4),
         ("c_puct", "0", 0),
         ("discount", "1", 1),
         ("temperature", "1.0e-300", 1e-300),
@@ -55,7 +60,7 @@ def test_accepts_domain_boundaries(tmp_path, name, text, value):
     assert getattr(load(tmp_path, **{name: text}), name) == value
 
 
-POSITIVE_INTS = ("simulations", "depth", "width", "latency_calls")
+POSITIVE_INTS = ("simulations", "min_n_sampling", "depth", "width", "latency_calls")
 NUMBERS = ("c_puct", "discount")
 POSITIVES = ("temperature", "min_p", "epsilon", "latency_ms", "latency_fail_ms")
 BAD = {
@@ -77,6 +82,7 @@ BAD = {
     **{f"{key} nan": {key: ".nan"} for key in POSITIVES},
     "discount zero": {"discount": "0"},
     "discount above one": {"discount": "1.0001"},
+    "minimum above simulations": {"min_n_sampling": "5"},
 }
 
 
@@ -89,6 +95,7 @@ def test_invalid_config_raises_value_error(tmp_path, changes):
 def test_starting_values(repo):
     assert dataclasses.asdict(load_config(repo / "configs/mcts.yaml")) == {
         "simulations": 24,
+        "min_n_sampling": 4,
         "depth": 8,
         "width": 8,
         "latency_calls": 10,
