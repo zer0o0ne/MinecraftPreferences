@@ -1,0 +1,3 @@
+# specs/ppo.md: PpoConfig; horizon: H; clip: epsilon of (3).
+horizon: 64
+clip: 0.2

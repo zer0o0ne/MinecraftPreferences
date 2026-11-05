@@ -77,7 +77,7 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 9 | env-sampling — environment loop and trajectory record | R1 | 2, 5, 6, 7, 8, 14 | `specs/env-sampling.md` |
 | 10 | metra — METRA perception loss | R2 | 2 | MET |
 | 11 | memory — storage, nearest states, beam search | R3, R5 | 5 | MEM |
-| 12 | ppo — independent $H$-step preference advantages, clipped policy loss and factual-shift regression; EBU deferred | R4 | 2, 5, 6, 8, 9 | `specs/ppo.md` (draft), EBU |
+| 12 | ppo — independent $H$-step preference advantages, clipped policy loss and factual-shift regression; EBU deferred | R4 | 2, 5, 6, 8, 9 | `specs/ppo.md`, EBU |
 | 13 | rl-cycle — R1–R5 orchestration and the one joint METRA + preference + PPO/shift training loop | R1–R5 | 8–12, 32 | `specs/rl-cycle.md` (draft) |
 | 14 | env — MineStudio wrapper: macro actions, masks, endless timeline | R1 | 15, 26, 28, 31 | `specs/env.md` |
 | 15 | gui-screens — catalogue of survival screens: window, textures, dynamic regions, elements with canonical numbering | P1, P5, R1 | S | ACT, GX |
@@ -120,6 +120,7 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `perception` → P1, R1 → `specs/perception.md`
 - `policy` → P5 (later R1, R2, R4) → `specs/policy.md`
 - `mcts` → R1 → `specs/mcts.md`
+- `ppo` → R4 → `specs/ppo.md`
 - `transformer` → P4, P5 (layers shared by $P$ and $\pi$) → `specs/preference.md`, `specs/policy.md`
 - `engine` → R1 (simulator install and check) → `specs/engine.md`
 - `env` → R1 → `specs/env.md`
