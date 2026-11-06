@@ -2,6 +2,7 @@
 
 import math
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 
 import yaml
@@ -18,7 +19,8 @@ from mcpref import (
 from mcpref.training.devices import device
 
 POSITIVE_INTS = ("epochs", "batch", "micro_batch", "checkpoint_steps")
-POSITIVE_INTS += ("keep_checkpoints",)
+POSITIVE_INTS += ("keep_checkpoints", "diagnostic_window", "reference_steps")
+POSITIVE_INTS += ("reference_pairs", "calibration_bins")
 POSITIVE_REALS = ("w_pi", "w_P", "grad_clip", "adam_eps")
 CONFIGS = ("perception", "action_mask", "policy", "preference")
 PATHS = ("index_dir", "out_dir", *CONFIGS)
@@ -39,6 +41,14 @@ class PretrainConfig:
     epochs: int
     batch: int
     micro_batch: int
+    diagnostic_window: int
+    reference_steps: int
+    reference_pairs: int
+    calibration_bins: int
+    saturation_threshold: float
+    inc_classification_threshold: float
+    quantiles: tuple[float, ...]
+    action_copy_eps: float
     w_pi: float
     w_P: float
     groups: dict[str, dict[str, float]]
@@ -59,6 +69,16 @@ def betas(value: object) -> tuple[float, float]:
     return fraction("betas", value[0]), fraction("betas", value[1])
 
 
+def quantiles(value: object) -> tuple[float, ...]:
+    """(R): distinct quantiles strictly increasing in (0, 1)."""
+    if not isinstance(value, list) or not value:
+        raise ValueError("quantiles must be a non-empty list")
+    result = tuple(number("quantiles", item) for item in value)
+    if any(not 0 < q < 1 for q in result) or any(b <= a for a, b in pairwise(result)):
+        raise ValueError("quantiles must be distinct and strictly increasing in (0, 1)")
+    return result
+
+
 def group(name: object, value: object) -> dict[str, float]:
     """Notation: a group: exactly `lr` (> 0) and `weight_decay` (>= 0)."""
     if type(name) is not str or not isinstance(value, dict) or set(value) != GROUP_KEYS:
@@ -76,6 +96,28 @@ def groups(value: object) -> dict[str, dict[str, float]]:
     return {name: group(name, g) for name, g in value.items()}
 
 
+def diagnostic_values(raw: dict) -> dict:
+    """(R): validated diagnostic thresholds, quantiles and copy epsilon."""
+    saturation = number("saturation_threshold", raw["saturation_threshold"])
+    if not 0 < saturation < 0.5:
+        raise ValueError("saturation_threshold must be in (0, 1/2)")
+    inc_threshold = number(
+        "inc_classification_threshold", raw["inc_classification_threshold"]
+    )
+    if not 0 < inc_threshold < 1:
+        raise ValueError("inc_classification_threshold must be in (0, 1)")
+    copy_eps = number("action_copy_eps", raw["action_copy_eps"])
+    if not 0 <= copy_eps <= 1:
+        raise ValueError("action_copy_eps must be in [0, 1]")
+    return {
+        "betas": betas(raw["betas"]),
+        "quantiles": quantiles(raw["quantiles"]),
+        "saturation_threshold": saturation,
+        "inc_classification_threshold": inc_threshold,
+        "action_copy_eps": copy_eps,
+    }
+
+
 def load_config(path: Path) -> PretrainConfig:
     """Interface: the YAML file, validated, into PretrainConfig."""
     raw = config_mapping(yaml.safe_load(path.read_text()), path, PretrainConfig)
@@ -89,5 +131,9 @@ def load_config(path: Path) -> PretrainConfig:
     lr_floor = number("lr_floor", raw["lr_floor"])
     if not 0 <= lr_floor <= 1:
         raise ValueError(f"lr_floor {lr_floor} is not in [0, 1]")
-    read |= {"lr_floor": lr_floor, "betas": betas(raw["betas"])}
+    read |= {"lr_floor": lr_floor} | diagnostic_values(raw)
+    if read["checkpoint_steps"] % read["diagnostic_window"]:
+        raise ValueError("checkpoint_steps % diagnostic_window must be 0")
+    if read["reference_steps"] % read["checkpoint_steps"]:
+        raise ValueError("reference_steps % checkpoint_steps must be 0")
     return PretrainConfig(**raw | read | {"groups": groups(raw["groups"])})

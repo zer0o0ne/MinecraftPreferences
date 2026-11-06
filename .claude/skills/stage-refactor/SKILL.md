@@ -9,7 +9,7 @@ Load skill `exactness-checklist`: its items are invariants a refactor must not b
 Scratch files live in `<scratchpad>/<block>-<stage>/`, never in the scratchpad root: other agents run in parallel.
 
 Over the block's code and every `src/` module it touches:
-1. Trace each parameter, option, branch, class, config field and default to the spec; delete what does not trace.
+1. Review spec → code and code → spec: every equation and interface item has code; every function, parameter, option, branch, class, config field and default traces to the spec. Delete what does not trace; report math deviations instead of fixing them.
 2. Find duplicated logic within the block and across `src/`; keep one function.
 3. Split functions and files over the AGENTS.md soft limits along the math: one function per equation or term.
 4. Keep an abstraction only if it removes more code than it adds or names a spec concept.

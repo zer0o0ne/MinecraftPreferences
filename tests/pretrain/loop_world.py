@@ -41,10 +41,10 @@ CLIPS = [  # C: 5 clips (one record with clips null)
 ]
 PAIR_CLIPS = [[record(E1, ("q0",)), record(E5, ("q1", "q2"))], [record(E6, ("q3",))]]
 PAIRS = [  # Q_l: q0 and q1 in two pairs each
-    [pair(end(0, "q0", E1), end(0, "q1", E5), {"y": 1.0, "c": 1.0}),
-     pair(end(0, "q1", E5), end(1, "q3", E6), {"y": 0.0, "c": 1.0})],
-    [pair(end(0, "q2", E5), end(0, "q0", E1), {"y": 1.0, "c": 0.0}),
-     pair(end(1, "q3", E6), end(0, "q2", E5), {"y": 0.0, "c": 0.0})],
+    [pair(end(0, "q0", E1), end(0, "q1", E5), {"p": 1.0, "inc": 0}),
+     pair(end(0, "q1", E5), end(1, "q3", E6), {"p": 0.0, "inc": 0})],
+    [pair(end(0, "q2", E5), end(0, "q0", E1), {"p": None, "inc": 1}),
+     pair(end(1, "q3", E6), end(0, "q2", E5), {"p": None, "inc": 1})],
 ]  # fmt: skip
 
 

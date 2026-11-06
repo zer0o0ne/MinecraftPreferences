@@ -70,9 +70,16 @@ def test_kept_checkpoints_and_files(tmp_path):
     loop.run()
     steps, states = train(loop.world, loop.config)
     assert_run(loop, steps, states, kept=2)
-    files = {"run.json", "model.pt"}
+    files = {"run.json", "model.pt", "global-fit.json", "gradient-flow/selection.json",
+             "gradient-flow/summary.json", "reference/000000/selection.json",
+             "reference/000000/baselines.json", "reference/000000/initial.pt",
+             "reference/000000/metrics.json"}  # fmt: skip
     for j in range(4):
         files.add(f"checkpoints/{j:06d}/losses.json")
+        files.add(f"checkpoints/{j:06d}/diagnostics.json")
+        if j < 3:
+            files.add(f"checkpoints/{j:06d}/gradient_flow/{j:06d}/metrics.json")
+            files.add(f"checkpoints/{j:06d}/gradient_flow/{j:06d}/pairs.json")
     files |= {"checkpoints/000002/checkpoint.pt", "checkpoints/000003/checkpoint.pt"}
     assert set(loop.tree()) == files
 
@@ -87,7 +94,7 @@ def test_losses_json_format(tmp_path):
 
 
 def test_modules_put_in_training_mode(tmp_path):
-    """Modules given in eval mode: every call of a run in training mode."""
+    """Reference calls run in eval mode; every later training call is back in train mode."""
     loop = Loop(tmp_path).write()
     mods = loop.modules()
     log = []
@@ -96,7 +103,8 @@ def test_modules_put_in_training_mode(tmp_path):
         m.log = log
     loop.run(mods)
     assert {name for name, _, _ in log} == set(mods)
-    assert all(training for _, training, _ in log)
+    last_eval = max(i for i, (_, training, _) in enumerate(log) if not training)
+    assert all(training for _, training, _ in log[last_eval + 1 :])
 
 
 def test_run_json(tmp_path):
@@ -154,7 +162,11 @@ def test_restored_last_step_already_done(tmp_path):
     (loop.out / "model.pt").unlink()
     mods = loop.modules()
     r = loop.run(mods)
-    assert screen(r.err) == [Bar("pretrain inputs", 6, 6, "shard"), "pretrain: already done"]  # fmt: skip
+    assert screen(r.err) == [Bar("pretrain inputs", 6, 6, "shard"),
+                             "pretrain reference counts: already done",
+                             "pretrain reference select: already done",
+                             "pretrain reference initial: already done",
+                             "pretrain gradient flow selection: already done", "pretrain: already done"]  # fmt: skip
     assert all(m.calls == 0 for m in mods.values())
     after = loop.tree()
     assert set(after) == set(before)
@@ -164,3 +176,44 @@ def test_restored_last_step_already_done(tmp_path):
     for name in model:
         assert set(again[name]) == set(model[name])
         assert all(again[name][k].equal(v) for k, v in model[name].items())
+
+
+def test_step_diagnostic_nested_schemas(tmp_path):
+    loop = Loop(tmp_path).write()
+    loop.run()
+    entry = loop.losses(0)[0]
+    assert set(entry["counts"]) == {"items", "clips", "pairs", "comparable", "incomparable", "sum_p",
+                                    "action_targets", "shift_targets", "phi_changed", "phi_state_pairs"}  # fmt: skip
+    assert set(entry["components"]) == {"phi", "pi", "P"}
+    assert set(entry["components"]["phi"]) == {"push", "constraint", "dual", "norm"}
+    assert set(entry["components"]["pi"]) == {"action", "shift"}
+    assert set(entry["components"]["P"]) == {"inc", "succ"}
+    assert set(entry["outputs"]) == {"P_inc", "P_succ", "pi_action"}
+    assert set(entry["outputs"]["pi_action"]) == {
+        "count",
+        "top1_support",
+        "mean_confidence",
+        "action_entropy",
+    }
+    assert set(entry["phi_stats"]) == {"d_alpha_mean", "d_alpha_changed_mean", "z_norm_mean", "hinge_active",
+                                       "changed", "state_pairs", "dual_lambda"}  # fmt: skip
+    assert set(entry["gradients"]) == {"global", "groups", "P_heads"}
+    assert set(entry["gradients"]["global"]) == {"norm", "clip_coefficient", "active"}
+    assert set(entry["gradients"]["P_heads"]) == {
+        "pref_weight",
+        "inc_weight",
+        "inc_bias",
+    }
+    assert set(entry["updates"]) == {"groups"}
+    assert all(
+        set(x) == {"norm", "relative", "unavailable"}
+        for x in entry["updates"]["groups"].values()
+    )
+    assert set(entry["baselines"]) == {
+        "zero",
+        "inc_only",
+        "both",
+        "target_entropy",
+        "inc_constant",
+        "succ_constant",
+    }

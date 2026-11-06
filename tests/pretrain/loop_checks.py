@@ -21,7 +21,8 @@ def checkpoint_steps(T: int, n_c: int) -> list[int]:
 
 def assert_entry(got: dict, want: dict) -> None:
     """An entry of losses.json: its keys in order, the step, the losses (7), lr (5)."""
-    assert list(got) == ["step", "phi", "pi", "P", "loss", "lr"]
+    assert list(got) == ["step", "phi", "pi", "P", "loss", "lr", "counts", "components",
+                         "outputs", "phi_stats", "gradients", "updates", "baselines"]  # fmt: skip
     assert got["step"] == want["step"] and type(got["step"]) is int
     for k in ("phi", "pi", "loss"):
         assert got[k] == pytest.approx(want[k], rel=1e-9, abs=1e-12), k

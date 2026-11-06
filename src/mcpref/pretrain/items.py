@@ -1,7 +1,8 @@
-"""(I), (1)-(3), (4) of specs/train-index.md: the inputs read in one pass with their
-fingerprints, the items, the split, the shuffle."""
+"""Train-index items of specs/train-index.md and the training part of specs/pretrain.md."""
 
 import json
+from collections.abc import Callable
+from dataclasses import dataclass
 from functools import cache
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
@@ -10,12 +11,48 @@ import numpy as np
 
 from mcpref import REPO
 from mcpref.graphs.components import components
+from mcpref.pretrain.clip import Clip, read_clip
+from mcpref.pretrain.config import PretrainConfig
 from mcpref.recognition.stored import shard_bar
 from mcpref.runs.files import fingerprint, new_hash, shard_files
 from mcpref.shards.store import complete_shards, shard_path
+from mcpref.training.schedule import n_batches
 
 if TYPE_CHECKING:
     from mcpref.pretrain.index import TrainIndexConfig
+
+
+@dataclass(frozen=True)
+class Part:
+    """Training part: shard sizes, M, K_tot, R_tot, T and its clip reader."""
+
+    sizes: list[int]
+    m: int
+    k_tot: int
+    r_tot: int
+    total: int
+    read: Callable[[str], Clip]
+
+
+def part(cfg: PretrainConfig, run: dict) -> Part:
+    """Notation: |I_s| from N and B_X, M, K_tot = N_U + 2 N_R, R_tot = N_R, T = E M."""
+    n_u, n_r = run["counts"]["train"]["clips"], run["counts"]["train"]["pairs"]
+    b_x, n = run["config"]["items_per_shard"], n_u + n_r
+    s = -(-n // b_x)
+    sizes = [b_x] * (s - 1) + [n - (s - 1) * b_x]
+    m = n_batches(sizes, cfg.batch)
+
+    def read(p: str) -> Clip:
+        return read_clip(REPO / p, run["states"], run["width"], run["height"])
+
+    return Part(sizes, m, n_u + 2 * n_r, n_r, cfg.epochs * m, read)
+
+
+def read_items(cfg: PretrainConfig, s: int) -> list[dict]:
+    """(T) 3: the items of shard s of {X}/train/."""
+    path = shard_path(REPO / cfg.index_dir / "train", s) / "items.json"
+    return json.loads(path.read_bytes())["items"]
+
 
 PARTS = ("train", "validation")
 RECORDS, PAIRS = "records.json", "pairs.json"

@@ -24,8 +24,14 @@ from mcpref.runs.files import (
 from mcpref.shards.store import complete_shards
 
 MODULES = ("phi", "phi_loss", "pi", "pi_loss", "P", "P_loss")
-Groups = dict[str, list[torch.nn.Parameter]]
-"""Notation: the groups {name: parameters} in group order."""
+
+
+class Groups(dict[str, list[torch.nn.Parameter]]):
+    """Groups in declaration order with canonical module-qualified parameter names."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.parameter_names: dict[int, str] = {}
 
 
 def index_run(cfg: PretrainConfig) -> dict:
@@ -48,8 +54,10 @@ def given(cfg: PretrainConfig, run: dict, modules: Modules) -> Modules:
 
 def declared(modules: Modules) -> Groups:
     """(R) 4: the groups by module, then by declaration; a name twice aborts."""
-    groups = {}
-    for module in modules.values():
+    groups = Groups()
+    for name, module in modules.items():
+        for parameter_name, parameter in module.named_parameters():
+            groups.parameter_names[id(parameter)] = f"{name}.{parameter_name}"
         for q, params in module.groups().items():
             if q in groups:
                 raise RuntimeError(f"group {q} declared twice")

@@ -1,10 +1,6 @@
-"""(T) and `pretrain` of specs/pretrain.md: after (R), (2)-(7) over the schedule (3),
-continued from the last checkpoint; model.pt; run.json complete."""
+"""(T) of specs/pretrain.md with ordinary, reference and selected diagnostics."""
 
-import json
 import sys
-from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 
 import torch
@@ -27,55 +23,28 @@ from mcpref.pretrain.checks import (
     header,
     index_run,
 )
-from mcpref.pretrain.clip import Clip, read_clip
 from mcpref.pretrain.config import PretrainConfig
-from mcpref.pretrain.loss import step_gradients
-from mcpref.pretrain.update import adamw, update
+from mcpref.pretrain.gradient_flow import accepted_records, gradient_dir, summarize
+from mcpref.pretrain.items import Part, part, read_items
+from mcpref.pretrain.reference import ReferenceData, write_metrics
+from mcpref.pretrain.reference_eval import evaluate_reference
+from mcpref.pretrain.selected_step import selected_step
+from mcpref.pretrain.startup import (
+    checkpoint_dir,
+    reference_dir,
+    start_gradient_flow,
+    start_reference,
+)
+from mcpref.pretrain.step import accumulator, step
+from mcpref.pretrain.update import adamw
 from mcpref.runs.files import write_json
-from mcpref.shards.store import complete_shards, shard_path
-from mcpref.training.schedule import n_batches, remaining
+from mcpref.shards.store import complete_shards
+from mcpref.training.schedule import remaining
 from mcpref.vpt.plan import generator
 
 START = {"step": 0, "epoch": 1, "schedule_rng": None, "batch_in_epoch": 0}
 LOGGED = ("phi", "pi", "P", "loss")
 DONE = "pretrain: already done"
-
-
-@dataclass(frozen=True)
-class Part:
-    """Notation: the training part of X: |I_s|, M, K_tot, R_tot, T; read(p) the clip."""
-
-    sizes: list[int]
-    m: int
-    k_tot: int
-    r_tot: int
-    total: int
-    read: Callable[[str], Clip]
-
-
-def part(cfg: PretrainConfig, run: dict) -> Part:
-    """Notation: |I_s| from N and B_X, M, K_tot = N_U + 2 N_R, R_tot = N_R, T = E M."""
-    n_u, n_r = run["counts"]["train"]["clips"], run["counts"]["train"]["pairs"]
-    b_x, n = run["config"]["items_per_shard"], n_u + n_r
-    s = -(-n // b_x)
-    sizes = [b_x] * (s - 1) + [n - (s - 1) * b_x]
-    m = n_batches(sizes, cfg.batch)
-
-    def read(p: str) -> Clip:
-        return read_clip(REPO / p, run["states"], run["width"], run["height"])
-
-    return Part(sizes, m, n_u + 2 * n_r, n_r, cfg.epochs * m, read)
-
-
-def checkpoint_dir(cfg: PretrainConfig) -> Path:
-    """Interface Checkpoints: {out_dir}/checkpoints/."""
-    return REPO / cfg.out_dir / "checkpoints"
-
-
-def read_items(cfg: PretrainConfig, s: int) -> list[dict]:
-    """(T) 3: the items of shard s of {X}/train/."""
-    path = shard_path(REPO / cfg.index_dir / "train", s) / "items.json"
-    return json.loads(path.read_bytes())["items"]
 
 
 def started(
@@ -92,32 +61,6 @@ def started(
     return optimizer, {k: state[k] for k in START}
 
 
-def step(
-    cfg: PretrainConfig,
-    modules: Modules,
-    optimizer: torch.optim.AdamW,
-    groups: Groups,
-    data: Part,
-    batch: list[dict],
-    t: int,
-) -> dict:
-    """Step t on the mini-batch `batch`: (2) from gradients None, (4)-(6); its entry
-    of losses.json (7)."""
-    optimizer.zero_grad(set_to_none=True)
-    logged = step_gradients(
-        batch,
-        modules,
-        read=data.read,
-        m=data.m,
-        k_tot=data.k_tot,
-        r_tot=data.r_tot,
-        w_pi=cfg.w_pi,
-        w_P=cfg.w_P,
-        micro_batch=cfg.micro_batch,
-    )
-    return {"step": t} | logged | {"lr": update(cfg, optimizer, groups, t, data.total)}
-
-
 def steps(
     cfg: PretrainConfig,
     modules: Modules,
@@ -127,31 +70,84 @@ def steps(
     position: dict,
     j: int,
     bar: tqdm,
+    reference: ReferenceData | None,
+    run: dict,
+    selection: dict,
 ) -> None:
-    """(T) 3: the steps after `position`, each shard's items read once per visit;
-    checkpoint j, j + 1, ... when N_c | t or t = T, then pruned; the bar advanced."""
+    """Schedule continuation with accepted selected records inside checkpoints."""
     directory, device = checkpoint_dir(cfg), torch.device(cfg.device)
     rng = generator([cfg.seed, 3], position["schedule_rng"])
-    visit, t, losses = None, position["step"], []
+    fit = reference.baselines if reference is not None else None
+    windows = accumulator(cfg, fit)
+    selected = {
+        entry["step"]: (index, entry) for index, entry in enumerate(selection["steps"])
+    }
+    visit, t, losses, pending = None, position["step"], [], []
     for at, s, positions in remaining(rng, data.sizes, cfg.batch, position, cfg.epochs):
         if visit != (at["epoch"], s):
             visit, items = (at["epoch"], s), read_items(cfg, s)
         t += 1
         batch = [items[i] for i in positions]
-        entry = step(cfg, modules, optimizer, groups, data, batch, t)
+        if t in selected:
+            index, chosen = selected[t]
+            entry, observations, record = selected_step(
+                cfg,
+                modules,
+                optimizer,
+                groups,
+                data,
+                batch,
+                t,
+                fit,
+                run,
+                chosen,
+                index,
+                j,
+                len(losses),
+            )
+            pending.append(record)
+        else:
+            entry, observations = step(
+                cfg, modules, optimizer, groups, data, batch, t, fit
+            )
         losses.append(entry)
+        windows.add(entry, observations)
         if t % cfg.checkpoint_steps == 0 or t == data.total:
             saved = {"step": t} | at
-            write_checkpoint(directory, j, saved, modules, optimizer, device, losses)
+            diagnostics = windows.drain(final=t == data.total)
+            write_checkpoint(
+                directory,
+                j,
+                saved,
+                modules,
+                optimizer,
+                device,
+                losses,
+                diagnostics,
+                pending,
+            )
             prune(directory, j, cfg.keep_checkpoints)
+            pending = []
+            write_json(
+                gradient_dir(cfg) / "summary.json",
+                summarize(accepted_records(cfg), cfg.quantiles),
+            )
             j, losses = j + 1, []
+            if reference is not None and t % cfg.reference_steps == 0:
+                metrics = evaluate_reference(cfg, modules, reference, run, t)
+                write_metrics(reference_dir(cfg), t // cfg.reference_steps, metrics)
         bar.set_postfix({k: entry[k] for k in LOGGED if entry[k] is not None})
         bar.update()
 
 
-def train(cfg: PretrainConfig, modules: Modules, groups: Groups, data: Part) -> None:
-    """(T) 1-3: train mode; the checkpoints pruned; the start; the steps (bar
-    `pretrain`, or its line after a restored step T)."""
+def train(
+    cfg: PretrainConfig,
+    modules: Modules,
+    groups: Groups,
+    data: Part,
+    run: dict,
+) -> None:
+    """Restore, initialize/reuse diagnostics, then continue the unchanged schedule."""
     for module in modules.values():
         module.train()
     directory = checkpoint_dir(cfg)
@@ -159,13 +155,27 @@ def train(cfg: PretrainConfig, modules: Modules, groups: Groups, data: Part) -> 
     if h:
         prune(directory, h - 1, cfg.keep_checkpoints)
     optimizer, position = started(cfg, modules, groups, h)
+    reference = start_reference(cfg, modules, run, position["step"])
+    selection = start_gradient_flow(cfg, run, data)
     if position["step"] == data.total:
         print(DONE, file=sys.stderr)
         return
     with tqdm(
         total=data.total, initial=position["step"], desc="pretrain", unit="step"
     ) as bar:
-        steps(cfg, modules, optimizer, groups, data, position, h, bar)
+        steps(
+            cfg,
+            modules,
+            optimizer,
+            groups,
+            data,
+            position,
+            h,
+            bar,
+            reference,
+            run,
+            selection,
+        )
 
 
 def pretrain(
@@ -181,6 +191,6 @@ def pretrain(
     if model.exists():
         print(DONE, file=sys.stderr)
     else:
-        train(cfg, modules, groups, part(cfg, run))
+        train(cfg, modules, groups, part(cfg, run), run)
         write_model(model, modules)
     write_json(REPO / cfg.out_dir / "run.json", head | {"complete": True})

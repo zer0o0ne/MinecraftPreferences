@@ -1,16 +1,21 @@
 """Interface Checkpoints, (T) 1, 2, 4 of specs/pretrain.md: checkpoint shards written,
 restored and pruned; model.pt."""
 
-import json
 import os
-from pathlib import Path
+from collections.abc import Sequence
+from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
 import torch
 
+from mcpref.runs.files import json_bytes
 from mcpref.shards.store import part_path, publish, shard_path, sync, write_shard
 from mcpref.training.devices import cpu_copies
 
-CHECKPOINT, LOSSES = "checkpoint.pt", "losses.json"
+if TYPE_CHECKING:
+    from mcpref.pretrain.gradient_flow import GradientStepRecord
+
+CHECKPOINT, LOSSES, DIAGNOSTICS = "checkpoint.pt", "losses.json", "diagnostics.json"
 Modules = dict[str, torch.nn.Module]
 
 
@@ -30,17 +35,24 @@ def write_checkpoint(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     losses: list[dict],
+    diagnostics: list[dict],
+    gradient_flow: Sequence["GradientStepRecord"],
 ) -> None:
-    """checkpoints/<name(j)>/: checkpoint.pt (position, modules, optimizer, torch_rng,
-    cuda_rng) and losses.json, by write_shard."""
+    """Write the unchanged optimizer state and all accepted-candidate diagnostics."""
     saved = position | {"modules": cpu_states(modules)}
     saved |= {"optimizer": optimizer.state_dict(), "torch_rng": torch.get_rng_state()}
     cuda = device.type == "cuda"
     saved |= {"cuda_rng": torch.cuda.get_rng_state(device) if cuda else None}
     with write_shard(directory, j) as staged:
         torch.save(saved, staged / CHECKPOINT)
-        text = json.dumps(losses, indent=2) + "\n"
-        (staged / LOSSES).write_bytes(text.encode("utf-8"))
+        (staged / LOSSES).write_bytes(json_bytes(losses))
+        (staged / DIAGNOSTICS).write_bytes(json_bytes(diagnostics))
+        for record in gradient_flow:
+            name = PurePosixPath(record.metrics["evidence"]["pairs"]).parent.name
+            target = staged / "gradient_flow" / name
+            target.mkdir(parents=True)
+            (target / "metrics.json").write_bytes(json_bytes(record.metrics))
+            (target / "pairs.json").write_bytes(json_bytes(record.pairs))
 
 
 def restore(directory: Path, h: int, modules: Modules) -> dict:

@@ -4,7 +4,20 @@ that put a block's real modules inside `pretrain` (specs/pretrain.md Interface).
 
 import torch
 
-from .loop_modules import D, Fake, Phi, PhiLoss, Pi, PLoss, Pref, fixed, pi_terms
+from .loop_modules import (
+    ACTIONS,
+    F64,
+    D,
+    Fake,
+    L,
+    Phi,
+    PhiLoss,
+    Pi,
+    PLoss,
+    Pref,
+    fixed,
+    pi_terms,
+)
 
 
 class PhiStart(Phi):
@@ -38,9 +51,29 @@ class PiStart(Pi):
 class PiLossStart(Fake):
     """pi_terms of loop_modules.py, without parameters."""
 
-    def forward(self, out: dict, Z: torch.Tensor, clips: list) -> torch.Tensor:
+    def diagnostic_targets(self) -> tuple[torch.Tensor, torch.Tensor]:
+        return self._diagnostic
+
+    def terms(self, out: tuple, Z: torch.Tensor, clips: list) -> tuple[dict, dict]:
         self.note("pi_loss", n=len(clips))
-        return pi_terms(out["logits"], out["shift"], Z, clips)
+        logits, shift = out
+        a = torch.tensor([c.info["a"] for c in clips])
+        action = -torch.log_softmax(logits, -1).gather(-1, a[..., None])[..., 0].sum(1)
+        shift_term = ((shift[:, :-1] - (Z[:, 1:] - Z[:, :-1])) ** 2).sum((1, 2))
+        valid = torch.ones(len(clips), L - 2, dtype=torch.bool)
+        q = torch.nn.functional.one_hot(a[:, : L - 2], ACTIONS).to(F64)
+        self._diagnostic = q, q.clone()
+        return {
+            "action": action,
+            "shift": shift_term,
+            "total": pi_terms(logits, shift, Z, clips),
+        }, {"action_valid": valid, "shift_valid": valid}
+
+    def forward(self, out: tuple, Z: torch.Tensor, clips: list) -> torch.Tensor:
+        return self.terms(out, Z, clips)[0]["total"]
+
+    def zero_shift(self, Z: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:
+        return ((Z[:, 1:] - Z[:, :-1]) ** 2).sum((1, 2))
 
     def groups(self) -> dict:
         return {}

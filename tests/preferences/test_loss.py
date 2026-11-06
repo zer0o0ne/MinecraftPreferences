@@ -126,3 +126,22 @@ def test_gradient_reaches_z_and_p():
     net.zero_grad()
     PreferenceLoss()(net(Za, Zb), [{"p": None, "inc": 1}] * 3).sum().backward()
     assert (net.pref.weight.grad == 0).all() and net.inc.weight.grad.abs().sum() > 0
+
+
+def test_terms_component_identity_and_forward():
+    """Eq. (2): inc and comparable-only succ are per-pair and sum to the original total."""
+    loss = PreferenceLoss()
+    s = torch.tensor([0.0, 500.0, 2.0], dtype=F64)
+    t = torch.tensor([0.0, -1.0, 0.3], dtype=F64)
+    labels = [{"p": 0.5, "inc": 0}, {"p": None, "inc": 1}, {"p": 0.25, "inc": 0}]
+    terms = loss.terms((s, t), labels)
+    assert set(terms) == {"inc", "succ", "total"}
+    want_inc = torch.tensor(
+        [2 * bce(0.0, 0), 2 * bce(-1.0, 1), 2 * bce(0.3, 0)], dtype=F64
+    )
+    want_succ = torch.tensor([2 * bce(0.0, 0.5), 0.0, 2 * bce(2.0, 0.25)], dtype=F64)
+    assert_close(terms["inc"], want_inc)
+    assert_close(terms["succ"], want_succ)
+    assert_close(terms["total"], terms["inc"] + terms["succ"])
+    assert_close(loss((s, t), labels), terms["total"])
+    assert all(value.shape == (3,) for value in terms.values())

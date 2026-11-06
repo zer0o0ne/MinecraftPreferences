@@ -59,16 +59,14 @@ class Phi(Fake):
 
 
 class PhiLoss(Fake):
-    """l_i = lam (w_i s_i / (1 + 0.01 seen) - 0.5) + 0.1 lam^2 + 0.05 ||Z_{i,L}||^2: s_i the
-    sum of the squared steps of Z_i, w_i the `w` of the clip's first line; `seen` (a buffer)
-    the clips seen before this call, counted when `stateful`; group dual."""
+    """A scalar fake loss with the diagnostic terms and tensors of the revised protocol."""
 
     def __init__(self, stateful: bool = True, cut: bool = False):
         super().__init__(cut)
         self.lam, self.stateful = nn.Parameter(torch.tensor(0.7, dtype=F64)), stateful
         self.register_buffer("seen", torch.zeros((), dtype=F64))
 
-    def forward(self, Z: torch.Tensor, clips: list) -> torch.Tensor:
+    def terms(self, Z: torch.Tensor, clips: list) -> tuple[dict, dict]:
         self.note("phi_loss", Z=Z.detach().clone(), ids=[c.info["id"] for c in clips])
         Z = self.cut_off(Z)
         w = torch.tensor([c.lines[0]["w"] for c in clips], dtype=F64)
@@ -77,15 +75,40 @@ class PhiLoss(Fake):
         if self.stateful:
             self.seen += len(clips)
         last = (Z[:, -1] ** 2).sum(1)
-        return self.lam * (w * steps * scale - 0.5) + 0.1 * self.lam**2 + 0.05 * last
+        push = self.lam * w * steps * scale
+        constraint = -0.5 * self.lam.expand(len(clips))
+        dual = 0.1 * self.lam**2 * torch.ones(len(clips), dtype=F64)
+        norm = 0.05 * last
+        total = self.lam * (w * steps * scale - 0.5) + 0.1 * self.lam**2 + 0.05 * last
+        d_alpha = torch.linalg.vector_norm(Z[:, 1:] - Z[:, :-1], ord=2, dim=-1)
+        z_norm = torch.linalg.vector_norm(Z, ord=2, dim=-1)
+        diagnostics = {
+            "changed": torch.ones_like(d_alpha, dtype=torch.bool),
+            "d_alpha": d_alpha,
+            "z_norm": z_norm,
+            "hinge": torch.clamp(z_norm**2 - 1, min=0),
+        }
+        return {
+            "push": push,
+            "constraint": constraint,
+            "dual": dual,
+            "norm": norm,
+            "total": total,
+        }, diagnostics
+
+    def forward(self, Z: torch.Tensor, clips: list) -> torch.Tensor:
+        return self.terms(Z, clips)[0]["total"]
+
+    @property
+    def log_lambda(self) -> nn.Parameter:
+        return self.lam
 
     def groups(self) -> dict:
         return {"dual": [self.lam]}
 
 
 class Pi(Fake):
-    """pi(Z, clips) = {logits: Z Wa + ba, shift: Z V + 0.1 w_i} for every state, w_i the `w`
-    of clip i's first line (row i depends on clip i); group pi."""
+    """A linear policy returning `(logits, shift)` for every state; group pi."""
 
     def __init__(self):
         super().__init__()
@@ -95,13 +118,10 @@ class Pi(Fake):
             fixed(5, D, D),
         )
 
-    def forward(self, Z: torch.Tensor, clips: list) -> dict:
+    def forward(self, Z: torch.Tensor, clips: list) -> tuple:
         self.note("pi", Z=Z.detach().clone(), ids=[c.info["id"] for c in clips])
         w = torch.tensor([c.lines[0]["w"] for c in clips], dtype=F64)
-        return {
-            "logits": Z @ self.Wa + self.ba,
-            "shift": Z @ self.V + 0.1 * w[:, None, None],
-        }
+        return Z @ self.Wa + self.ba, Z @ self.V + 0.1 * w[:, None, None]
 
     def groups(self) -> dict:
         return {"pi": [self.Wa, self.ba, self.V]}
@@ -122,45 +142,75 @@ class PiLoss(Fake):
         super().__init__(cut)
         self.k = fixed(6, 2)
 
-    def forward(self, out: dict, Z: torch.Tensor, clips: list) -> torch.Tensor:
+    def diagnostic_targets(self) -> tuple[torch.Tensor, torch.Tensor]:
+        return self._diagnostic
+
+    def terms(self, out: tuple, Z: torch.Tensor, clips: list) -> tuple[dict, dict]:
         self.note("pi_loss", n=len(clips))
-        logits, shift, Z = (self.cut_off(x) for x in (out["logits"], out["shift"], Z))
-        return pi_terms(logits, shift, Z, clips) + 0.0 * self.k.sum()
+        logits, shift, Z = (self.cut_off(x) for x in (*out, Z))
+        a = torch.tensor([c.info["a"] for c in clips])
+        action = -torch.log_softmax(logits, -1).gather(-1, a[..., None])[..., 0].sum(1)
+        shift_term = ((shift[:, :-1] - (Z[:, 1:] - Z[:, :-1])) ** 2).sum((1, 2))
+        total = pi_terms(logits, shift, Z, clips) + 0.0 * self.k.sum()
+        valid = torch.ones(len(clips), L - 2, dtype=torch.bool)
+        q = torch.nn.functional.one_hot(a[:, : L - 2], ACTIONS).to(F64)
+        self._diagnostic = q, q.clone()
+        return {"action": action, "shift": shift_term, "total": total}, {
+            "action_valid": valid,
+            "shift_valid": valid,
+        }
+
+    def forward(self, out: tuple, Z: torch.Tensor, clips: list) -> torch.Tensor:
+        return self.terms(out, Z, clips)[0]["total"]
+
+    def zero_shift(self, Z: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:
+        return ((Z[:, 1:] - Z[:, :-1]) ** 2).sum((1, 2))
 
     def groups(self) -> dict:
         return {"idle": [self.k]}
 
 
 class Pref(Fake):
-    """P(Za, Zb) = (sigmoid((a - b) u + beta), sigmoid((a + b) v)), a, b the last states of
-    Za, Zb; group pref."""
+    """A tied linear preference head returning the two logits; group pref."""
 
     def __init__(self):
         super().__init__()
+        from types import SimpleNamespace
+
         self.u, self.beta, self.v = fixed(7, D), fixed(8, 1), fixed(9, D)
+        self.pref = SimpleNamespace(weight=self.u)
+        self.inc = SimpleNamespace(weight=self.v, bias=self.beta)
 
     def forward(self, Za: torch.Tensor, Zb: torch.Tensor) -> tuple:
         self.note("P", Za=Za.detach().clone(), Zb=Zb.detach().clone())
         a, b = Za[:, -1], Zb[:, -1]
-        return torch.sigmoid((a - b) @ self.u + self.beta), torch.sigmoid(
-            (a + b) @ self.v
-        )
+        return (a - b) @ self.u + self.beta, (a + b) @ self.v
 
     def groups(self) -> dict:
         return {"pref": [self.u, self.beta, self.v]}
 
 
 class PLoss(Fake):
-    """l_r = BCE(p_r, y_r) + BCE(p_cmp_r, c_r), y and c from the pair's labels; no
-    parameters."""
+    """A two-head fake preference loss with the revised per-pair terms."""
+
+    def terms(self, out: tuple, labels: list) -> dict[str, torch.Tensor]:
+        self.note("P_loss", labels=labels)
+        s, t = (self.cut_off(x) for x in out)
+        p = torch.tensor(
+            [lab["p"] if lab["inc"] == 0 else 0.5 for lab in labels], dtype=F64
+        )
+        inc = torch.tensor([lab["inc"] for lab in labels], dtype=F64)
+        succ = 2 * torch.nn.functional.binary_cross_entropy_with_logits(
+            s, p, reduction="none"
+        )
+        succ = torch.where(inc == 0, succ, torch.zeros_like(succ))
+        inc_loss = 2 * torch.nn.functional.binary_cross_entropy_with_logits(
+            t, inc, reduction="none"
+        )
+        return {"inc": inc_loss, "succ": succ, "total": inc_loss + succ}
 
     def forward(self, out: tuple, labels: list) -> torch.Tensor:
-        self.note("P_loss", labels=labels)
-        p, pc = (self.cut_off(x) for x in out)
-        y = torch.tensor([lab["y"] for lab in labels], dtype=F64)
-        c = torch.tensor([lab["c"] for lab in labels], dtype=F64)
-        bce_p = -(y * torch.log(p) + (1 - y) * torch.log(1 - p))
-        return bce_p - (c * torch.log(pc) + (1 - c) * torch.log(1 - pc))
+        return self.terms(out, labels)["total"]
 
     def groups(self) -> dict:
         return {}

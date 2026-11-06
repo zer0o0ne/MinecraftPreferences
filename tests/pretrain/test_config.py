@@ -13,7 +13,9 @@ import mcpref.clips.collect
 from mcpref.pretrain.config import PretrainConfig, load_config
 
 PATHS = ["index_dir", "out_dir", "perception", "action_mask", "policy", "preference"]
-NAMES = [*PATHS, "seed", "epochs", "batch", "micro_batch", "checkpoint_steps",
+NAMES = [*PATHS, "seed", "epochs", "batch", "micro_batch", "diagnostic_window",
+         "reference_steps", "reference_pairs", "calibration_bins", "saturation_threshold",
+         "inc_classification_threshold", "quantiles", "action_copy_eps", "checkpoint_steps",
          "keep_checkpoints", "warmup_steps", "w_pi", "w_P", "grad_clip", "adam_eps",
          "lr_floor", "betas", "groups", "device"]  # fmt: skip
 VALID = {  # YAML lines of a valid config
@@ -27,6 +29,14 @@ VALID = {  # YAML lines of a valid config
     "epochs": "1",
     "batch": "3",
     "micro_batch": "2",
+    "diagnostic_window": "1",
+    "reference_steps": "1",
+    "reference_pairs": "1",
+    "calibration_bins": "10",
+    "saturation_threshold": "0.01",
+    "inc_classification_threshold": "0.5",
+    "quantiles": "[0.05, 0.5, 0.95]",
+    "action_copy_eps": "0.1",
     "checkpoint_steps": "1",
     "keep_checkpoints": "1",
     "warmup_steps": "0",
@@ -61,9 +71,13 @@ def test_reads_every_field(tmp_path):
     assert (cfg.perception, cfg.action_mask, cfg.policy, cfg.preference) == (
         "c/perception.yaml", "./c/action-mask.yaml", "c/sub/policy.yaml", "preference.yaml"
     )  # fmt: skip
-    ints = (cfg.seed, cfg.epochs, cfg.batch, cfg.micro_batch, cfg.checkpoint_steps,
-            cfg.keep_checkpoints, cfg.warmup_steps)  # fmt: skip
-    assert ints == (2**32 - 1, 1, 3, 2, 1, 1, 0) and all(type(v) is int for v in ints)
+    ints = (cfg.seed, cfg.epochs, cfg.batch, cfg.micro_batch, cfg.diagnostic_window,
+            cfg.reference_steps, cfg.reference_pairs, cfg.calibration_bins,
+            cfg.checkpoint_steps, cfg.keep_checkpoints, cfg.warmup_steps)  # fmt: skip
+    assert ints == (2**32 - 1, 1, 3, 2, 1, 1, 1, 10, 1, 1, 0)
+    assert all(type(v) is int for v in ints)
+    assert (cfg.saturation_threshold, cfg.inc_classification_threshold, cfg.action_copy_eps) == (0.01, 0.5, 0.1)  # fmt: skip
+    assert cfg.quantiles == (0.05, 0.5, 0.95) and type(cfg.quantiles) is tuple
     assert (cfg.w_pi, cfg.w_P, cfg.grad_clip, cfg.adam_eps, cfg.lr_floor) == (
         2, 0.5, 1e9, 1e-8, 0
     )  # fmt: skip
@@ -86,6 +100,9 @@ ACCEPTED = {  # boundaries inside the domain: field, YAML, value
     "grad_clip inf": ("grad_clip", ".inf", math.inf),
     "w_pi tiny": ("w_pi", "1.0e-300", 1e-300),
     "groups empty": ("groups", "{}", {}),
+    "copy eps 0": ("action_copy_eps", "0", 0.0),
+    "copy eps 1": ("action_copy_eps", "1", 1.0),
+    "one quantile": ("quantiles", "[0.5]", (0.5,)),
 }
 
 
@@ -178,6 +195,57 @@ BAD = {
     "group lr a string": {"groups": '{a: {lr: "1", weight_decay: 0}}'},
     "group weight_decay negative": {"groups": "{a: {lr: 1, weight_decay: -1.0e-9}}"},
     "group weight_decay a boolean": {"groups": "{a: {lr: 1, weight_decay: false}}"},
+    **{
+        f"{k} missing": {k: None}
+        for k in (
+            "diagnostic_window",
+            "reference_steps",
+            "reference_pairs",
+            "calibration_bins",
+            "saturation_threshold",
+            "inc_classification_threshold",
+            "quantiles",
+            "action_copy_eps",
+        )
+    },
+    **{
+        f"{k} 0": {k: "0"}
+        for k in (
+            "diagnostic_window",
+            "reference_steps",
+            "reference_pairs",
+            "calibration_bins",
+        )
+    },
+    **{
+        f"{k} negative": {k: "-1"}
+        for k in (
+            "diagnostic_window",
+            "reference_steps",
+            "reference_pairs",
+            "calibration_bins",
+        )
+    },
+    **{
+        f"{k} a boolean": {k: "true"}
+        for k in (
+            "diagnostic_window",
+            "reference_steps",
+            "reference_pairs",
+            "calibration_bins",
+        )
+    },
+    "saturation 0": {"saturation_threshold": "0"},
+    "saturation half": {"saturation_threshold": "0.5"},
+    "inc threshold 0": {"inc_classification_threshold": "0"},
+    "inc threshold 1": {"inc_classification_threshold": "1"},
+    "copy eps negative": {"action_copy_eps": "-0.1"},
+    "copy eps above 1": {"action_copy_eps": "1.1"},
+    "quantiles empty": {"quantiles": "[]"},
+    "quantiles duplicate": {"quantiles": "[0.5, 0.5]"},
+    "quantiles unsorted": {"quantiles": "[0.9, 0.5]"},
+    "quantiles 0": {"quantiles": "[0, 0.5]"},
+    "quantiles 1": {"quantiles": "[0.5, 1]"},
     "bad device": {"device": '"gpu"'},
     "device not a string": {"device": "0"},
 }
@@ -212,12 +280,33 @@ def test_starting_values(repo):
         "index_dir": "data/train_index", "out_dir": "data/pretrain",
         "perception": "configs/perception.yaml", "action_mask": "configs/action-mask.yaml",
         "policy": "configs/policy.yaml", "preference": "configs/preference.yaml", "seed": 0,
-        "epochs": 1, "batch": 32, "micro_batch": 1, "checkpoint_steps": 500,
+        "epochs": 1, "batch": 32, "micro_batch": 1,
+        "diagnostic_window": 100, "reference_steps": 500, "reference_pairs": 64,
+        "calibration_bins": 10, "saturation_threshold": 0.01,
+        "inc_classification_threshold": 0.5, "quantiles": (0.05, 0.5, 0.95),
+        "action_copy_eps": 0.1, "checkpoint_steps": 100,
         "keep_checkpoints": 2, "warmup_steps": 100, "w_pi": 1.0, "w_P": 1.0,
         "grad_clip": 1.0, "adam_eps": 1e-8, "lr_floor": 0.1, "betas": (0.9, 0.999),
         "groups": STARTING_GROUPS, "device": "cuda",
     }  # fmt: skip
     assert list(cfg.groups) == list(STARTING_GROUPS)  # the eleven groups in this order
+
+
+@pytest.mark.parametrize(
+    "changes, condition",
+    [
+        ({"diagnostic_window": "2"}, "checkpoint_steps % diagnostic_window"),
+        (
+            {"reference_steps": "2", "checkpoint_steps": "3"},
+            "reference_steps % checkpoint_steps",
+        ),
+    ],
+)
+def test_diagnostic_divisibility_errors_name_the_condition(
+    tmp_path, changes, condition
+):
+    with pytest.raises(ValueError, match=condition):
+        load(tmp_path, **changes)
 
 
 INTEGERS = {  # value, low, high -> result, or None for ValueError

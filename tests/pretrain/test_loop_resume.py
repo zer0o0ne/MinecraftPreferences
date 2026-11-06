@@ -45,6 +45,9 @@ def assert_same_outputs(cut: Loop, whole: Loop) -> None:
     for j in range(n):
         a, b = cut.checkpoint_dir(j), whole.checkpoint_dir(j)
         assert (a / "losses.json").read_bytes() == (b / "losses.json").read_bytes()
+        assert (a / "diagnostics.json").read_bytes() == (
+            b / "diagnostics.json"
+        ).read_bytes()
         assert (a / "checkpoint.pt").exists() == (b / "checkpoint.pt").exists()
         if (b / "checkpoint.pt").exists():
             x, y = cut.checkpoint(j), whole.checkpoint(j)
@@ -55,6 +58,25 @@ def assert_same_outputs(cut: Loop, whole: Loop) -> None:
             assert equal_optimizers(x["optimizer"], y["optimizer"])
             assert x["torch_rng"].equal(y["torch_rng"]) and x["cuda_rng"] is None
     assert not cut.checkpoint_dir(n).exists()
+    if (cut.out / "gradient-flow/selection.json").exists():
+        assert (cut.out / "gradient-flow/selection.json").read_bytes() == (
+            whole.out / "gradient-flow/selection.json"
+        ).read_bytes()
+        assert (cut.out / "gradient-flow/summary.json").read_bytes() == (
+            whole.out / "gradient-flow/summary.json"
+        ).read_bytes()
+        expected = {name for name in whole.tree() if "gradient_flow/" in name}
+        assert {name for name in cut.tree() if "gradient_flow/" in name} == expected
+        for name in expected:
+            assert (cut.out / name).read_bytes() == (whole.out / name).read_bytes()
+    if (cut.out / "reference").exists():
+        for shard in (cut.out / "reference").iterdir():
+            other = whole.out / "reference" / shard.name
+            assert {p.name for p in shard.iterdir()} == {
+                p.name for p in other.iterdir()
+            }
+            for path in shard.iterdir():
+                assert path.read_bytes() == (other / path.name).read_bytes()
     assert equal_states(cut.model(), whole.model())
 
 

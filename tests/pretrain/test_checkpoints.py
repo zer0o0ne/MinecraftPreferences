@@ -27,6 +27,7 @@ def test_prune(tmp_path, monkeypatch, n, last, k, without, deleted):
         d = directory / f"{j:06d}"
         d.mkdir(parents=True)
         (d / "losses.json").write_bytes(b"[]\n")
+        (d / "diagnostics.json").write_bytes(b"[]\n")
         if j not in without:
             (d / "checkpoint.pt").write_bytes(b"x")
     synced, real = [], os.fsync
@@ -42,6 +43,11 @@ def test_prune(tmp_path, monkeypatch, n, last, k, without, deleted):
         d = directory / f"{j:06d}"
         assert (d / "checkpoint.pt").exists() == (j not in without and j not in deleted)
         assert (d / "losses.json").read_bytes() == b"[]\n"
-        assert {p.name for p in d.iterdir()} <= {"checkpoint.pt", "losses.json"}
+        assert (d / "diagnostics.json").read_bytes() == b"[]\n"
+        assert {p.name for p in d.iterdir()} <= {
+            "checkpoint.pt",
+            "losses.json",
+            "diagnostics.json",
+        }
     for j in deleted:
         assert (directory / f"{j:06d}", False) in synced

@@ -175,3 +175,55 @@ def test_float32(tmp_path):
     want, _, _ = oracle.loss(Z.numpy(), CHI, [[1, 1, 3, 10], [2, 1, 10, 1]], np.ones(2),
                              values(tmp_path), math.log(30.0))  # fmt: skip
     torch.testing.assert_close(got, torch.tensor(want, dtype=torch.float32))
+
+
+def test_terms_components_diagnostic_tensors_and_forward(tmp_path):
+    """Eq. (4): four stop-gradient-preserving components and ||z||, not squared ||z||."""
+    loss = module(tmp_path)
+    Z = latent()
+    clips = [meta_clip(), cursor_clip()]
+    terms, diagnostic = loss.terms(Z, clips)
+    v = values(tmp_path)
+    z = Z.detach().numpy()
+    alpha = np.asarray(v["alpha"])
+    d = np.linalg.norm(alpha * (z[:, 1:] - z[:, :-1]), axis=-1)
+    ns = np.asarray([c.info["n"] for c in clips])
+    q = np.minimum(v["dual_slack"], ns**2 - d**2)
+    chi = np.asarray(CHI)
+    log_lam = math.log(30.0)
+    hinge = np.maximum(0, (z**2).sum(-1) - v["c"] ** 2)
+    want = {
+        "push": (-chi * d).mean(1),
+        "constraint": (-chi * 30.0 * q).mean(1),
+        "dual": (chi * log_lam * q).mean(1),
+        "norm": (v["beta"] * (hinge[:, :-1] + hinge[:, 1:])).mean(1),
+    }
+    assert set(terms) == {"push", "constraint", "dual", "norm", "total"}
+    for key, value in want.items():
+        torch.testing.assert_close(terms[key], torch.tensor(value))
+    torch.testing.assert_close(terms["total"], sum(terms[k] for k in want))
+    torch.testing.assert_close(loss(Z, clips), terms["total"])
+    assert diagnostic["changed"].dtype == torch.bool
+    assert diagnostic["changed"].tolist() == CHI
+    torch.testing.assert_close(diagnostic["d_alpha"], torch.tensor(d))
+    torch.testing.assert_close(
+        diagnostic["z_norm"], torch.tensor(np.sqrt((z**2).sum(-1)))
+    )
+    torch.testing.assert_close(diagnostic["hinge"], torch.tensor(hinge))
+    assert all(x.dtype == F64 for k, x in diagnostic.items() if k != "changed")
+
+
+def test_terms_computes_frames_and_metas_once(tmp_path, monkeypatch):
+    import mcpref.perception.loss as loss_module
+
+    real = loss_module.clip_states
+    calls = []
+
+    def counting(*args):
+        calls.append(args)
+        return real(*args)
+
+    monkeypatch.setattr(loss_module, "clip_states", counting)
+    loss = module(tmp_path)
+    loss.terms(latent(), [meta_clip(), cursor_clip()])
+    assert len(calls) == len(CHI)

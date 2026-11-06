@@ -12,7 +12,7 @@ import pytest
 
 NUM = r" ?\d+\.\d\d"  # f"{rate:5.2f}"
 # a rate below 1 per second is drawn inverted
-RATE = rf"(?:(?:{NUM}|\?)(?P<unit>[a-z]+)/s|{NUM}s/(?P<inv>[a-z]+))"
+RATE = rf"(?:(?:{NUM}|\?)(?P<unit>[a-z-]+)/s|{NUM}s/(?P<inv>[a-z-]+))"
 END = rf"{RATE}(?:, (?P<postfix>.+))?\]"
 TOTAL = re.compile(
     rf"(?P<desc>[^:]+): +\d+%\|[^|]*\| (?P<n>\d+)/(?P<total>\d+) "
@@ -36,7 +36,9 @@ class Bar:
 
 
 def parse(state: str) -> Bar | None:
-    """The bar state `state` draws (its padding ignored), else None."""
+    """The bar state `state` draws (its padding and cursor-up suffix ignored), else None."""
+    while state.endswith("\x1b[A"):
+        state = state.removesuffix("\x1b[A")
     state = state.rstrip(" ")
     if m := TOTAL.fullmatch(state):
         total = int(m["total"])
@@ -65,12 +67,19 @@ def assert_progress(err: str) -> None:
     """The bars of one run, each drawn once: each starts at 0, never goes back, keeps its
     total and unit, and is closed with its last state left alone on a line of its own."""
     descs = list(dict.fromkeys(b.desc for b in states(err)))
-    for desc in descs:
-        drawn = states(err, desc)
-        assert drawn[0].n == 0 and len({(b.total, b.unit) for b in drawn}) == 1, drawn
-        assert all(a.n <= b.n for a, b in itertools.pairwise(drawn)), drawn
     closed = [line for line in screen(err) if isinstance(line, Bar)]
-    assert closed == [states(err, d)[-1] for d in descs], repr(err)
+    for desc in descs:
+        runs = []
+        for bar in states(err, desc):
+            if bar.n == 0 and runs and any(x.n > 0 for x in runs[-1]):
+                runs.append([])
+            if not runs:
+                runs.append([])
+            runs[-1].append(bar)
+        for run in runs:
+            assert run[0].n == 0 and len({(b.total, b.unit) for b in run}) == 1, run
+            assert all(a.n <= b.n for a, b in itertools.pairwise(run)), run
+            assert run[-1] in closed, (desc, closed)
     for line, shown in zip(err.split("\n"), screen(err)):
         parts = [parse(s) for s in line.split("\r") if s.strip(" ")]
         if isinstance(shown, Bar):

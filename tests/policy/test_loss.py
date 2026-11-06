@@ -180,3 +180,42 @@ def test_shift_in_the_graph_without_chi(masks):
     module(masks)(net(Z, [clip]), Z, [clip]).sum().backward()
     for p in [net.actions.weight, *net.dynamics.parameters()]:
         assert p.grad is not None and not p.grad.any()
+
+
+def test_terms_components_validity_and_forward(masks):
+    """Eq. (3): state action/shift terms, valid-row masks and the original per-clip total."""
+    clips = [HAND]
+    lam, sh, Z = outputs(1, 8, len(masks.names), 21)
+    loss = module(masks)
+    terms, valid = loss.terms((lam, sh), Z, clips)
+    q, chi = oracle.targets(HAND, masks.names)
+    logp = torch.log_softmax(lam[0], -1)
+    action = -sum(float((torch.tensor(q[s]) * logp[s]).sum()) for s in range(6)) / 6
+    err = sh[0, 0] - (Z[0, 1] - Z[0, 0])
+    shift = W * float(((ALPHA * err) ** 2).sum()) / 6
+    assert set(terms) == {"action", "shift", "total"}
+    assert terms["action"].item() == pytest.approx(action, rel=1e-12)
+    assert terms["shift"].item() == pytest.approx(shift, rel=1e-12)
+    assert_close(terms["total"], terms["action"] + terms["shift"])
+    assert_close(loss((lam, sh), Z, clips), terms["total"])
+    assert valid["action_valid"].dtype == valid["shift_valid"].dtype == torch.bool
+    assert valid["action_valid"].shape == valid["shift_valid"].shape == (1, 6)
+    assert valid["action_valid"].tolist() == [(torch.tensor(q).sum(-1) > 0).tolist()]
+    assert valid["shift_valid"].tolist() == [chi.tolist()]
+
+
+def test_terms_computes_targets_once(masks, monkeypatch):
+    import mcpref.policy.loss as loss_module
+
+    real = loss_module.targets
+    calls = []
+
+    def counting(*args):
+        calls.append(args)
+        return real(*args)
+
+    monkeypatch.setattr(loss_module, "targets", counting)
+    loss = module(masks)
+    lam, sh, Z = outputs(1, 8, len(masks.names), 22)
+    loss.terms((lam, sh), Z, [HAND])
+    assert len(calls) == 1
