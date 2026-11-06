@@ -76,7 +76,7 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 8 | mcts — search, decision, tree storage | R1 | 5, 6 | `specs/mcts.md` |
 | 9 | env-sampling — environment loop and trajectory record | R1 | 2, 5, 6, 7, 8, 14 | `specs/env-sampling.md` |
 | 12 | ppo — independent $H$-step preference advantages, clipped policy loss, factual-shift regression and METRA perception loss; EBU deferred | R2, R4 | 2, 5, 6, 8, 9 | `specs/ppo.md`, EBU |
-| 13 | rl-cycle — R1–R5 orchestration and the one joint METRA + preference + PPO/shift training loop | R1–R5 | 2, 5–9, 12, 32 | `specs/rl-cycle.md` (draft) |
+| 13 | rl-cycle — R1–R5 orchestration and the one joint METRA + preference + PPO/shift training loop | R1–R5 | 2, 5–9, 12, 32 | `specs/rl-cycle.md` |
 
 | 14 | env — MineStudio wrapper: macro actions, masks, endless timeline | R1 | 15, 26, 28, 31 | `specs/env.md` |
 | 15 | gui-screens — catalogue of survival screens: window, textures, dynamic regions, elements with canonical numbering | P1, P5, R1 | S | ACT, GX |
@@ -127,3 +127,4 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `env` → R1 → `specs/env.md`
 - `sampling` → R1 → `specs/env-sampling.md`
 - `rl_pairs` → R3, R5 → `specs/rl-preference-pairs.md`
+- `rl` → R1–R5 → `specs/rl-cycle.md`

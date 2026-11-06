@@ -126,6 +126,13 @@ class History:
         if self._raw(ref) is None:
             self._new[ref] = Vertex(ref, tuple(key), 0, ())
 
+    def replace_key(self, ref: StateRef, key: Sequence[float]) -> None:
+        """Eq. (12): replace only a fresh seed's provisional selection key."""
+        if ref not in self._new:
+            raise KeyError("final insertion keys are limited to fresh selected seeds")
+        vertex = self._updates.get(ref, self._new[ref])
+        self._updates[ref] = Vertex(ref, tuple(key), vertex.unused, vertex.comparisons)
+
     def stage_comparison(self, c: CurrentComparison) -> None:
         """Stage Eq. (7)'s symmetric mean updates and actual-comparison usage."""
         a, b = self.get(c.a), self.get(c.b)

@@ -126,3 +126,33 @@ def test_no_checkpointing_in_eval_mode(tmp_path, monkeypatch):
     phi = phi64(tmp_path).eval()
     phi(clips())
     assert calls == []
+
+
+def test_frames_z_matches_the_clip_encoding_path(tmp_path):
+    """`frames_z` is exactly clip_z after the existing RGB/meta extraction, with shape (L,D)."""
+    phi = phi64(tmp_path)
+    c = clips()[0]
+    v = values(tmp_path)
+    direct = phi.frames_z(oracle.frames(c), oracle.metas(c, v))
+    torch.testing.assert_close(direct, phi.clip_z(c), rtol=0, atol=0)
+    torch.testing.assert_close(direct, phi([c])[0], rtol=0, atol=0)
+    assert direct.shape == (3, 4) and direct.dtype == F64
+
+
+def test_frames_z_preserves_training_gradients_and_mode(tmp_path):
+    """The raw-frame path stays differentiable and changes neither train mode nor grad mode."""
+    phi = phi64(tmp_path).train()
+    c = clips()[0]
+    v = values(tmp_path)
+    direct = phi.frames_z(oracle.frames(c), oracle.metas(c, v))
+    assert direct.requires_grad and phi.training and torch.is_grad_enabled()
+    direct_grads = grads(phi, direct)
+    clip_grads = grads(phi, phi.clip_z(c))
+    assert direct_grads.keys() == clip_grads.keys()
+    for name in direct_grads:
+        torch.testing.assert_close(direct_grads[name], clip_grads[name], rtol=0, atol=0)
+    for prefix in ("head.", "backbone.visual.", "backbone.language_model."):
+        assert any(
+            name.startswith(prefix) and gradient.abs().sum() > 0
+            for name, gradient in direct_grads.items()
+        )

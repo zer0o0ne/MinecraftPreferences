@@ -104,7 +104,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 ## PRF — Preference network (P4, R3)
 - **PRF-5** $\phi$ frozen (stop-grad) while $P$ trains, in P4 and R3?
   **→ [U]** (2026-10-20) in P4 no stop-gradient: $P$'s loss flows into $\phi$ (`specs/pretrain.md` (1)).
-  **→ [U]** (2026-11-03) R3 also keeps this gradient: pair references and corrected labels are fixed before training, raw pair histories are re-encoded by the current $\phi$, and preference loss flows into $P,\phi$ (`specs/rl-preference-pairs.md`, `specs/rl-cycle.md`, drafts).
+  **→ [U]** (2026-11-03) R3 also keeps this gradient: pair references and corrected labels are fixed before training, raw pair histories are re-encoded by the current $\phi$, and preference loss flows into $P,\phi$ (`specs/rl-preference-pairs.md`, `specs/rl-cycle.md`, approved).
 - **PRF-6** Input history: $k_P$ latent states ending at the state itself, oldest first?
   **→ [U]** (2026-10-22) yes, up to $L_P$ latents: `specs/preference.md` Notation.
 
@@ -123,7 +123,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **POL-5** PPO usually needs a critic; the description has none. Add a value head, or advantages from returns without a learned baseline?
   **→ [U]** no new networks: the independent $H$-step preference reward itself is the advantage, with no critic, returns, GAE, second discounting or normalisation (`specs/ppo.md`).
 - **POL-6** Is $\widehat{\Delta z}$ trained in R4 too (regression to the actual $\Delta z_t$ under the new $\phi$)?
-  **→ [U]** (2026-11-03) yes: on every factual successor, in the coordinates of the current $\phi$, with the factual target stop-gradient; this loss joins PPO in the joint loop (`specs/ppo.md` (4), approved; `specs/rl-cycle.md`, draft).
+  **→ [U]** (2026-11-03) yes: on every factual successor, in the coordinates of the current $\phi$, with the factual target stop-gradient; this loss joins PPO in the joint loop (`specs/ppo.md` (4), approved; `specs/rl-cycle.md`, approved).
 - **POL-7** **[U]** (2026-10-15): $\pi$ is trained to lower the logits of masked actions, which helps MCTS expand the most probable actions (imagined nodes have no frame to recognise, hence no mask). So every dataset state keeps what its mask needs (GUI open, recognised class, pitch). Open: the loss term, its weight (config), in P5 and R4.
   **→ [U]** (2026-10-21) no mask in the training forward pass and no extra loss term: the targets are zero on masked actions (a target is never a masked action), so the cross-entropy lowers their probabilities; the mask acts only at sampling and in data preparation (`specs/action-mask.md`).
 - **POL-8** With $n \ge 1$ human actions per interval (G-12), the action target of P5: (a) only intervals with $n = 1$, their action; (b) the first action of the interval; (c) all its actions (multi-label). The data blocks keep the actions of every interval, so this can be decided with P5.
@@ -166,7 +166,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   **→ [U]** (2026-11-03) PPO compares each origin $t$ independently with every consequence $t+k$, $k=1..H$, by the MCTS value and sums with $\gamma^k$. R1 stores raw histories, the action and its MCTS visit distribution; preferences and latents are recomputed with the current $\phi,P$ on every optimizer step (`specs/ppo.md` (1), (2)).
   **→ [U]** (2026-11-04) R1 additionally stores both result-first preference logit pairs as sampling records; their delayed computation and trajectory-start history are in `specs/env-sampling.md` (5), (6).
 - **RLS-4** Stored $\Delta z_t$ uses $\phi$ at sampling time; stored $\widehat{\Delta z}_t$ is for the executed action?
-  **→ [U]** (2026-11-03) RL training does not use the sampling-time latents or shift as its targets: both factual latents and the current prediction are recomputed with the current $\phi,\pi$; the factual target and the METRA skill are stop-gradient (`specs/ppo.md` (4), approved; `specs/rl-cycle.md` (2), draft).
+  **→ [U]** (2026-11-03) RL training does not use the sampling-time latents or shift as its targets: both factual latents and the current prediction are recomputed with the current $\phi,\pi$; the factual target and the METRA skill are stop-gradient (`specs/ppo.md` (4), approved; `specs/rl-cycle.md` (2), approved).
   **→ [U]** (2026-11-04) the executed child's exact predicted shift and the sampling-time factual shift are nevertheless recorded by `specs/env-sampling.md` (5).
 - **RLS-5** Action-selection latency. **→ [U]** (2026-11-03) the top-level sampling operation owns the whole path from receiving the environment state through data transfers, $\phi$ inference, history/mask preparation, MCTS and the final action choice. On entry it takes $t_0$ and sets the soft deadline $t_0 + (\Delta\cdot 50 - \text{safety_limit})/1000$, with `safety_limit` in ms; the absolute deadline is passed to MCTS. Once the current decision has completed at least `min_n_sampling` simulations and the deadline has been reached, no new simulation starts. A running simulation is never interrupted, and `min_n_sampling` takes priority over the deadline. The action is then drawn from the accumulated root visits and its visit distribution is stored as in `specs/mcts.md` (6). Overshoot by non-interruptible work is possible: this is not a hard real-time barrier.
   **→ [U]** (2026-11-04) the complete timed pipeline, delayed preferences, MCTS signature and storage details are in `specs/env-sampling.md` (3)–(7).
@@ -182,7 +182,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **MET-4** $\lambda$: initial value, slack $\varepsilon$, log-parametrisation, learning rate; persists across cycles?
   **→ [U]** (2026-11-05) a separate persistent RL `log_lambda`, starting at $\log 30$ with slack $10^{-3}$, group `metra_dual` at learning rate $10^{-4}$ and no weight decay; checkpoints carry it across cycles (`specs/ppo.md`).
 - **MET-5** Data: only the current trajectory's $n$ transitions, or also transitions from $\mathcal{M}$? Epochs, minibatches.
-  **→ [U]** (2026-11-03) METRA uses each fresh trajectory transition once per epoch, not preference-only memory pairs or already trained pending items. It shares the joint loop's natural mixed-item schedule and epochs (`specs/rl-cycle.md`, draft).
+  **→ [U]** (2026-11-03) METRA uses each fresh trajectory transition once per epoch, not preference-only memory pairs or already trained pending items. It shares the joint loop's natural mixed-item schedule and epochs (`specs/rl-cycle.md`, approved).
 
 ## MEM — Memory and pair mining (R3, R5; block 32)
 - **MEM-1** Memory update rule, capacity, eviction.
@@ -206,9 +206,10 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   **→ [U]** (2026-11-03) the reward itself is the advantage: no critic, returns, GAE, second discounting, learned baseline or advantage normalisation (`specs/ppo.md`).
 - **PPO-3** Clip $\epsilon$, epochs, minibatch size, entropy and KL coefficients; ratio denominator (MCTS-6).
   **→ [U]** (2026-11-03) the denominator is the stored MCTS visit probability; the clipped loss is `specs/ppo.md` (3).
-  **→ [U]** (2026-11-05) `clip` = 0.2, no entropy bonus or KL penalty (`specs/ppo.md`, approved); epochs and minibatches follow the joint natural mixed-item schedule of block 13, whose numeric schedule values remain open.
+  **→ [U]** (2026-11-05) `clip` = 0.2, no entropy bonus or KL penalty (`specs/ppo.md`, approved); epochs and minibatches follow the joint natural mixed-item schedule of block 13.
+  **→ [U]** (2026-11-06) starting `epochs` = 1, `batch` = 32, `micro_batch` = 1 and `items_per_shard` = 256 (`configs/rl-cycle.yaml`, `specs/rl-cycle.md`, approved).
 - **PPO-4** Policy inputs encoded with the $\phi$ from R2, i.e. new coordinates for both heads?
-  **→ [U]** (2026-11-03) yes, and not just once: every occurrence of an item re-encodes its raw histories with the current $\phi$; gradients of policy and preference losses flow into $\phi$ (`specs/rl-cycle.md`, draft).
+  **→ [U]** (2026-11-03) yes, and not just once: every occurrence of an item re-encodes its raw histories with the current $\phi$; gradients of policy and preference losses flow into $\phi$ (`specs/rl-cycle.md`, approved).
   **→ [U]** (2026-11-05) the full raw-history and last-readout wiring is fixed by `specs/ppo.md`, approved; R4 keeps the policy's action dropout active in train mode.
 
 ## EBU — Retrospective training on past trees (R4)

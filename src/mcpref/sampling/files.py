@@ -15,33 +15,37 @@ from mcpref.sampling.config import SamplingConfig
 from mcpref.shards.store import complete_shards, name, shard_path
 
 
+def config_paths(cfg: SamplingConfig, path: Path) -> dict[str, Path]:
+    """The ordered transitive config/model identities of env-sampling."""
+    pretrain = load_pretrain_config(REPO / cfg.pretrain)
+    env = load_env_config(REPO / cfg.env)
+    clips = load_clips_config(REPO / env.clips)
+    mask = load_mask_config(REPO / pretrain.action_mask)
+    return {
+        "config": path,
+        "pretrain_config": REPO / cfg.pretrain,
+        "pretrain_model": REPO / pretrain.out_dir / "model.pt",
+        "env": REPO / cfg.env,
+        "mcts": REPO / cfg.mcts,
+        "perception_data": REPO / cfg.perception_data,
+        "perception": REPO / pretrain.perception,
+        "action_mask": REPO / pretrain.action_mask,
+        "policy": REPO / pretrain.policy,
+        "preference": REPO / pretrain.preference,
+        "engine": REPO / env.engine,
+        "classifier": REPO / env.classifier,
+        "clips": REPO / env.clips,
+        "vpt_actions": clips.actions,
+        "gui_screens": REPO / mask.screens,
+    }
+
+
 class SamplingRun:
     """Datasets: the ordered static fingerprints and per-shard model mapping."""
 
     def __init__(self, cfg: SamplingConfig, path: Path) -> None:
         self.path = REPO / cfg.out_dir / "run.json"
-        pretrain = load_pretrain_config(REPO / cfg.pretrain)
-        env = load_env_config(REPO / cfg.env)
-        clips = load_clips_config(REPO / env.clips)
-        mask = load_mask_config(REPO / pretrain.action_mask)
-        paths = {
-            "config": path,
-            "pretrain_config": REPO / cfg.pretrain,
-            "pretrain_model": REPO / pretrain.out_dir / "model.pt",
-            "env": REPO / cfg.env,
-            "mcts": REPO / cfg.mcts,
-            "perception_data": REPO / cfg.perception_data,
-            "perception": REPO / pretrain.perception,
-            "action_mask": REPO / pretrain.action_mask,
-            "policy": REPO / pretrain.policy,
-            "preference": REPO / pretrain.preference,
-            "engine": REPO / env.engine,
-            "classifier": REPO / env.classifier,
-            "clips": REPO / env.clips,
-            "vpt_actions": clips.actions,
-            "gui_screens": REPO / mask.screens,
-        }
-        hashes = {key: sha256(value) for key, value in paths.items()}
+        hashes = {key: sha256(value) for key, value in config_paths(cfg, path).items()}
         check_fingerprints(self.path, hashes, cfg.out_dir)
         models = {}
         shards = REPO / cfg.out_dir / "shards"

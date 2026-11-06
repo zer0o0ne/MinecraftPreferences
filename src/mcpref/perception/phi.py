@@ -3,6 +3,7 @@ the interleaved states of a clip."""
 
 from itertools import accumulate, pairwise
 
+import numpy as np
 import torch
 from torch import Tensor
 from transformers import (
@@ -122,9 +123,8 @@ class Phi(torch.nn.Module):
             )
         return out.last_hidden_state[0]
 
-    def clip_z(self, clip: Clip) -> Tensor:
-        """(3)-(7) of one clip: z_s = head(h_{r_s}), shape (L, D)."""
-        frames, metas = clip_states(clip, self.cfg, self.sprite)
+    def frames_z(self, frames: list[np.ndarray], metas: list[str]) -> Tensor:
+        """(3)-(7): already constructed RGB frames and meta strings -> (L, D)."""
         pixels, grid = image_inputs(self.processor, frames)
         segments = [
             segment(self.tokenizer, self.sp, g, mu, self.cfg.marker)
@@ -136,6 +136,11 @@ class Phi(torch.nn.Module):
             ids, pixels, grid, positions(self.backbone, ids, grid, self.sp), None
         )
         return self.head(h[r])
+
+    def clip_z(self, clip: Clip) -> Tensor:
+        """(3)-(7) of one clip: z_s = head(h_{r_s}), shape (L, D)."""
+        frames, metas = clip_states(clip, self.cfg, self.sprite)
+        return self.frames_z(frames, metas)
 
     def forward(self, clips: list[Clip]) -> Tensor:
         """(8): Z, in the dtype of the head."""

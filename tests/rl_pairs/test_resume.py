@@ -10,7 +10,7 @@ import torch
 import tqdm
 from progress_bars import Bar, states
 
-from mcpref.rl_pairs.cycle import sample_pairs
+from mcpref.rl_pairs.cycle import publish_memory, sample_pairs
 from mcpref.rl_pairs.types import StateRef
 
 from .helpers import Encoder, Preference, config
@@ -97,26 +97,62 @@ def test_interrupted_shard_continuation(tmp_path, monkeypatch, capsys, desc, at,
     assert expected_out == tmp_path / "baseline/out/000000"
 
 
+def test_interrupted_final_key_publication_restarts_without_changing_qc(
+    tmp_path, monkeypatch, capsys
+):
+    for root in (tmp_path / "baseline", tmp_path / "resumed"):
+        complete(root)
+    baseline = tmp_path / "baseline"
+    cfg, _, encode, _, _ = run(baseline)
+    expected_history = publish_memory(cfg, 0, encode)
+    expected = data_tree(baseline)
+    root = tmp_path / "resumed"
+    cfg, _, encode, preference, _ = run(root)
+    interrupt_bar(monkeypatch, "rl memory", 1)
+    with pytest.raises(Interrupted):
+        publish_memory(cfg, 0, encode)
+    capsys.readouterr()
+    calls = len(preference.calls)
+    out = publish_memory(cfg, 0, encode)
+    captured = capsys.readouterr()
+    assert out == Path(str(expected_history).replace("/baseline/", "/resumed/"))
+    assert data_tree(root) == expected
+    assert len(preference.calls) == calls
+    assert states(captured.err, "rl memory")[0] == Bar("rl memory", 0, 3, "seed")
+
+
 def prepare_history_cycle(root):
     cfg, _, _, _, _ = run(root, sample_states=1, temporal_per_state=0, capacity=1)
     old = [StateRef("old", 0)]
+    encode = Encoder({old[0]: (0.0,)})
     sample_pairs(
         cfg,
         0,
         old,
-        Encoder({old[0]: (0.0,)}),
+        encode,
         Preference(),
         torch.tensor([1.0]),
         np.random.default_rng(4),
     )
+    publish_memory(cfg, 0, encode)
 
 
-def history_cycle(root, interrupt=False, monkeypatch=None):
+def history_cycle(root, interrupt=False, monkeypatch=None, pairs=True):
     cfg = config(root, sample_states=2, temporal_per_state=1, capacity=1,
                  items_per_shard=1)  # fmt: skip
     episode = [StateRef("new", i) for i in range(2)]
     encode = Encoder({r: (float(i + 1),) for i, r in enumerate(episode)})
     preference = Preference(default=(0.8, 0.0)).train()
+    if pairs:
+        sample_pairs(
+            cfg,
+            1,
+            episode,
+            encode,
+            preference,
+            torch.tensor([1.0]),
+            np.random.default_rng(8),
+        )
     if interrupt:
         real = shutil.rmtree
         raised = False
@@ -129,15 +165,7 @@ def history_cycle(root, interrupt=False, monkeypatch=None):
             return real(path, *args, **kwargs)
 
         monkeypatch.setattr(shutil, "rmtree", remove)
-    return sample_pairs(
-        cfg,
-        1,
-        episode,
-        encode,
-        preference,
-        torch.tensor([1.0]),
-        np.random.default_rng(8),
-    ), preference
+    return publish_memory(cfg, 1, encode), preference
 
 
 def test_interruption_after_history_generation_has_no_replayed_side_effects(
@@ -145,16 +173,16 @@ def test_interruption_after_history_generation_has_no_replayed_side_effects(
 ):
     prepare_history_cycle(tmp_path / "baseline")
     prepare_history_cycle(tmp_path / "resumed")
-    expected_out, _ = history_cycle(tmp_path / "baseline")
+    history_cycle(tmp_path / "baseline")
     expected = data_tree(tmp_path / "baseline")
     with pytest.raises(Interrupted):
         history_cycle(tmp_path / "resumed", True, monkeypatch)
     capsys.readouterr()
     new_run = tmp_path / "resumed/history/000001/run.json"
     assert new_run.exists() and (tmp_path / "resumed/history/000000").exists()
-    out, preference = history_cycle(tmp_path / "resumed")
+    out, preference = history_cycle(tmp_path / "resumed", pairs=False)
     captured = capsys.readouterr()
-    assert out == Path(str(expected_out).replace("/baseline/", "/resumed/"))
+    assert out == tmp_path / "resumed/history/000001"
     assert data_tree(tmp_path / "resumed") == expected
     assert preference.calls == []
     assert all("already done" in line for line in captured.err.splitlines())

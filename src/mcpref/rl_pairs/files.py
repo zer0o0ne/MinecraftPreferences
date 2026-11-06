@@ -1,5 +1,6 @@
 """JSON shards and complete History generations of specs/rl-preference-pairs.md."""
 
+import bisect
 import json
 import os
 import shutil
@@ -8,6 +9,7 @@ from pathlib import Path
 
 from mcpref.runs.files import json_bytes, write_json
 from mcpref.shards.store import (
+    complete_shards,
     make_dirs,
     shard_path,
     sync,
@@ -24,6 +26,32 @@ def write_json_shard(directory: Path, k: int, filename: str, value: object) -> N
     """Publish one JSON value as complete shard k."""
     with write_shard(directory, k) as path:
         (path / filename).write_bytes(json_bytes(value))
+
+
+def pair_counts(pairs_dir: Path) -> list[int]:
+    """Shard sizes only; no preference dataset is materialised."""
+    return [
+        len(read_json_shard(pairs_dir / "shards", k, "items.json"))
+        for k in range(complete_shards(pairs_dir / "shards"))
+    ]
+
+
+def pair_reader(pairs_dir: Path, counts: list[int]):
+    """Resolve a preference source position while retaining at most one pair shard."""
+    starts = [0]
+    for count in counts:
+        starts.append(starts[-1] + count)
+    cached_shard, cached_items = None, None
+
+    def read(position: int) -> dict:
+        nonlocal cached_shard, cached_items
+        k = bisect.bisect_right(starts, position) - 1
+        if k != cached_shard:
+            cached_items = read_json_shard(pairs_dir / "shards", k, "items.json")
+            cached_shard = k
+        return cached_items[position - starts[k]]
+
+    return read
 
 
 def shard_items(directory: Path, filename: str, shards: int, per_shard: int) -> int:

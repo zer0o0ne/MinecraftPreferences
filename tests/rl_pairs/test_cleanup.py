@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from mcpref.rl_pairs.cycle import sample_pairs
+from mcpref.rl_pairs.cycle import publish_memory, sample_pairs
 from mcpref.rl_pairs.types import StateRef
 
 from .helpers import (
@@ -33,20 +33,25 @@ def linked_records(refs):
     ]
 
 
-def test_cleanup_repeated_removal_reference_deletion_and_count_subtraction(tmp_path):
-    refs = [StateRef("old", i) for i in range(4)]
-    a, _, c, _ = refs
-    cfg = config(tmp_path, sample_states=0, capacity=2)
-    write_history(cfg, 0, linked_records(refs))
+def publish_empty(cfg, cycle):
     sample_pairs(
         cfg,
-        1,
+        cycle,
         [],
         Encoder({}),
         Preference(),
         torch.tensor([1.0]),
         np.random.default_rng(0),
     )
+    publish_memory(cfg, cycle, Encoder({}))
+
+
+def test_cleanup_repeated_removal_reference_deletion_and_count_subtraction(tmp_path):
+    refs = [StateRef("old", i) for i in range(4)]
+    a, _, c, _ = refs
+    cfg = config(tmp_path, sample_states=0, capacity=2)
+    write_history(cfg, 0, linked_records(refs))
+    publish_empty(cfg, 1)
     stored = {from_dict(v): v for v in vertices(tmp_path / "history", 1)}
     assert set(stored) == {a, c}
     assert stored[a]["comparisons"] == [comparison(a, c, 0.7, 0.2, 4)]
@@ -62,15 +67,7 @@ def test_cleanup_score_tie_uses_larger_unused_then_stable_id(tmp_path, unused):
                vertex(refs[2], [2.0], unused=unused), vertex(refs[3], [3.0], unused=5)]  # fmt: skip
     cfg = config(tmp_path, sample_states=0, capacity=3)
     write_history(cfg, 0, records)
-    sample_pairs(
-        cfg,
-        1,
-        [],
-        Encoder({}),
-        Preference(),
-        torch.tensor([1.0]),
-        np.random.default_rng(0),
-    )
+    publish_empty(cfg, 1)
     assert {from_dict(v) for v in vertices(tmp_path / "history", 1)} == {
         refs[0],
         refs[1],
@@ -83,15 +80,7 @@ def test_exact_capacity_boundary_removes_nothing(tmp_path):
     cfg = config(tmp_path, sample_states=0, capacity=2)
     write_history(cfg, 0, [vertex(refs[0], [0.0], unused=2),
                            vertex(refs[1], [1.0], unused=4)])  # fmt: skip
-    sample_pairs(
-        cfg,
-        1,
-        [],
-        Encoder({}),
-        Preference(),
-        torch.tensor([1.0]),
-        np.random.default_rng(0),
-    )
+    publish_empty(cfg, 1)
     stored = vertices(tmp_path / "history", 1)
     assert [from_dict(v) for v in stored] == refs
     assert [v["unused"] for v in stored] == [3, 5]

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from mcpref.rl_pairs.cycle import sample_pairs
+from mcpref.rl_pairs.cycle import publish_memory, sample_pairs
 from mcpref.rl_pairs.sample import choose_seeds, seed_scores, temporal
 from mcpref.rl_pairs.types import StateRef
 
@@ -168,6 +168,7 @@ def test_nearest_uses_stale_keys_distance_and_stable_ties(tmp_path):
         old[3],
         old[2],
     ]
+    publish_memory(cfg, 1, encode)
     stored = {from_dict(v): v["key"] for v in vertices(tmp_path / "history", 1)}
     assert all(
         stored[r] == next(v["key"] for v in records if from_dict(v) == r)
