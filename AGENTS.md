@@ -12,7 +12,7 @@ Minecraft agent training pipeline (MineStudio, VPT dataset). Stages and data flo
 - The main session coordinates agents; it never writes `src/` or `tests/` itself. Talk to the user in Russian; write files in English.
 - The Task size rules include the linked protocol. Propose subtasks to the user and start only once the user accepts them.
 - Every piece of logic the user requests is a block and follows `.claude/skills/run-block/SKILL.md`; specification clarification follows `.claude/skills/clarify-spec/SKILL.md`.
-- Agent roles: `.claude/agents/spec-auditor.md`, `.claude/agents/prototyper.md`, `.claude/agents/refactorer.md`, `.claude/agents/tester.md`. Their preloaded skills are part of the procedure; do not duplicate those rules here.
+- Agent roles: `.claude/agents/analyst.md`, `.claude/agents/spec-auditor.md`, `.claude/agents/prototyper.md`, `.claude/agents/refactorer.md`, `.claude/agents/tester.md`. Their preloaded skills are part of the procedure; do not duplicate those rules here.
 - Edit permissions and the commit boundary: `CLAUDE.md`, section “What you may change”.
 
 ## Source of truth
@@ -20,6 +20,7 @@ Minecraft agent training pipeline (MineStudio, VPT dataset). Stages and data flo
 - Code implements exactly the approved spec: every equation and interface item has code; every piece of code traces to the spec.
 - Ambiguity, contradiction or a missing detail → stop and report it. Never pick one of several plausible readings, never approximate, never smooth over a corner case.
 - Specs change only with the user's approval.
+- Keep documentation current with every approved decision and implementation. In the same change, update the owning spec, `specs/00-overview.md`, `specs/00-questions.md`, and every cross-reference affected by stage ownership, block boundaries, interfaces, data flow, artifacts or status. Search for stale references to superseded blocks and remove contradictions between old and new rules. A block is not done while the documents disagree.
 
 ## Exactness
 Correct = the expectation of every computed quantity equals the spec.
@@ -38,7 +39,7 @@ Minimal code that expresses the spec.
 - Complex logic is a composition of short functions, ideally one per equation or term.
 - Soft limits (hold in ≥95% of cases): file ≤ 200 lines, function ≤ 30 lines, ≤ 10 modules per directory.
 - Names follow the spec's notation and terms.
-- Docstrings: one or two lines linking code to math, e.g. `"""Eq. (3) of specs/metra.md: skill reward."""`. Tensor shapes only where the spec fixes them. No comments that restate code.
+- Docstrings: one or two lines linking code to math, e.g. `"""Eq. (5) of specs/ppo.md: METRA skill loss."""`. Tensor shapes only where the spec fixes them. No comments that restate code.
 - Code is device-agnostic: the device comes from the caller.
 - Data: every dataset a block builds or reads (the per-item results of a loop over work items, see Progress, intermediate ones included, e.g. a sampling plan) lives on disk in shards, never only in memory. A builder writes each shard as soon as it is complete, atomically (temporary name, then rename), together with the state needed to continue (e.g. an RNG state); a rerun keeps the complete shards, continues after the last one and gives the same result as an uninterrupted run. A reader loads shards from disk, one at a time; stages pass datasets as paths, never as in-memory objects. Memory holds only the shards in work and the state needed to continue, never a whole dataset. Data recomputed from stored data and seeds within a couple of seconds on real data is state, not a dataset: a rerun recomputes it. Training is by mini-batches, the mini-batch of each iteration within one shard; a training loop writes a checkpoint (weights, optimizer and RNG states, position in the data) as a shard every N steps (a config field), and a rerun continues from the last one. Exception to the same result: the VLM's answers (`specs/vlm-client.md`) depend on the batch composition, so a rerun repeats the requests and seeds, not the answers. A spec names each dataset and checkpoint of its block (skill `spec-format`).
 - Progress: a loop over work items (frames, episodes, files, requests, classes, …; not a wait for a condition) that can run longer than a couple of seconds on real data shows a `tqdm` progress bar on stderr, with its total when known. Nested loops get one bar, on the outermost loop, whose total sums the work items of the inner loops (items of different kinds count as steps); a parallel loop gets one bar for all its workers, advanced as items finish. A loop with nothing to do draws no bar and prints one line on stderr instead: `<desc>: already done` when an earlier run did the work, else `<desc>: nothing to do`. Bars replace per-item progress lines, write nothing to stdout or output files and change no result; an error message is the last line of stderr, below the bars. A spec names each bar of its block (skill `spec-format`).

@@ -15,6 +15,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   **→ [U]** (2026-10-22) for $P$: no padding; a history shorter than $L_P$ (only in the first $L_P - 1$ steps of RL) is used as it is; in pretraining never short (`specs/preference.md` Notation).
 - **G-4** Is the VLM used only in pretraining, so that in RL all preference labels come from the current $P$?
 - **G-5** Per cycle: R2 → R3 → R4 → R5 in this order, once each? Gradient steps / epochs for each.
+  **→ [U]** (2026-11-03/05) R1 sampling → R3 pair production → one joint R2/R3/R4 training loop → R5 memory publication. METRA, preference and PPO/shift share every accumulated optimizer step and epoch; no separate per-loss loops (`specs/rl-cycle.md`).
 - **G-6** Architectures: $\phi$ backbone (VPT pretrained / ImpalaCNN from scratch / pretrained vision encoder), $P$ and $\pi$ (MLP / transformer over latent histories), sizes, $D$.
   **→ [U]** (2026-10-20) $\phi$ = a small standard VLM (e.g. Qwen3.5-2B) over the interleaved states of G-2; its last hidden state goes to an MLP head that maps it to $z$. $P$ and $\pi$ are lightweight (MCTS-5). Open: the exact VLM, the head, $D$, $P$ and $\pi$.
   **→ [U]** (2026-10-20) $\phi$ uses gradient checkpointing (activations recomputed in the backward pass), block 2; the pretraining loop accumulates gradients over micro-batches (`specs/pretrain.md`).
@@ -26,6 +27,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **G-7** Optimisers, learning rates, batch sizes per training stage; fixed in each block spec, or one config file with values from you?
   **→ [U]** every exact number goes into a config, never asked; where and how: G-11.
 - **G-8** Checkpointed across cycles for resuming: nets, optimiser states, METRA $\lambda$, $\mathcal{M}$, $\mathcal{T}$, env state?
+  **→ [U]** (2026-11-05) modules, persistent METRA dual, History, trees, sampler state and all RNG/schedule positions are checkpointed. AdamW is recreated each cycle; its moments survive interruptions inside that cycle but do not cross cycle boundaries. Real-world continuation additionally requires the live `Env` or an externally supplied matching world state (`specs/rl-cycle.md`, `specs/env-sampling.md`).
 - **G-10** Python version for the project (no `pyproject.toml` yet; the first block creates it): 3.10 (MineStudio requires ≥ 3.10 and pins `opencv-python==4.8.0.74`, built for numpy 1.x → numpy 1.26.4) or 3.12 (numpy 2.x; only if MineStudio is dropped, D-7)?
   **→ [U]** 3.10.
 - **G-9** With a frame stride $s$ in the window, is one agent / dataset step 1 frame or $s$ frames, i.e. is P1's consecutive pair $(t, t+1)$ or $(t, t+s)$? (Ties to G-1.)
@@ -169,23 +171,29 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **RLS-5** Action-selection latency. **→ [U]** (2026-11-03) the top-level sampling operation owns the whole path from receiving the environment state through data transfers, $\phi$ inference, history/mask preparation, MCTS and the final action choice. On entry it takes $t_0$ and sets the soft deadline $t_0 + (\Delta\cdot 50 - \text{safety_limit})/1000$, with `safety_limit` in ms; the absolute deadline is passed to MCTS. Once the current decision has completed at least `min_n_sampling` simulations and the deadline has been reached, no new simulation starts. A running simulation is never interrupted, and `min_n_sampling` takes priority over the deadline. The action is then drawn from the accumulated root visits and its visit distribution is stored as in `specs/mcts.md` (6). Overshoot by non-interruptible work is possible: this is not a hard real-time barrier.
   **→ [U]** (2026-11-04) the complete timed pipeline, delayed preferences, MCTS signature and storage details are in `specs/env-sampling.md` (3)–(7).
 
-## MET — Perception fine-tuning (R2)
+## MET — Perception fine-tuning (R2, loss block 12)
 - **MET-1** METRA (arXiv:2310.08887) dual form $L_\phi = -\mathbb{E}[(\phi(s') - \phi(s))^\top z + \lambda \min(\varepsilon, 1 - \lVert \phi(s') - \phi(s) \rVert^2)]$ with $z := \widehat{\Delta z}_t$. Constraint with plain Euclidean norm (METRA) or $d_\alpha$ (P1); $\le 1$ (METRA) or $= 1$ (P1)? Given PER-1, in the coordinates $\alpha \odot z$: $(\alpha \odot (\phi(s') - \phi(s)))^\top (\alpha \odot \widehat{\Delta z})$ with $d_\alpha^2 \le 1$, or another combination?
-  **→ [U]** yes: $(\alpha \odot (\phi(s') - \phi(s)))^\top (\alpha \odot \widehat{\Delta z})$ with $d_\alpha^2 \le 1$.
+  **→ [U]** yes: $(\alpha \odot (\phi(s') - \phi(s)))^\top (\alpha \odot \widehat{\Delta z})$ with $d_\alpha^2 \le 1$; resolved in `specs/ppo.md`.
 - **MET-2** $\widehat{\Delta z}_t$ raw or normalised to unit length (METRA normalises continuous skills — to verify); the one stored at sampling or recomputed with the current $\pi$ and $\phi$; stop-grad.
-  **→ [U]** (2026-11-03, partial) recompute the executed action's shift with the current $\pi,\phi$ on every optimizer step and detach it as METRA's skill. Raw versus unit-normalised remains open for block 10.
+  **→ [U]** (2026-11-03) recompute the executed action's shift with the current $\pi,\phi$ on every optimizer step and detach it as METRA's skill.
+  **→ [U]** (2026-11-05) use only its direction: normalise to unit length in the $\alpha$-weighted geometry with `skill_eps`; `specs/ppo.md`.
 - **MET-3** P1 norm penalty kept in R2?
-- **MET-4** $\lambda$: initial value, slack $\varepsilon$, log-parametrisation, learning rate (METRA code: 30, $10^{-3}$ — to verify); persists across cycles?
+  **→ [U]** (2026-11-05) no; R2 uses only the METRA skill and dual terms of `specs/ppo.md`.
+- **MET-4** $\lambda$: initial value, slack $\varepsilon$, log-parametrisation, learning rate; persists across cycles?
+  **→ [U]** (2026-11-05) a separate persistent RL `log_lambda`, starting at $\log 30$ with slack $10^{-3}$, group `metra_dual` at learning rate $10^{-4}$ and no weight decay; checkpoints carry it across cycles (`specs/ppo.md`).
 - **MET-5** Data: only the current trajectory's $n$ transitions, or also transitions from $\mathcal{M}$? Epochs, minibatches.
   **→ [U]** (2026-11-03) METRA uses each fresh trajectory transition once per epoch, not preference-only memory pairs or already trained pending items. It shares the joint loop's natural mixed-item schedule and epochs (`specs/rl-cycle.md`, draft).
 
-## MEM — Memory and pair mining (R3, R5)
-- **MEM-1** [later] Memory update rule, capacity, eviction.
+## MEM — Memory and pair mining (R3, R5; block 32)
+- **MEM-1** Memory update rule, capacity, eviction.
+  **→ [U]** (2026-11-04/05) only selected seeds enter persistent History, with capacity cleanup by `specs/rl-preference-pairs.md` (10). Pair selection and correction happen before joint training; the new History generation is published after training, with selected seeds' keys re-encoded by final $\phi$.
 - **MEM-2** Stored per state: the observation(s) needed to rebuild its history and re-encode it; trees; past labels? Is the VPT dataset (or the P2 pool) in $\mathcal{M}$ at the start of RL?
+  **→ [U]** (2026-11-04) a seed vertex stores its external raw `StateRef`, insertion-time key, symmetric averaged comparisons and usage statistics; trees and VPT states are not inserted (`specs/rl-preference-pairs.md`).
 - **MEM-3** After R2: re-encode all of $\mathcal{M}$, or only candidates during the search?
+  **→ [U]** (2026-11-04/05) never re-encode old keys in bulk. Raw histories are encoded for current comparisons and training; only the fresh selected seeds receive final-$\phi$ insertion keys at publication.
 - **MEM-4** "Nearest": metric (Euclidean or $d_\alpha$; on $z$ or on histories), count $K$; exclude states of the current trajectory near $t$?
-  **→ [U]** (2026-11-04) $d_\alpha$ on insertion-time latent keys, the nearest `nearest_per_state` History vertices outside the current episode; old keys are not re-encoded (`specs/rl-preference-pairs.md` (4)).
-- **MEM-5** [later] Beam search: the relation used for "most / least preferred" (current $P$ on the fly, stored labels, corrected graph), beam width, depth, both directions?
+  **→ [U]** (2026-11-04/05) $d_\alpha$ on insertion-time latent keys, the nearest `nearest_per_state` History vertices outside the current per-cycle episode; old keys are not re-encoded (`specs/rl-preference-pairs.md` (4), `specs/env-sampling.md` Notation).
+- **MEM-5** Beam search: the relation used for "most / least preferred" (current $P$ on the fly, stored labels, corrected graph), beam width, depth, both directions?
   **→ [U]** (2026-11-04) recursive per-seed expansion over averaged raw-P edges, ranked by the polarity $J$ of `specs/rl-preference-pairs.md` (5), with `branch`, `beam_width` and `beam_depth` of the config (6).
 - **MEM-6** Number $m$ of picked trajectory states. Pairs only (picked state, found state), or also among found states (graph density for $C$)?
   **→ [U]** (2026-11-04) `sample_states` seeds scored against their immediate predecessors; only seed–alternative History pairs, no alternative–alternative pairs. Selected references and corrected labels are fixed before joint training (`specs/rl-preference-pairs.md` (1)–(3), (7)–(9)).
