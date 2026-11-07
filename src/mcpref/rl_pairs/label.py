@@ -29,7 +29,7 @@ def threshold(a: StateRef, b: StateRef, cfg: RLPreferencePairsConfig) -> float:
         return cfg.threshold_scale * cfg.base_threshold
     distance = abs(a.index - b.index)
     logit = math.log(cfg.base_threshold / (1 - cfg.base_threshold))
-    sigmoid = 1 / (1 + math.exp(-(logit - cfg.temporal_penalty / distance)))
+    sigmoid = 1 / (1 + math.exp(-(logit + cfg.temporal_penalty / distance)))
     return cfg.threshold_scale * sigmoid
 
 

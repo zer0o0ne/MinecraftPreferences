@@ -18,7 +18,7 @@ def threshold_oracle(a, b, cfg):
         return cfg.threshold_scale * cfg.base_threshold
     distance = abs(a.index - b.index)
     logit = math.log(cfg.base_threshold / (1 - cfg.base_threshold))
-    sigmoid = 1 / (1 + math.exp(-(logit - cfg.temporal_penalty / distance)))
+    sigmoid = 1 / (1 + math.exp(-(logit + cfg.temporal_penalty / distance)))
     return cfg.threshold_scale * sigmoid
 
 
@@ -28,6 +28,16 @@ def test_temporal_threshold_close_distant_and_by_hand(tmp_path, distance):
                  threshold_scale=0.8)  # fmt: skip
     a, b = StateRef("e", 10), StateRef("e", 10 + distance)
     assert threshold(a, b, cfg) == threshold_oracle(a, b, cfg)
+
+
+def test_temporal_threshold_decreases_toward_cross_episode_baseline(tmp_path):
+    cfg = config(tmp_path)
+    a = StateRef("e", 0)
+    close = threshold(a, StateRef("e", 1), cfg)
+    distant = threshold(a, StateRef("e", 100), cfg)
+    baseline = threshold(a, StateRef("other", 0), cfg)
+    assert close > distant > baseline
+    assert baseline == pytest.approx(0.475)
 
 
 def test_cross_episode_and_zero_penalty_thresholds(tmp_path):
@@ -57,13 +67,31 @@ def run_correction(tmp_path, comparisons, **changes):
 def test_strict_incomparability_verdict_preserves_soft_probability_and_cost(tmp_path):
     a, b = StateRef("e", 0), StateRef("e", 1)
     cfg = config(tmp_path)
-    at_threshold = threshold(a, b, cfg)
+    at_threshold = threshold_oracle(a, b, cfg)
     out, graph = run_correction(tmp_path, [raw(a, b, 0.75, at_threshold)])
     assert items(out) == [{"a": {"episode": "e", "index": 0},
                            "b": {"episode": "e", "index": 1},
                            "labels": {"p": 0.75, "inc": 0}}]  # fmt: skip
     assert graph["comparisons"][0]["w"] == 0.75
     assert graph["costs"] == [str(Fraction(str(0.75)) - Fraction(1, 2))]
+
+
+def test_fixed_prediction_is_comparable_nearby_and_incomparable_far_away(tmp_path):
+    a, close, distant = [StateRef("e", i) for i in (0, 1, 100)]
+    # Eq. (8): theta(1) ~= 0.6945 > q=0.6 > theta(100) ~= 0.4774.
+    comparisons = [raw(a, close, 0.75, 0.6), raw(a, distant, 0.75, 0.6)]
+    out, graph = run_correction(tmp_path, comparisons)
+    result = items(out)
+    assert [pair(item) for item in result] == [
+        (("e", 0), ("e", 1)),
+        (("e", 0), ("e", 100)),
+    ]
+    assert [item["labels"] for item in result] == [
+        {"p": 0.75, "inc": 0},
+        {"p": None, "inc": 1},
+    ]
+    assert graph["arcs"] == [[0, 1]]
+    assert graph["costs"] == ["1/4"]
 
 
 def test_cycle_correction_labels_and_graph_order(tmp_path):

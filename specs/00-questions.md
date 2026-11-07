@@ -200,6 +200,8 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   **→ [U]** (2026-11-04) recursive per-seed expansion over averaged raw-P edges, ranked by the polarity $J$ of `specs/rl-preference-pairs.md` (5), with `branch`, `beam_width` and `beam_depth` of the config (6).
 - **MEM-6** Number $m$ of picked trajectory states. Pairs only (picked state, found state), or also among found states (graph density for $C$)?
   **→ [U]** (2026-11-04) `sample_states` seeds scored against their immediate predecessors; only seed–alternative History pairs, no alternative–alternative pairs. Selected references and corrected labels are fixed before joint training (`specs/rl-preference-pairs.md` (1)–(3), (7)–(9)).
+- **MEM-7** Direction of the temporal incomparability threshold.
+  **→ [U]** (2026-11-07) correct the sign to $\theta(d)=\kappa\sigma_0(\operatorname{logit}(\tau_0)+\lambda/d)$ for same-episode states. For $\lambda>0$, close states have a higher threshold and are less likely to be initially labelled incomparable at a fixed prediction. Cross-episode threshold $\kappa\tau_0$, strict comparison $q>\theta$, probabilities and arc costs are unchanged (`specs/rl-preference-pairs.md` (8)).
 
 ## PPO (R4)
 - **PPO-1** [later] (with RLS-3) Reward from the stored preferences, e.g. $r_t = (1 - p_{inc})(1 - 2p_\succ)$ for $P(z_t, z_{t+1})$ (result preferred to start = positive). Values stored at sampling, or recomputed with the new $\phi$ and $P$?
