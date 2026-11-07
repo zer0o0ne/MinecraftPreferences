@@ -1,5 +1,6 @@
 """Exact continuation, model changes, atomic recovery and run files of env-sampling.md."""
 
+import dataclasses
 import hashlib
 import json
 import shutil
@@ -27,7 +28,7 @@ def assert_value(actual, expected):
         for a, b in zip(actual, expected, strict=True):
             assert_value(a, b)
     elif isinstance(expected, torch.Tensor):
-        torch.testing.assert_close(actual, expected)
+        assert torch.equal(actual, expected)
     elif isinstance(expected, np.ndarray):
         np.testing.assert_array_equal(actual, expected)
     else:
@@ -223,3 +224,44 @@ def test_every_ordered_fingerprint_and_static_recheck(site):
         file.write("# changed\n")
     with pytest.raises(RuntimeError, match="mcts changed"):
         Sampler(site.cfg, FakeEnv(), modules())
+
+
+def test_reused_root_current_mask_reaches_decision_env_and_record(site):
+    from mcts.helpers import node
+
+    from mcpref.sampling.shards import write_state
+
+    cfg = site.config(steps=1)
+    sampler = Sampler(cfg, site.env, site.modules)
+    sampler.reset()
+    sampler.sample()
+    saved = load_state(site.out, site.modules.phi, 2, torch.device("cpu"))
+    root = saved.tree.root
+    forbidden = node(
+        [9.0, 9.0], action=0, prior=0.5, shift=[0.0, 0.0], parent=root,
+        n=100, mean=100.0, value=0.4,
+    )  # fmt: skip
+    allowed = node(
+        [3.0, 3.0], action=1, prior=0.5, shift=[0.0, 0.0], parent=root,
+        n=1, mean=-100.0, value=-0.4,
+    )  # fmt: skip
+    root.children = [forbidden, allowed]
+    mask = np.array([False, True, False])
+    saved.observation = dataclasses.replace(saved.observation, mask=mask)
+    write_state(site.out / "shards/000000", saved)
+
+    env = FakeEnv()
+    restored = Sampler(cfg, env, modules())
+    restored.reset()
+    restored.sample()
+    record = load_step(site.out, 1)
+    assert record.index == 1 and record.action == 1
+    assert record.before.mask[record.action]
+    assert np.all(record.probabilities.numpy()[~mask] == 0.0)
+    assert record.probabilities[record.action] > 0.0
+    torch.testing.assert_close(
+        record.probabilities.sum(), torch.tensor(1.0, dtype=torch.float64)
+    )
+    assert env.events == [("step", record.action)]
+    children = record.tree["root"]["children"]
+    assert [child["n"] for child in children] == [100, 2]

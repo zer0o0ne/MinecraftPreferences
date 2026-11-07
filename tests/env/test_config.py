@@ -31,8 +31,8 @@ def test_load_config_public_signature():
     assert hints["path"] is Path and hints["return"] is EnvConfig
 
 
-def test_starting_values_and_public_record(repo):
-    cfg = load_config(repo / "configs/env.yaml")
+def test_starting_values_and_public_record(tmp_path):
+    cfg = load_config(write(tmp_path))
     assert isinstance(cfg, EnvConfig)
     assert [f.name for f in dataclasses.fields(cfg)] == list(FIELDS)
     assert cfg == EnvConfig(**FIELDS)

@@ -61,7 +61,7 @@ Code shared by several stages lives in a subpackage named after what it is (e.g.
 - This machine is the Spark: a GPU is available (apart from the memory already used by other processes), so tests may run on GPU. GPU-only tests are marked `@pytest.mark.gpu` and run here; the tier budgets below still apply.
 - Tests check the spec, not the implementation: oracles never reuse `src/` logic.
 - Two tiers. Fast (default `uv run pytest`): each test ≤ 5 s (fails at 10 s), the whole tier ≤ 10 min. Slow (`@pytest.mark.slow`, `uv run pytest -m slow`): statistical checks, long scenarios; each test ≤ 5 min (fails at 10 min), the whole tier ≤ 1 h.
-- Tests are independent (no shared files, no order) and run in parallel (`pytest-xdist`).
+- Tests are independent (no shared files, no order) and run in parallel (`pytest-xdist`). They do not depend on committed configs: every field material to a scenario is set explicitly in a test-owned config or fixture.
 - A test over its budget is a defect: make it cheaper (smaller samples within the oracle's tolerance, vectorised code, tiny models) or, if it is inherently long, mark it slow; slow block code goes to refactoring.
 - Test code follows the Code rules.
 

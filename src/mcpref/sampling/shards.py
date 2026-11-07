@@ -7,15 +7,17 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
-from mcpref.env.state import EnvState
+from mcpref.env.state import EnvContinuation, EnvState
 from mcpref.mcts.tree import LatentHistory, Tree
 from mcpref.perception.phi import Phi
 from mcpref.perception.stream import PhiStream
 from mcpref.sampling.codecs import (
     _cpu,
+    _decode_continuation,
     _decode_history,
     _decode_observation,
     _decode_tree,
+    _encode_continuation,
     _encode_history,
     _encode_observation,
     _encode_tree,
@@ -46,6 +48,7 @@ class SamplerState:
     """Interface: the complete state at a trajectory boundary."""
 
     observation: EnvState
+    env: EnvContinuation
     history: LatentHistory
     tree: Tree
     rng_state: dict
@@ -106,6 +109,7 @@ def write_state(directory: Path, state: SamplerState) -> None:
     """Interface: state.pt after the final successor has been encoded and advanced."""
     value = {
         "observation": _encode_observation(state.observation),
+        "env": _encode_continuation(state.env),
         "history": _encode_history(state.history),
         "tree": _encode_tree(state.tree),
         "rng": copy.deepcopy(state.rng_state),
@@ -126,15 +130,19 @@ def load_state(
     """Interface: decode the last complete shard's state, one shard only."""
     directory = shard_path(out_dir / "shards", complete_shards(out_dir / "shards") - 1)
     value = _load(directory / "state.pt")
-    return SamplerState(
-        _decode_observation(value["observation"]),
-        _decode_history(value["history"], device),
-        _decode_tree(value["tree"], device),
-        value["rng"],
-        value["next_step"],
-        decode_stream(phi, states, value["stream"], device),
-        value["fingerprint"],
-    )
+    try:
+        return SamplerState(
+            _decode_observation(value["observation"]),
+            _decode_continuation(value["env"]),
+            _decode_history(value["history"], device),
+            _decode_tree(value["tree"], device),
+            value["rng"],
+            value["next_step"],
+            decode_stream(phi, states, value["stream"], device),
+            value["fingerprint"],
+        )
+    except KeyError:
+        raise RuntimeError("incompatible sampling state") from None
 
 
 def _steps_per_shard(out_dir: Path) -> int:

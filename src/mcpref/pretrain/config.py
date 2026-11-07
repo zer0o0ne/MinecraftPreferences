@@ -22,7 +22,7 @@ POSITIVE_INTS = ("epochs", "batch", "micro_batch", "checkpoint_steps")
 POSITIVE_INTS += ("keep_checkpoints", "diagnostic_window", "reference_steps")
 POSITIVE_INTS += ("reference_pairs", "calibration_bins")
 POSITIVE_REALS = ("w_pi", "w_P", "grad_clip", "adam_eps")
-CONFIGS = ("perception", "action_mask", "policy", "preference")
+CONFIGS = ("perception", "action_mask", "policy", "preference", "diagnostics")
 PATHS = ("index_dir", "out_dir", *CONFIGS)
 GROUP_KEYS = {"lr", "weight_decay"}
 
@@ -37,6 +37,7 @@ class PretrainConfig:
     action_mask: str
     policy: str
     preference: str
+    diagnostics: str
     seed: int
     epochs: int
     batch: int

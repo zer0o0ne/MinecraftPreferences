@@ -46,6 +46,24 @@ SPRITE_SHA = hashlib.sha256(SPRITE).hexdigest()
 S_RGB = sprite_rgba()[:16, :16, :3]  # (1): the top-left k_c x k_c, colour
 S_ALPHA = sprite_rgba()[:16, :16, 3:] / 255.0  # alpha / 255, float64, trailing axis 1
 
+STARTING_ALPHA = [float(2**k) for k in range(10) for _ in range(4)]
+STARTING = {
+    "model": "Qwen/Qwen3.5-2B", "revision": "15852e8c16360a2fea060d615a32b45270f8a8fc",
+    "seed": 0, "alpha": STARTING_ALPHA, "head_layers": 1, "head_width": 1024,
+    "c": 1.0, "beta": 1.0, "dual_init": 30.0, "dual_slack": 1.0e-3, "tau": 1.0,
+    "min_pixels": 65536, "max_pixels": 16777216, "rescale_factor": 1 / 255,
+    "image_mean": [0.5, 0.5, 0.5], "image_std": [0.5, 0.5, 0.5], "decimals": 1,
+    "meta": "{inventory}Hotbar: {hotbar}\nYaw: {yaw}\nPitch: {pitch}\n"
+    "Position: {x} {y} {z}\n",
+    "inventory_line": "Inventory: {items}\n", "item_line": "{quantity} {type}",
+    "no_items": "empty", "marker": "<|im_end|>",
+    "cursor": "data/cursor/mouse_cursor_white_16x16.png",
+    "cursor_url": "https://raw.githubusercontent.com/openai/Video-Pre-Training/"
+    "095519fbd4ee0e9281d19f19601e45629de9ac3f/cursors/mouse_cursor_white_16x16.png",
+    "cursor_sha256": "8e4ff0fbbff52c1db89a4fe4ede8f3ecc5cdbc0b35d596b60a65307b55e4f805",
+    "cursor_crop": 16, "mouse_height": 720, "http_timeout": 30, "http_retries": 5,
+    "retry_delay": 10,
+}  # fmt: skip
 BASE = {  # the values of a valid config of the tiny world; `cursor` set by `write_config`
     "model": "tiny/model",
     "revision": "0123456789abcdef0123456789abcdef01234567",
@@ -80,15 +98,16 @@ BASE = {  # the values of a valid config of the tiny world; `cursor` set by `wri
 }
 
 
-def values(tmp_path: Path, **changes) -> dict:
-    """BASE with `changes`; `cursor` the absolute path tmp/sprite/cursor.png unless given."""
-    return BASE | {"cursor": str(tmp_path / "sprite" / "cursor.png")} | changes
+def values(tmp_path: Path, base=BASE, **changes) -> dict:
+    """A config mapping with `changes`; `cursor` under tmp/sprite unless given."""
+    return base | {"cursor": str(tmp_path / "sprite" / "cursor.png")} | changes
 
 
-def write_config(tmp_path: Path, sprite: bytes | None = SPRITE, **changes) -> Path:
-    """The YAML of `values(tmp_path, **changes)`; `sprite` written at a string `cursor`
-    unless None."""
-    doc = values(tmp_path, **changes)
+def write_config(
+    tmp_path: Path, sprite: bytes | None = SPRITE, base=BASE, **changes
+) -> Path:
+    """The YAML of `values(tmp_path, base, **changes)` and its cursor sprite."""
+    doc = values(tmp_path, base, **changes)
     if sprite is not None and isinstance(doc["cursor"], str):
         Path(doc["cursor"]).parent.mkdir(parents=True, exist_ok=True)
         Path(doc["cursor"]).write_bytes(sprite)

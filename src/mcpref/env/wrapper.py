@@ -1,6 +1,7 @@
 """Interface Env of specs/env.md: one endless 20 Hz MineStudio timeline."""
 
 import sys
+from copy import deepcopy
 
 from tqdm import tqdm
 
@@ -10,7 +11,13 @@ from mcpref.engine.config import load_config as load_engine_config
 from mcpref.engine.config import use_engine
 from mcpref.env.actions import LONG, click, completed, escape, hold, immediate
 from mcpref.env.config import EnvConfig
-from mcpref.env.state import EnvState, check_episode, convert, observation
+from mcpref.env.state import (
+    EnvContinuation,
+    EnvState,
+    check_episode,
+    convert,
+    observation,
+)
 from mcpref.gui.mask import load_config as load_mask_config
 from mcpref.gui.mask import load_masks
 from mcpref.gui.screens import load_screens
@@ -23,7 +30,7 @@ CLOSED_AUTOMATICALLY = frozenset({"other", "pause"})
 
 
 class Env:
-    """Interface: construction, one reset, macro-action steps and close."""
+    """Interface: construction, one reset, macro-action steps and continuation."""
 
     def __init__(self, cfg: EnvConfig):
         engine = load_engine_config(repo_path("engine", cfg.engine))
@@ -44,6 +51,7 @@ class Env:
         self.sim = construct(engine)
         self.hotbar, self.cursor = 0, CENTRE
         self._raw, self._previous_gui, self._state = None, False, None
+        self._held_action = None
 
     def _accept(self, result: tuple) -> tuple:
         """(4), (8): check and track a raw result, re-centring on GUI transitions."""
@@ -129,6 +137,7 @@ class Env:
         if not self._state.mask[action]:
             for _ in range(self.delta):
                 self._tick(self.sim.noop_action())
+            self._held_action = None
             return self._valid_state(name)
         finished, tick = False, 0
         while tick < self.delta or (name == "close" and not finished):
@@ -145,7 +154,31 @@ class Env:
             if name.startswith("hotbar_") and tick == 0:
                 self.hotbar = int(name.removeprefix("hotbar_")) - 1
             tick += 1
+        self._held_action = action if name in LONG and not finished else None
         return self._valid_state(name)
+
+    def continuation(self) -> EnvContinuation:
+        """(11): independent raw completion baselines, cursor and unfinished hold."""
+        info = self._raw[4]
+        return EnvContinuation(
+            {
+                "isGuiOpen": bool(info["isGuiOpen"]),
+                "custom": deepcopy(dict(info["custom"])),
+                "mine_block": deepcopy(dict(info["mine_block"])),
+                "use_item": deepcopy(dict(info["use_item"])),
+            },
+            self.cursor,
+            self._held_action,
+        )
+
+    def restore(self, state: EnvState, continuation: EnvContinuation) -> None:
+        """(11): install a boundary without touching or recomputing the simulator."""
+        info = deepcopy(dict(continuation.info))
+        self._raw = (state.frame, 0.0, False, False, info)
+        self._state = state
+        self.hotbar = state.hotbar
+        self.cursor = continuation.cursor
+        self._held_action = continuation.held_action
 
     def close(self) -> None:
         """(1): delegate to MinecraftSim.close."""

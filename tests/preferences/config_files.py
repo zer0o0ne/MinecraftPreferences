@@ -51,7 +51,7 @@ STARTING = {
     "item_line": "{quantity} {type}",
     "no_items": "empty",
     "answers": STARTING_ANSWERS,
-    "frames": 8,
+    "frames": 6,
     "stride": 2,
     "samples": 1,
     "seed": 0,

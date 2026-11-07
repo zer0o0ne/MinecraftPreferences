@@ -103,8 +103,22 @@ def test_violated_constraints_raise_value_error(tmp_path, changes):
         load(tmp_path, **changes)
 
 
-def test_approved_config_has_starting_values(repo):
-    cfg = load_config(repo / "configs/gui-stack.yaml")
+def test_starting_values_from_test_owned_config(repo, tmp_path):
+    cfg = load(
+        tmp_path,
+        masks_dir='"data/gui_masks"',
+        hidden="64",
+        l2="1.0e-4",
+        lr="0.01",
+        betas="[0.9, 0.999]",
+        adam_eps="1.0e-8",
+        epochs="50",
+        batch="32",
+        checkpoint_steps="500",
+        seed="0",
+        device='"cpu"',
+        out_dir='"data/gui_stack"',
+    )
     names = (
         "hidden",
         "l2",

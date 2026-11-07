@@ -10,6 +10,7 @@ from mcpref.mcts.tree import Tree
 
 from .helpers import (
     FakePolicy,
+    FakePreference,
     UnexpectedCalls,
     assert_values,
     config,
@@ -105,6 +106,53 @@ def test_imagined_expansion_ignores_root_mask():
     Y, C = policy.readout_calls[0]
     assert_values(Y[0, -1], child.z)
     assert C.shape[1] == tree.base.C.shape[1] + 1
+
+
+def test_empty_eligible_root_expands_only_new_allowed_actions():
+    tree = Tree(latent_history([[0.0, 0.0]]))
+    old = [
+        node([1.0, 1.0], action=0, prior=0.4, parent=tree.root, n=7, mean=0.2),
+        node([2.0, 2.0], action=2, prior=0.6, parent=tree.root, n=9, mean=0.3),
+    ]
+    tree.root.children = old
+    policy = FakePolicy(logits=[4.0, 1.0, 3.0, 2.0], shifts=torch.zeros(4, 2))
+    decide(
+        tree,
+        np.array([False, True, False, True]),
+        policy,
+        UnexpectedCalls(),
+        torch.ones(2, dtype=torch.float64),
+        config(width=4),
+        np.random.default_rng(0),
+        float("inf"),
+    )
+    assert [child.action for child in tree.root.children] == [0, 2, 3, 1]
+    assert len({child.action for child in tree.root.children}) == 4
+    assert [(child.n, child.mean) for child in old[:2]] == [(7, 0.2), (9, 0.3)]
+    _, actions = policy.shift_calls[0]
+    assert_values(actions, torch.tensor([3, 1]))
+
+
+def test_imagined_selection_ignores_root_mask():
+    tree = Tree(latent_history([[0.0]]))
+    child = node([1.0], action=0, prior=1.0, parent=tree.root, n=5)
+    first = node([2.0], action=1, prior=0.5, parent=child, n=2, mean=0.1)
+    second = node([3.0], action=2, prior=0.5, parent=child, n=1, mean=0.9)
+    child.children = [first, second]
+    tree.root.children = [child]
+    preference = FakePreference()
+    decide(
+        tree,
+        np.array([True, False, False, False]),
+        UnexpectedCalls(),
+        preference,
+        torch.ones(1, dtype=torch.float64),
+        config(depth=2),
+        np.random.default_rng(0),
+        float("inf"),
+    )
+    assert (first.n, second.n) == (2, 2)
+    assert preference.calls[0][0][0, -1].item() == 3.0
 
 
 def test_depth_limit_evaluates_but_never_expands():

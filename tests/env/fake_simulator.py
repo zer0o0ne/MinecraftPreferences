@@ -84,6 +84,7 @@ class FakeSimulator:
         self.commands = []
         self.reset_calls = 0
         self.close_calls = 0
+        self.noop_calls = 0
         self.init_kwargs = None
 
     def reset(self):
@@ -93,6 +94,7 @@ class FakeSimulator:
         return obs, info
 
     def noop_action(self):
+        self.noop_calls += 1
         return noop()
 
     def step(self, action):

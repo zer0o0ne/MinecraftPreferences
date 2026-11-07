@@ -1,6 +1,5 @@
-"""Fakes of loop_modules.py declaring the starting `groups` of configs/pretrain.yaml (the seven of
-specs/perception.md, the two of specs/policy.md, the two of specs/preference.md), for the tests
-that put a block's real modules inside `pretrain` (specs/pretrain.md Interface)."""
+"""Fakes declaring test-owned groups with the starting values of specs/perception.md,
+specs/policy.md and specs/preference.md, for real modules inside `pretrain`."""
 
 import torch
 
@@ -18,6 +17,24 @@ from .loop_modules import (
     fixed,
     pi_terms,
 )
+
+STARTING_GROUPS = {
+    "phi_vision": {"lr": 1e-5, "weight_decay": 0.01},
+    "phi_vision_no_decay": {"lr": 1e-5, "weight_decay": 0.0},
+    "phi_llm": {"lr": 1e-5, "weight_decay": 0.01},
+    "phi_llm_no_decay": {"lr": 1e-5, "weight_decay": 0.0},
+    "phi_head": {"lr": 1e-4, "weight_decay": 0.01},
+    "phi_head_no_decay": {"lr": 1e-4, "weight_decay": 0.0},
+    "phi_dual": {"lr": 1e-4, "weight_decay": 0.0},
+    "pi": {"lr": 3e-4, "weight_decay": 0.01},
+    "pi_no_decay": {"lr": 3e-4, "weight_decay": 0.0},
+    "P": {"lr": 3e-4, "weight_decay": 0.01},
+    "P_no_decay": {"lr": 3e-4, "weight_decay": 0.0},
+}
+
+
+def starting_groups() -> dict:
+    return {name: dict(values) for name, values in STARTING_GROUPS.items()}
 
 
 class PhiStart(Phi):

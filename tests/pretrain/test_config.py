@@ -7,6 +7,7 @@ import math
 
 import pytest
 import torch
+import yaml
 
 import mcpref
 import mcpref.clips.collect
@@ -271,24 +272,27 @@ STARTING_GROUPS = {  # specs/perception.md, specs/policy.md, specs/preference.md
 }  # fmt: skip
 
 
-def test_starting_values(repo):
-    """configs/pretrain.yaml as Interface starts it: the module configs; the groups of
-    specs/perception.md, specs/policy.md and specs/preference.md."""
-    cfg = load_config(repo / "configs/pretrain.yaml")
-    assert torch.device(cfg.device) == torch.device("cuda")
-    assert dataclasses.asdict(cfg) | {"device": "cuda"} == {
+def test_starting_values_from_test_owned_config(tmp_path):
+    """The complete starting mapping, including every optimizer group, as input."""
+    starting = {
         "index_dir": "data/train_index", "out_dir": "data/pretrain",
         "perception": "configs/perception.yaml", "action_mask": "configs/action-mask.yaml",
         "policy": "configs/policy.yaml", "preference": "configs/preference.yaml", "seed": 0,
         "epochs": 1, "batch": 32, "micro_batch": 1,
         "diagnostic_window": 100, "reference_steps": 500, "reference_pairs": 64,
         "calibration_bins": 10, "saturation_threshold": 0.01,
-        "inc_classification_threshold": 0.5, "quantiles": (0.05, 0.5, 0.95),
+        "inc_classification_threshold": 0.5, "quantiles": [0.05, 0.5, 0.95],
         "action_copy_eps": 0.1, "checkpoint_steps": 100,
         "keep_checkpoints": 2, "warmup_steps": 100, "w_pi": 1.0, "w_P": 1.0,
-        "grad_clip": 1.0, "adam_eps": 1e-8, "lr_floor": 0.1, "betas": (0.9, 0.999),
+        "grad_clip": 1.0, "adam_eps": 1.0e-8, "lr_floor": 0.1, "betas": [0.9, 0.999],
         "groups": STARTING_GROUPS, "device": "cuda",
     }  # fmt: skip
+    path = tmp_path / "pretrain.yaml"
+    path.write_text(yaml.safe_dump(starting, sort_keys=False))
+    cfg = load_config(path)
+    assert torch.device(cfg.device) == torch.device("cuda")
+    expected = starting | {"quantiles": (0.05, 0.5, 0.95), "betas": (0.9, 0.999)}
+    assert dataclasses.asdict(cfg) == expected
     assert list(cfg.groups) == list(STARTING_GROUPS)  # the eleven groups in this order
 
 

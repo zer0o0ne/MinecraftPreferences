@@ -92,8 +92,14 @@ def test_invalid_config_raises_value_error(tmp_path, changes):
         load(tmp_path, **changes)
 
 
-def test_starting_values(repo):
-    assert dataclasses.asdict(load_config(repo / "configs/mcts.yaml")) == {
+def test_starting_values_from_test_owned_config(tmp_path):
+    starting = {
+        "simulations": "24", "min_n_sampling": "4", "depth": "8", "width": "8",
+        "latency_calls": "10", "c_puct": "1.25", "discount": "0.99", "temperature": "1.0",
+        "min_p": "0.5", "epsilon": "0.05", "latency_ms": "150.0",
+        "latency_fail_ms": "300.0",
+    }  # fmt: skip
+    assert dataclasses.asdict(load(tmp_path, **starting)) == {
         "simulations": 24,
         "min_n_sampling": 4,
         "depth": 8,

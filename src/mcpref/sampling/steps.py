@@ -14,7 +14,7 @@ from tqdm import tqdm
 from mcpref.env.state import EnvState
 from mcpref.mcts.search import Decision, decide
 from mcpref.mcts.tree import LatentHistory, advance
-from mcpref.sampling.codecs import _encode_tree
+from mcpref.sampling.codecs import _cpu, _encode_tree
 from mcpref.sampling.history import encode, preferences
 from mcpref.sampling.shards import SamplerState, StepRecord, write_state, write_step
 
@@ -44,7 +44,7 @@ def _complete(sampler: Sampler, pending: Pending) -> StepRecord:
     close, start = preferences(
         sampler.modules.P, sampler.history, pending.origin, pending.start
     )
-    delta = (sampler.history.Y[0, -1] - pending.z).detach().to("cpu", copy=True)
+    delta = _cpu(sampler.history.Y[0, -1] - pending.z)
     return StepRecord(
         pending.index,
         pending.before,
@@ -63,7 +63,7 @@ def _complete(sampler: Sampler, pending: Pending) -> StepRecord:
 def _predicted(sampler: Sampler, action: int) -> Tensor:
     """Notation: the executed root child's exact shift before re-rooting."""
     child = next(c for c in sampler.tree.root.children if c.action == action)
-    return (child.x - sampler.tree.root.x).detach().to("cpu", copy=True)
+    return _cpu(child.x - sampler.tree.root.x)
 
 
 def _choose(
@@ -137,6 +137,7 @@ def _save_state(sampler: Sampler, staged: Path, after: EnvState) -> None:
         staged,
         SamplerState(
             after,
+            sampler.env.continuation(),
             sampler.history,
             sampler.tree,
             sampler.rng.bit_generator.state,

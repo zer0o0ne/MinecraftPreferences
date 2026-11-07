@@ -1,9 +1,8 @@
 """`Policy` and `PolicyLoss` inside `pretrain` of specs/pretrain.md (the protocol: `pi(Z, clips)`,
-`pi_loss(out, Z, clips)`; specs/policy.md Interface) with fake $\\phi$ and $P$
-(tests/pretrain/loop_starting.py) declaring the starting `groups` of configs/pretrain.yaml,
-against the loop oracle of tests/pretrain run with $\\pi$ (its dropout draw in training mode
-included) and $\\ell^\\pi$ transcribed (policy_oracle.py) on the same initial weights; the
-approved masks."""
+`pi_loss(out, Z, clips)`; specs/policy.md Interface) with fake $\\phi$ and $P$, test-owned
+starting groups and masks, against the loop oracle of tests/pretrain run with $\\pi$ (its dropout
+draw in training mode included) and $\\ell^\\pi$ transcribed (policy_oracle.py) on the same initial
+weights."""
 
 import torch
 from pretrain.loop_checks import assert_run
@@ -15,7 +14,6 @@ from torch import nn
 
 from mcpref.policy.loss import PolicyLoss
 from mcpref.policy.network import Policy
-from mcpref.pretrain.config import load_config
 
 from . import policy_oracle as oracle
 from .policy_oracle import cfg_of
@@ -58,10 +56,14 @@ class RefPiLoss(nn.Module):
         return {}
 
 
-def test_policy_in_the_loop(tmp_path, repo, masks):
+def test_policy_in_the_loop(tmp_path):
     """Every step's losses, checkpoint and model.pt against the oracle; pi trained."""
-    groups = load_config(repo / "configs/pretrain.yaml").groups
-    loop = Loop(tmp_path, keep_checkpoints=20, groups=groups).write()
+    from pretrain.loop_starting import starting_groups
+
+    from .policy_world import action_masks
+
+    masks = action_masks(tmp_path / "masks")
+    loop = Loop(tmp_path, keep_checkpoints=20, groups=starting_groups()).write()
     pi = Policy(CFG, D, masks.names).double()
     loop.run(starting(pi=pi, pi_loss=PolicyLoss(CFG, masks, METRIC)))
     make = lambda: starting(pi=RefPi(masks.names), pi_loss=RefPiLoss(masks.names))

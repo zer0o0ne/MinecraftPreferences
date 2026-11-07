@@ -11,4 +11,4 @@ items_per_shard: 256
 history_per_shard: 256
 base_threshold: 0.5
 temporal_penalty: 1.0
-threshold_scale: 0.95
+threshold_scale: 0.9

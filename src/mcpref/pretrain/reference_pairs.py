@@ -1,0 +1,100 @@
+"""Per-pair joint, P-only and phi-only fixed-reference evaluation."""
+
+import torch
+
+from mcpref import REPO
+from mcpref.diagnostics.types import ReferencePair
+from mcpref.pretrain.checkpoints import Modules
+from mcpref.pretrain.clip import Clip, read_clip
+from mcpref.pretrain.config import PretrainConfig
+from mcpref.pretrain.observation import (
+    MicroObservations,
+    phi_observation,
+    policy_observation,
+)
+from mcpref.pretrain.reference import ReferenceData
+from mcpref.pretrain.reference_metrics import add_preference, preference_data
+
+InitialPairs = list[ReferencePair] | tuple[ReferencePair, ...] | None
+
+
+def clip_reader(run: dict):
+    def read(path: str) -> Clip:
+        return read_clip(REPO / path, run["states"], run["width"], run["height"])
+
+    return read
+
+
+def observe_joint(
+    cfg: PretrainConfig,
+    modules: Modules,
+    Z: torch.Tensor,
+    clips: list[Clip],
+    joint: tuple,
+    part: dict,
+) -> None:
+    """Evaluate current phi/pi once and retain bounded detached joint observations."""
+    phi_terms, phi_diagnostics = modules["phi_loss"].terms(Z, clips)
+    pi_out = modules["pi"](Z, clips)
+    pi_terms, valid = modules["pi_loss"].terms(pi_out, Z, clips)
+    q, current = modules["pi_loss"].diagnostic_targets()
+    zero_shift = modules["pi_loss"].zero_shift(Z, valid["shift_valid"])
+    policy, state_rows = policy_observation(
+        (pi_out[0].detach(), q, current, valid, zero_shift.detach()),
+        cfg.calibration_bins,
+        cfg.action_copy_eps,
+    )
+    part["micro"].append(
+        MicroObservations(
+            joint[1], policy, phi_observation(phi_diagnostics), state_rows
+        )
+    )
+    for key, value in phi_terms.items():
+        part["phi"][key].extend(value.detach().cpu().tolist())
+    for key, value in pi_terms.items():
+        part["pi"][key].extend(value.detach().cpu().tolist())
+
+
+def evaluate_pair(
+    cfg: PretrainConfig,
+    modules: Modules,
+    item: dict,
+    j: int,
+    read,
+    reference: ReferenceData | None,
+    frozen: torch.nn.Module | None,
+    latents: list[torch.Tensor],
+    parts: dict,
+    initial_pairs: InitialPairs,
+) -> ReferencePair | None:
+    """Evaluate all due conditions for one selected pair in the specified call order."""
+    clips = [read(item["a"]), read(item["b"])]
+    Z = modules["phi"](clips)
+    if reference is None:
+        latents.append(Z.detach().to("cpu", copy=True))
+    joint = preference_data(modules, modules["P"](Z[:1], Z[1:]), item["labels"])
+    part = parts[item["part"]]
+    add_preference(part, "joint", joint)
+    only_phi = joint
+    if reference is not None:
+        z0 = reference.Z0[j].to(torch.device(cfg.device))
+        only_P = modules["P"](z0[0:1], z0[1:2])
+        add_preference(part, "P_only", preference_data(modules, only_P, item["labels"]))
+        only_phi = preference_data(modules, frozen(Z[:1], Z[1:]), item["labels"])
+        add_preference(part, "phi_only", only_phi)
+    observe_joint(cfg, modules, Z, clips, joint, part)
+    if reference is not None and initial_pairs is None:
+        return None
+    baseline = joint[0]["total"] if reference is None else initial_pairs[j].baseline
+    return ReferencePair(
+        j,
+        0,
+        item["a"],
+        item["b"],
+        item["labels"],
+        baseline,
+        only_phi[0]["total"],
+        joint[0]["total"],
+        only_phi[0]["total"] - baseline,
+        joint[0]["total"] - baseline,
+    )

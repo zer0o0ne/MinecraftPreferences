@@ -104,16 +104,24 @@ def ref_path(node):
     return list(reversed(path))
 
 
+def ref_eligible(node, mask):
+    if node.parent is not None:
+        return list(node.children)
+    return [child for child in node.children if mask[child.action]]
+
+
 def ref_decide(tree, mask, policy, preference, alpha, cfg, rng):
     for _ in range(cfg.simulations):
         leaf = tree.root
-        while leaf.children:
-            total = sum(child.n for child in leaf.children)
+        eligible = ref_eligible(leaf, mask)
+        while eligible:
+            total = sum(child.n for child in eligible)
             scores = [
                 child.mean + cfg.c_puct * child.prior * math.sqrt(total) / (1 + child.n)
-                for child in leaf.children
+                for child in eligible
             ]
-            leaf = leaf.children[scores.index(max(scores))]
+            leaf = eligible[scores.index(max(scores))]
+            eligible = ref_eligible(leaf, mask)
         value = ref_value(preference, tree, leaf, cfg.min_p)
         if ref_depth(leaf) < cfg.depth:
             ref_expand(policy, tree, leaf, mask, alpha, cfg)
@@ -122,16 +130,13 @@ def ref_decide(tree, mask, policy, preference, alpha, cfg, rng):
             weight = cfg.discount ** (len(path) - j) * value
             child.n += 1
             child.mean += (weight - child.mean) / child.n
-    weights = np.array(
-        [child.n ** (1.0 / cfg.temperature) for child in tree.root.children]
-    )
+    eligible = ref_eligible(tree.root, mask)
+    weights = np.array([child.n ** (1.0 / cfg.temperature) for child in eligible])
     if np.all(weights == 0.0):
-        weights = np.ones(len(tree.root.children))
+        weights = np.ones(len(eligible))
     probabilities = weights / weights.sum()
-    choice = rng.choice(
-        len(tree.root.children), p=probabilities, replace=True, size=None
-    )
+    choice = rng.choice(len(eligible), p=probabilities, replace=True, size=None)
     full = np.zeros(len(mask), dtype=np.float64)
-    for child, probability in zip(tree.root.children, probabilities, strict=True):
+    for child, probability in zip(eligible, probabilities, strict=True):
         full[child.action] = probability
-    return tree.root.children[choice].action, full
+    return eligible[choice].action, full

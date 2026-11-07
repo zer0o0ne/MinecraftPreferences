@@ -4,7 +4,10 @@ import shutil
 import sys
 from pathlib import Path
 
+from tqdm import tqdm
+
 from mcpref import REPO
+from mcpref.diagnostics.runtime import DiagnosticRun
 from mcpref.pretrain.checkpoints import Modules
 from mcpref.pretrain.config import PretrainConfig
 from mcpref.pretrain.gradient_flow import (
@@ -14,6 +17,7 @@ from mcpref.pretrain.gradient_flow import (
     summarize,
 )
 from mcpref.pretrain.items import Part
+from mcpref.pretrain.producer import accept_reference, stage_reference
 from mcpref.pretrain.reference import (
     ReferenceData,
     load_initial,
@@ -21,7 +25,10 @@ from mcpref.pretrain.reference import (
     write_initial,
     write_metrics,
 )
-from mcpref.pretrain.reference_eval import evaluate_initial, evaluate_reference
+from mcpref.pretrain.reference_conditions import (
+    evaluate_initial_event,
+    evaluate_reference_event,
+)
 from mcpref.runs.files import write_json
 from mcpref.shards.store import complete_shards
 
@@ -35,9 +42,14 @@ def reference_dir(cfg: PretrainConfig) -> Path:
 
 
 def start_reference(
-    cfg: PretrainConfig, modules: Modules, run: dict, restored_step: int
+    cfg: PretrainConfig,
+    modules: Modules,
+    run: dict,
+    restored_step: int,
+    diagnostics: DiagnosticRun,
+    diagnostic: tqdm | None,
 ) -> ReferenceData | None:
-    """(18), (21): initialize shard 0 or validate/repair only the latest due shard."""
+    """Initialize or repair only the latest due shard, accepting its persisted outbox."""
     if not run["counts"]["train"]["pairs"]:
         print("pretrain reference: nothing to do", file=sys.stderr)
         return None
@@ -47,9 +59,18 @@ def start_reference(
         raise RuntimeError("reference shard 000000 is missing after training started")
     selection, fit = select_reference(cfg, run)
     if count == 0:
-        initial, metrics = evaluate_initial(cfg, modules, selection, fit, run)
-        write_initial(directory, selection, fit, initial, metrics)
-        return ReferenceData(selection, fit, initial["Z0"], initial["P0"], metrics)
+        initial, metrics, pairs, observations = evaluate_initial_event(
+            cfg, modules, selection, fit, run
+        )
+        reference = ReferenceData(
+            selection, fit, initial["Z0"], initial["P0"], metrics, tuple(pairs)
+        )
+        stage_reference(diagnostics, cfg, reference, 0, pairs, observations)
+        write_initial(directory, selection, fit, initial, metrics, pairs)
+        accept_reference(diagnostics, 0)
+        if diagnostic is not None:
+            diagnostic.update()
+        return reference
     reference = load_initial(directory)
     print("pretrain reference initial: already done", file=sys.stderr)
     expected = restored_step // cfg.reference_steps + 1
@@ -60,14 +81,19 @@ def start_reference(
         return reference
     if due and count == expected - 1:
         k = restored_step // cfg.reference_steps
-        metrics = evaluate_reference(cfg, modules, reference, run, restored_step)
-        write_metrics(directory, k, metrics)
+        metrics, pairs, observations = evaluate_reference_event(
+            cfg, modules, reference, run, restored_step
+        )
+        stage_reference(diagnostics, cfg, reference, k, pairs, observations)
+        write_metrics(directory, k, metrics, pairs)
+        accept_reference(diagnostics, k)
+        if diagnostic is not None:
+            diagnostic.update()
         return reference
     raise RuntimeError("reference shards do not match the restored training step")
 
 
 def start_gradient_flow(cfg: PretrainConfig, run: dict, data: Part) -> dict:
-    """Discard unaccepted work, reuse/replay selection, and rebuild accepted summary."""
     root = gradient_dir(cfg)
     shutil.rmtree(root / "work", ignore_errors=True)
     selection = select_gradient_steps(cfg, run, data)

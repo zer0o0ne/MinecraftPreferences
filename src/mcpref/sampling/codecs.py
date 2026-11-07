@@ -1,11 +1,11 @@
-"""Primitive tensor, observation, history and tree codecs of the spec."""
+"""Primitive tensor, observation, continuation, history and tree codecs of the spec."""
 
 import copy
 
 import torch
 from torch import Tensor
 
-from mcpref.env.state import EnvState
+from mcpref.env.state import EnvContinuation, EnvState
 from mcpref.mcts.tree import LatentHistory, Node, Tree
 
 
@@ -32,6 +32,33 @@ def _decode_observation(value: dict) -> EnvState:
         value["cls"],
         value["hotbar"],
         value["mask"].numpy(),
+    )
+
+
+def _encode_continuation(continuation: EnvContinuation) -> dict:
+    return {
+        "info": {
+            "isGuiOpen": continuation.info["isGuiOpen"],
+            "custom": copy.deepcopy(continuation.info["custom"]),
+            "mine_block": copy.deepcopy(continuation.info["mine_block"]),
+            "use_item": copy.deepcopy(continuation.info["use_item"]),
+        },
+        "cursor": tuple(float(value) for value in continuation.cursor),
+        "held_action": continuation.held_action,
+    }
+
+
+def _decode_continuation(value: dict) -> EnvContinuation:
+    info = value["info"]
+    return EnvContinuation(
+        {
+            "isGuiOpen": info["isGuiOpen"],
+            "custom": copy.deepcopy(info["custom"]),
+            "mine_block": copy.deepcopy(info["mine_block"]),
+            "use_item": copy.deepcopy(info["use_item"]),
+        },
+        (float(value["cursor"][0]), float(value["cursor"][1])),
+        value["held_action"],
     )
 
 

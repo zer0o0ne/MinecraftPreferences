@@ -40,51 +40,36 @@ def micro_loss(
     terms = {role: [] for role in ROLES}
     logged = {role: [] for role in ROLES}
     action_count = len(pi.names)
+
+    def encode(ref: StateRef):
+        return encode_ref(ref, phi, perception, sampling, states, action_count)
+
     for item in items:
         kind, t = item["kind"], item.get("index")
         if kind == "preference":
-            a = encode_ref(
-                StateRef(**item["a"]), phi, perception, sampling, states, action_count
-            )
-            b = encode_ref(
-                StateRef(**item["b"]), phi, perception, sampling, states, action_count
-            )
+            a = encode(StateRef(**item["a"]))
+            b = encode(StateRef(**item["b"]))
             value = modules["P_loss"](P(a.Y, b.Y), [item["labels"]])[0]
             terms["P"].append(value)
             logged["P"].append(float(value.detach()))
             continue
-        ref = state_ref(sampling, t)
-        origin = encode_ref(ref, phi, perception, sampling, states, action_count)
+        origin = encode(state_ref(sampling, t))
         record = load_step(REPO / sampling.out_dir, t)
         R = pi.readout(origin.Y, origin.C)[:, -1]
         eligible = (
             kind == "pending"
             or t + ppo.horizon <= (t // sampling.steps + 1) * sampling.steps
         )
-        successor = None
-        if kind == "fresh":
-            successor = encode_ref(
-                state_ref(sampling, t + 1),
-                phi,
-                perception,
-                sampling,
-                states,
-                action_count,
-            )
+        successor = encode(state_ref(sampling, t + 1)) if kind == "fresh" else None
         if eligible:
             logits = pi.logits(R)
-            futures = [] if successor is None else [successor.Y]
-            futures += [
-                encode_ref(
-                    state_ref(sampling, t + k),
-                    phi,
-                    perception,
-                    sampling,
-                    states,
-                    action_count,
-                ).Y
-                for k in range(len(futures) + 1, ppo.horizon + 1)
-            ]
+            with torch.no_grad():
+                futures = [
+                    encode(state_ref(sampling, t + k)).Y
+                    for k in range(1 if successor is None else 2, ppo.horizon + 1)
+                ]
+            if successor is not None:
+                futures = [successor.Y] + futures
             advantage = reward(P, [origin.Y], [futures], ppo.horizon, discount, min_p)
             actions = torch.tensor(
                 [record.action], dtype=torch.int64, device=logits.device

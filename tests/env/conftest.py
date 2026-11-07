@@ -1,13 +1,11 @@
 """Temporary repository, fake classifier and fake simulator for the black-box Env tests."""
 
-import shutil
 import sys
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
-import yaml
 from pretrain.index_run import repo_root
 from progress_bars import tqdm_defaults
 
@@ -79,20 +77,9 @@ def patch_public(monkeypatch, name, value) -> None:
 
 
 def make_repository(root: Path, repo: Path, delta: int = 6) -> None:
-    (root / "configs").mkdir(parents=True)
-    for name in (
-        "action-mask.yaml",
-        "gui-classifier.yaml",
-        "gui-screens.yaml",
-        "vpt-actions.yaml",
-    ):
-        shutil.copy2(repo / "configs" / name, root / "configs" / name)
-    engine = yaml.safe_load((repo / "configs/engine.yaml").read_text())
-    engine.update(minestudio_dir="ms", render_size=[640, 360], seed=7)
-    (root / "configs/engine.yaml").write_text(yaml.safe_dump(engine, sort_keys=False))
-    (root / "configs/clips.yaml").write_text(
-        yaml.safe_dump({"delta": delta, "actions": "configs/vpt-actions.yaml"})
-    )
+    from runtime_configs import write_repository
+
+    write_repository(root, delta=delta)
 
 
 @pytest.fixture

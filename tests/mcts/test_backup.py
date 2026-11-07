@@ -11,12 +11,12 @@ from mcpref.mcts.tree import Tree
 from .helpers import FakePreference, UnexpectedCalls, config, latent_history, node
 
 
-def choose(tree, children, cfg):
+def choose(tree, children, cfg, mask=None):
     tree.root.children = children
     preference = FakePreference((0.0, math.log(3.0)))
     decide(
         tree,
-        np.ones(4, dtype=bool),
+        np.ones(4, dtype=bool) if mask is None else np.array(mask),
         UnexpectedCalls(),
         preference,
         torch.ones(1, dtype=torch.float64),
@@ -39,6 +39,21 @@ def test_puct_uses_all_child_counts_and_zero_q_for_unvisited():
     assert children[1].n == 1
     assert [child.n for child in children] == [2, 1, 1]
     assert preference.calls[0][0][0, -1].item() == 2.0
+
+
+def test_forbidden_large_visit_count_is_excluded_from_puct_total():
+    tree = Tree(latent_history([[0.0]]))
+    children = [
+        node([1.0], action=0, prior=0.0, parent=tree.root, n=10_000),
+        node([2.0], action=1, prior=0.2, parent=tree.root, n=0),
+        node([3.0], action=2, prior=0.1, parent=tree.root, n=1, mean=0.4),
+    ]
+    preference = choose(
+        tree, children, config(c_puct=1.0), mask=[False, True, True, False]
+    )
+    # Eligible total=1 gives scores .2 and .45; including 10,000 would select child 1.
+    assert [child.n for child in children] == [10_000, 0, 2]
+    assert preference.calls[0][0][0, -1].item() == 3.0
 
 
 def test_puct_tie_goes_to_earliest_expansion_order():

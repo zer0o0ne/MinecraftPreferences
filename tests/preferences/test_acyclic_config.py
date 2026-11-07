@@ -11,8 +11,8 @@ from mcpref.preferences.acyclic import AcyclicConfig, load_config
 
 from .acyclic_world import START
 
-REPO_CONFIG = "configs/acyclic.yaml"
 BASE = {"votes_dir": "data/pair_votes", "out_dir": "data/pair_labels",
+        "diagnostics": "configs/diagnostics.yaml",
         "weights": START, "refusal_share": 0.5}  # fmt: skip
 
 
@@ -34,9 +34,9 @@ def with_raw(key: str, raw: str) -> str:
     return lines + f"{key}: {raw}\n"
 
 
-def test_starting_values(repo):
-    """configs/acyclic.yaml holds the starting values of Interface."""
-    c = load_config(repo / REPO_CONFIG)
+def test_starting_values_from_test_owned_config(tmp_path):
+    """The explicit starting mapping parses to the starting values of Interface."""
+    c = load(tmp_path, text())
     assert dataclasses.astuple(c) == (
         "data/pair_votes", "data/pair_labels", START, 0.5
     )  # fmt: skip

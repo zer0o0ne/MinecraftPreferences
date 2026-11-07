@@ -11,7 +11,8 @@ import masks_expected as me
 import masks_world as mw
 import numpy as np
 import pytest
-import yaml
+from config_files import MASKS_STARTING
+from config_files import write as write_starting
 from masks_files import write
 from masks_run import SCENARIOS, Run, bars, config_of, expected_of
 from progress_bars import Bar, assert_progress, screen
@@ -30,10 +31,9 @@ SPLIT = [Fraction(3, 5), Fraction(1, 5), Fraction(1, 5)]
 
 
 def test_load_config_starting_values(repo, tmp_path, monkeypatch):
-    """Starting values; paths relative to the repository root, whatever the working directory;
-    theta and mu grids exact fractions."""
+    """Test-owned starting values; relative paths and exact fraction grids."""
     monkeypatch.chdir(tmp_path)
-    cfg = load_config(repo / "configs/gui-masks.yaml")
+    cfg = load_config(write_starting(tmp_path / "gui-masks.yaml", MASKS_STARTING))
     assert isinstance(cfg, GuiMasksConfig)
     fields = {f.name for f in dataclasses.fields(cfg)}
     assert fields == {*PATHS, *NUMBERS, *GRIDS, "split"}
@@ -47,13 +47,12 @@ def test_load_config_starting_values(repo, tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def config_with(repo, tmp_path):
-    """Loads the starting config with `changes`."""
+def config_with(tmp_path):
+    """Loads the test-owned starting config with `changes`."""
 
     def load(**changes) -> GuiMasksConfig:
-        cfg = yaml.safe_load((repo / "configs/gui-masks.yaml").read_text())
-        (tmp_path / "gui-masks.yaml").write_text(yaml.safe_dump({**cfg, **changes}))
-        return load_config(tmp_path / "gui-masks.yaml")
+        path = write_starting(tmp_path / "gui-masks.yaml", MASKS_STARTING, **changes)
+        return load_config(path)
 
     return load
 

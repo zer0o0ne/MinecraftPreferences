@@ -18,6 +18,12 @@ ADDOPTS = "-m 'not gpu and not slow' -n auto --timeout=10 --durations=10"
 # version has an epoch, a tilde and a plus, as Debian versions may.
 CFG = {"driver_min": "575.64.05", "python_version": "3.10.18", "uv_version": "0.13.2",
        "ffmpeg_deb_version": "9:8.0.1-1~test2+b1"}  # fmt: skip
+STARTING = {
+    "uv_version": "0.12.19",
+    "python_version": "3.10.20",
+    "driver_min": "580.95.05",
+    "ffmpeg_deb_version": "7:6.1.1-3ubuntu5",
+}
 V, UV = CFG["ffmpeg_deb_version"], CFG["uv_version"]
 # Step (7): database changes after which dpkg-query does not print nine lines `installed V`;
 # libavdevice60, libavfilter9 and libpostproc57 are the three of the 2026-10-12 amendment.
@@ -76,9 +82,8 @@ def test_steps_in_order_with_spec_arguments(spark):
     assert result.events == spark.expected(spark.uv_check(UV))
 
 
-def test_committed_config_drives_the_steps(make_spark, repo):
-    spark = make_spark(read_config(repo / "configs/spark-env.yaml"))
-    shutil.copy(repo / "configs/spark-env.yaml", spark.repo / "configs")
+def test_starting_config_drives_the_steps(make_spark):
+    spark = make_spark(STARTING)
     result = spark.run()
     assert result.returncode == 0, result.stderr
     assert result.events == spark.expected(spark.uv_check(spark.cfg["uv_version"]))
@@ -210,13 +215,10 @@ def test_failed_ffmpeg_command_fails_its_step(spark, command, calls):
     assert_failed(spark.run(), events, "ffmpeg")
 
 
-def test_committed_config_starting_values(repo):
-    assert read_config(repo / "configs/spark-env.yaml") == {
-        "uv_version": "0.12.19",
-        "python_version": "3.10.20",
-        "driver_min": "580.95.05",
-        "ffmpeg_deb_version": "7:6.1.1-3ubuntu5",  # vpt-gui-frames: Library mapping
-    }
+def test_starting_values_from_test_owned_config(tmp_path):
+    path = tmp_path / "spark-env.yaml"
+    path.write_text("".join(f"{key}: {value}\n" for key, value in STARTING.items()))
+    assert read_config(path) == STARTING
 
 
 @pytest.fixture

@@ -11,6 +11,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   **→ [U]** (2026-10-20) $\phi$'s input is the sequence of elementary states as interleaved (screenshot$_i$, meta$_i$); in training whole clips go through the model; at sampling (R1) $\phi$ runs streaming (each step adds only the new state), and the stream is restarted every $L$ states, so a state sees 1..$L$ states of context, as inside a training clip. Measured: Qwen3.5-2B takes 222 tokens per 640 × 360 frame and ≈ 65–180 tokens per meta as text; its context is 262,144 tokens.
   **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: Notation, Stream, and (9) ($\phi$'s window is the stream since its last restart, no stride).
   **→ [U]** (2026-10-22) $k_P$ = $L_P$ (`history`) $\le L$: `specs/preference.md` Notation.
+  **→ [U]** (2026-11-06) starting $L=L_P=L_\pi=12$ (`specs/perception-data.md`, `specs/preference.md`, `specs/policy.md`); $k_V=6$, $s_V=2$ (`specs/vlm-labels.md`), giving $(k_V-1)s_V=10\le L-1$ and $2k_V=12$ images.
 - **G-3** History at an episode start ($t < k$): pad (repeat first state / zeros) or exclude such $t$?
   **→ [U]** (2026-10-22) for $P$: no padding; a history shorter than $L_P$ (only in the first $L_P - 1$ steps of RL) is used as it is; in pretraining never short (`specs/preference.md` Notation).
 - **G-4** Is the VLM used only in pretraining, so that in RL all preference labels come from the current $P$?
@@ -24,10 +25,11 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: Notation, $B$, and (7) (`Qwen/Qwen3.5-2B`, an MLP head, $D$ = the length of `alpha`).
   **→ [U]** (2026-10-22) $P$: `specs/preference.md` (1)–(8).
   **→ [U]** (2026-10-22) $\pi$: `specs/policy.md` (1)–(7).
+  **→ [U]** (2026-11-07) latent-output initialization uses pretrain `latent_init_scale: 1.0`: the last $\phi$ weight and bias and $\pi$'s `dynamics.w2.weight` are multiplied by `1 / alpha` per coordinate once in `build_modules`; all other weights and the metric are unchanged (`specs/policy.md` (13)).
 - **G-7** Optimisers, learning rates, batch sizes per training stage; fixed in each block spec, or one config file with values from you?
   **→ [U]** every exact number goes into a config, never asked; where and how: G-11.
 - **G-8** Checkpointed across cycles for resuming: nets, optimiser states, METRA $\lambda$, $\mathcal{M}$, $\mathcal{T}$, env state?
-  **→ [U]** (2026-11-05) modules, persistent METRA dual, History, trees, sampler state and all RNG/schedule positions are checkpointed. AdamW is recreated each cycle; its moments survive interruptions inside that cycle but do not cross cycle boundaries. Real-world continuation additionally requires the live `Env` or an externally supplied matching world state (`specs/rl-cycle.md`, `specs/env-sampling.md`).
+  **→ [U]** (2026-11-05/06) modules, persistent METRA dual, History, trees, sampler state and all RNG/schedule positions are checkpointed. A new AdamW object is created each cycle; cycle 0 starts empty, while later cycles load the previous final checkpoint's `step`, `exp_avg` and `exp_avg_sq`. Current-cycle checkpoints retain resume priority, and LR/torch/schedule RNG remain cycle-local. Trajectory boundaries also preserve mixed K/V/linear-recurrent cache state and the Python wrapper's raw completion baselines, physical GUI flag, cursor and unfinished held action. Real-world continuation additionally requires an externally supplied matching world state; wrapper restore never resets or advances it (`specs/rl-cycle.md`, `specs/env-sampling.md`, `specs/env.md` (11)).
 - **G-10** Python version for the project (no `pyproject.toml` yet; the first block creates it): 3.10 (MineStudio requires ≥ 3.10 and pins `opencv-python==4.8.0.74`, built for numpy 1.x → numpy 1.26.4) or 3.12 (numpy 2.x; only if MineStudio is dropped, D-7)?
   **→ [U]** 3.10.
 - **G-9** With a frame stride $s$ in the window, is one agent / dataset step 1 frame or $s$ frames, i.e. is P1's consecutive pair $(t, t+1)$ or $(t, t+s)$? (Ties to G-1.)
@@ -91,6 +93,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: (11) (the pushing term $-d_\alpha$ kept).
 - **PER-6** Output layer: unbounded linear or bounded (tanh)?
   **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: (7).
+  **→ [U]** (2026-11-07) the output remains unbounded; only at initialization, the final $\phi$ weight and bias and $\pi$'s `dynamics.w2.weight` are scaled by `latent_init_scale / alpha` per latent coordinate (`specs/policy.md` (13)).
 - **PER-7** $\phi$ per frame ($z_t = \phi(o_t)$; "history" = sequence of per-frame $z$) or on a window $\phi(o_{t-k_\phi+1..t})$?
   **→ [U]** on a window (G-2).
   **→ [U]** (2026-10-20) the window is the stream since its last restart, at most $L$ states (G-2).
@@ -133,7 +136,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **MCTS-1** Value of an imagined node: $P(\text{node}, \text{root})$, $P(\text{node}, \text{parent})$ summed along the path, …? Scalar from $(p_\succ, p_{inc})$: e.g. $(1 - p_{inc})(2p_\succ - 1)$, $p_\succ$, $\log p_\succ$?
   **→ [U]** (2026-11-03) $P(\text{node}, \text{parent})$, $V=(p_{inc}+m_{min})(2p_\succ-1)$, $m_{min}$ = `min_p`: `specs/mcts.md` (2).
 - **MCTS-2** Selection rule: PUCT with prior $\pi(a \mid \cdot)$ (AlphaZero), $c_{puct}$?
-  **→ [U]** (2026-11-03) PUCT with the unnormalised prior: `specs/mcts.md` (4).
+  **→ [U]** (2026-11-03/06) PUCT with the unnormalised prior; at a reused real root the current mask excludes existing forbidden children from both maximisation and the visit-count total, without mutating their subtrees: `specs/mcts.md` (4).
 - **MCTS-3** Expansion: which actions get children — all available, top-$K$ by prior, $K$ sampled, progressive widening?
   **→ [U]** the $l$ most probable unmasked actions ($l$ in the config).
   **→ [U]** (2026-11-03) the top $\min(l,n_{allowed})$ actions, with the current root mask: `specs/mcts.md` (3).
@@ -147,7 +150,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   **→ [U]** (2026-10-20) (b) the in-flight $a_t$ is not accounted for: the tree is built from $z_t$; (c) yes, POL-8 is decided for the delayed interval; (d) yes, the last interval of a clip gives no P5 target. (a) asked again: the user's formula $z_{t+1} - z_t$ and the words "the shift with the delay" admit two readings.
   **→ [U]** (2026-10-20) (a): from the history up to $z_t$, $\pi$ predicts the action chosen at $z_t$ (executed from $t + 1$), and the shift head's row of that action gets the target $z_{t+1} - z_t$, though that change is caused by the action still in flight. Reason: a human deciding the action has only $z_t$ and models its consequences from there; the one-interval offset is absorbed in RL ($\pi$ and $\phi$ learn that they work with a delay), and $\pi$ sees several past latent states, so it can estimate the dynamics.
 - **MCTS-6** Decision: most visited child, sample $\propto N^{1/\tau}$, or max value? Which probabilities are stored for PPO — the network's $\pi(\cdot)$ or the visit distribution? PPO's ratio needs the probability with which the executed action was actually chosen.
-  **→ [U]** (2026-11-03) sample $\propto N^{1/\tau}$ and store that visit distribution: `specs/mcts.md` (6).
+  **→ [U]** (2026-11-03/06) sample $\propto N^{1/\tau}$ over currently eligible root children and store that visit distribution; every forbidden action has zero probability and masked-out subtrees retain their statistics: `specs/mcts.md` (6).
 - **MCTS-7** [later] Tree reuse: how the real $z_{t+1}$ attaches (re-root at the executed child with its $z$ replaced, a new root linked to it, …); what "extended by future decisions" means structurally.
   **→ [U]** (2026-11-03) exact and quantised latents, accumulated discrepancies, executed-child-first matching and re-root with the subtree and statistics kept: `specs/mcts.md` (7).
 - **MCTS-8** Imagined nodes have no observation, so after R2 their $z$ are coordinates of the old $\phi$. Re-simulate them from re-encoded real nodes with the current $\pi$, keep them as is, or keep only real nodes?
@@ -231,9 +234,11 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **VLMC-7** Seed per request from the caller (draft), for reproducible sampling up to batch effects.
 - **VLMC-8** Answer-token probabilities and constrained choice: later (the weights of the answers: `specs/acyclic.md`), or now.
 - **VLMC-9** (→ config) $K$ = 16, $R$ = 3, $\delta$ = 10 s.
+  **→ [U]** (2026-11-06) $K$ = 48, $R$ = 3, $\delta$ = 10 s (`configs/vlm.yaml`, `specs/vlm-client.md`, approved).
 - **VLMC-10** Transport: `httpx` (every field explicit, no hidden retries; draft) or the `openai` SDK (vLLM fields via `extra_body`; its default 10 min timeout and 2 retries overridden).
 - **VLMC-11** Connection: `base_url` and `api_key` as arguments; SSH tunnel to the Spark, port bound to localhost there (draft).
 - **VLMC-12** (→ config) $N_{img}$ and $P_{max}$: proposed 32 images and 8192 tokens (20 frames × 222 tokens + 2K text fit), so `--max-model-len` = `max_tokens` + 8192. Follows `specs/vlm-labels.md` ($2 k_V$ images).
+  **→ [U]** (2026-11-06) $N_{img}$ = 32 and $P_{max}$ = 5120; six frames per moment give 12 images per comparison, and `--max-model-len` = 300 + 5120 = 5420 (`specs/vlm-labels.md`, `specs/vlm-client.md`, approved).
 - **VLMC-13** "Spark" = NVIDIA DGX Spark? vLLM v0.31.0 was released 2026-10-05; the Instruct-FP8 sibling is reported working on Spark, this Thinking-FP8 checkpoint on v0.29–0.31 is not; the smoke test (Server, steps 5–6) is the check.
   **→ [U]** NVIDIA DGX Spark.
 - **VLMC-14** With a 300-token limit: (a) Thinking model with a forced thinking budget (vLLM `thinking_token_budget` + `--reasoning-config`): the model is trained to think for thousands of tokens, so a cut at 300 is out of its training distribution; (b) `Qwen/Qwen3-VL-30B-A3B-Instruct-FP8` @ `d9748a51ae66354c4dad665aab2c71f26cf2c8cd`, prompted for a short justification and then the answer: in distribution, its answer-token probability is usable as an edge weight (`specs/acyclic.md`), and this checkpoint is reported working on DGX Spark. Recommended: (b).
@@ -297,3 +302,7 @@ Facts (MineStudio @ 278aa85 and its engine jar `mcprec-6.13.jar` from `CraftJarv
 - **GX-6** Everything runs on the Spark (aarch64, Python 3.10, uv): the project's dependencies stay installable there; MineStudio joins later, with the env block.
 - **GX-7** GUI textures from the official Minecraft 1.16.5 client jar (Mojang's download), extracted into `data/` at run time, local use only.
   **→ [U]** GX-1…GX-7 all agreed (2026-10-10); every Spark action is a bash script (`setup_env.sh`, `download_data.sh`, `serve_vlm.sh`). Specs: `spark-env.md`, `vlm-client.md`, `vpt-gui-frames.md` (approved), `gui-screens.md` (draft).
+
+## DIAG — Online diagnostics
+- **DIAG-1** How does stage 33a preserve existing runs while adding producer-owned records: reference backfill or legacy layout, packed output shards or one record per shard, independent driver or producer outbox, and global or per-channel resume?
+  **→ [U]** (2026-11-07) shard 0 selects a whole-run legacy metrics-only or new pairs-bearing reference layout; no backfill. Records have arbitrary `id` plus contiguous `index`, one per output shard. Producer outboxes join exact source step/window/condition/split artifacts; per-channel identities and first-instrumented watermarks govern resume. Production wiring, aligned graph categories including dropped, per-population clusters, the `diagnostics` package and actual full SVG registry paths are approved; vote weights come from explicit `VlmLabelsConfig.acyclic=configs/acyclic.yaml`; exact accepted-source suites live in top-level `joined`, separate from strict typed metrics (`specs/rl-diagnostics.md`, `specs/pretrain-diagnostics.md`, `specs/acyclic.md`, `specs/vlm-labels.md`).

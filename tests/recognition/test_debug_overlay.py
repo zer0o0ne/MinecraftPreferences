@@ -8,7 +8,6 @@ import os
 import numpy as np
 import overlay_oracle as oo
 import pytest
-import yaml
 from drawn_world import hand_font, pixels
 from masks_files import write_screens, write_textures
 from masks_world import font_image
@@ -115,11 +114,12 @@ def test_luma_frame_size_of_the_caller():
 def write_config(root, repo, textures: dict) -> object:
     """An f3-overlay config whose catalogue's textures directory holds `textures`; paths
     relative to the repository root."""
+    from config_files import OVERLAY_STARTING, write
+
     write_textures(root / "tex", textures)
     rel = os.path.relpath(root / "tex", repo)
     screens = os.path.relpath(write_screens(root / "screens.yaml", {}, rel), repo)
-    data = yaml.safe_load((repo / "configs/f3-overlay.yaml").read_text())
-    (root / "f3.yaml").write_text(yaml.safe_dump({**data, "screens": screens}))
+    write(root / "f3.yaml", OVERLAY_STARTING, screens=screens)
     return load_config(root / "f3.yaml")
 
 
@@ -138,16 +138,22 @@ def test_overlay_font_missing(tmp_path, repo):
 
 
 @pytest.fixture(scope="module")
-def real(repo):
-    """The starting config, Phi by overlay_font and the alpha of the real ascii.png under
-    textures.out_dir (specs/gui-screens.md: relative to the repository root)."""
-    text = (repo / "configs/gui-screens.yaml").read_text()
-    out_dir = yaml.load(text, Loader=yaml.CSafeLoader)["textures"]["out_dir"]
-    path = repo / out_dir / "font/ascii.png"
+def real(repo, tmp_path_factory):
+    """The test-owned F3 config and real font under the exact snapshot's textures.out_dir."""
+    from config_files import OVERLAY_STARTING, write
+    from gui.catalogue_snapshot import PATH
+
+    from mcpref.gui.textures import load_textures_config
+
+    path = load_textures_config(PATH).out_dir / "font/ascii.png"
     if not path.exists():
         pytest.skip(f"{path} is absent: scripts/download_data.sh fetches it")
     alpha = np.asarray(Image.open(path).convert("RGBA"))[..., 3]
-    cfg = load_config(repo / "configs/f3-overlay.yaml")
+    root = tmp_path_factory.mktemp("real-overlay")
+    cfg_path = write(
+        root / "f3.yaml", OVERLAY_STARTING, screens=os.path.relpath(PATH, repo)
+    )
+    cfg = load_config(cfg_path)
     return cfg, overlay_font(cfg), alpha
 
 

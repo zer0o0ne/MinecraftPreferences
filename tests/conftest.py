@@ -149,11 +149,15 @@ def repo() -> Path:
 
 @pytest.fixture(scope="session")
 def masks(repo):
-    """`load_masks` of the approved configs/action-mask.yaml (specs/action-mask.md); read-only,
-    shared by the tests of action-mask and of the policy."""
-    from mcpref.gui.mask import load_config, load_masks
+    """Masks of the exact test-owned catalogue; read-only, shared by mask/policy tests."""
+    import os
 
-    return load_masks(load_config(repo / "configs/action-mask.yaml"))
+    from gui.catalogue_snapshot import PATH
+
+    from mcpref.gui.mask import ActionMaskConfig, load_masks
+
+    cfg = ActionMaskConfig(screens=os.path.relpath(PATH, repo), pitch_limit=90)
+    return load_masks(cfg)
 
 
 @pytest.fixture

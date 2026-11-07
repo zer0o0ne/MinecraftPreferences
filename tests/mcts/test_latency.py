@@ -6,13 +6,16 @@ import time
 import numpy as np
 import pytest
 import torch
-import yaml
+from perception.world import STARTING as PERCEPTION_STARTING
+from pretrain.index_run import repo_root
+from runtime_configs import write_repository
 
 from mcpref.gui.mask import load_config as load_mask_config
 from mcpref.gui.mask import load_masks, state_mask
 from mcpref.mcts.config import load_config
 from mcpref.mcts.search import decide
 from mcpref.mcts.tree import LatentHistory, Tree
+from mcpref.perception.config import load_config as load_perception_config
 from mcpref.policy.config import load_config as load_policy_config
 from mcpref.policy.network import Policy
 from mcpref.preferences.config import load_config as load_preference_config
@@ -20,28 +23,28 @@ from mcpref.preferences.network import Preference
 
 
 @pytest.mark.gpu
-def test_decision_latency(repo):
-    cfg = load_config(repo / "configs/mcts.yaml")
-    alpha_values = yaml.safe_load((repo / "configs/perception.yaml").read_text())[
-        "alpha"
-    ]
-    masks = load_masks(load_mask_config(repo / "configs/action-mask.yaml"))
+def test_decision_latency(tmp_path):
+    root = tmp_path / "repo"
+    write_repository(root, states=12, alpha=PERCEPTION_STARTING["alpha"])
+    cfg = load_config(root / "configs/mcts.yaml")
+    with repo_root(root):
+        alpha_values = load_perception_config(root / "configs/perception.yaml").alpha
+        masks = load_masks(load_mask_config(root / "configs/action-mask.yaml"))
     cuda = torch.device("cuda")
     alpha = torch.tensor(alpha_values, device=cuda, dtype=torch.float32)
     D = len(alpha_values)
-    pi = (
-        Policy(load_policy_config(repo / "configs/policy.yaml"), D, masks.names)
-        .to(cuda)
-        .eval()
-    )
+    policy = load_policy_config(root / "configs/policy.yaml")
+    pi = Policy(policy, D, masks.names).to(cuda).eval()
     P = (
-        Preference(load_preference_config(repo / "configs/preference.yaml"), D)
+        Preference(load_preference_config(root / "configs/preference.yaml"), D)
         .to(cuda)
         .eval()
     )
     torch.manual_seed(0)
-    Y = torch.randn(1, 12, D, device=cuda, dtype=torch.float32)
-    C = torch.zeros(1, 12, len(masks.names) + 1, device=cuda, dtype=torch.float32)
+    Y = torch.randn(1, policy.history, D, device=cuda, dtype=torch.float32)
+    C = torch.zeros(
+        1, policy.history, len(masks.names) + 1, device=cuda, dtype=torch.float32
+    )
     C[..., -1] = 1.0
     real = LatentHistory(Y=Y, C=C)
     mask = state_mask(masks, gui=False, cls=None, pitch=0.0, hotbar=0)

@@ -1,7 +1,6 @@
 """`load_config` and the starting values of specs/vpt-gui-frames.md (Notation, Interface)."""
 
 import dataclasses
-from pathlib import Path
 
 import pytest
 import tomli
@@ -24,7 +23,7 @@ STARTING = {
     "required_options": {"guiScale": 2, "fullscreen": False, "framebufferWidth": 1280,
                          "framebufferHeight": 720, "lang": "en_us", "forceUnicodeFont": False,
                          "resourcePacks": "[]"},
-    "width": 640, "height": 360, "fps": 20, "n_frames": 5000, "per_episode": 5, "seed": 0,
+    "width": 640, "height": 360, "fps": 20, "n_frames": 50000, "per_episode": 5, "seed": 0,
     "workers": 8, "fetch_streams": 8, "plan_shard_draws": 20, "http_timeout": 60,
     "http_retries": 3, "retry_delay": 10,
     "ffmpeg": "/usr/bin/ffmpeg", "ffmpeg_rw_timeout": 60, "ffmpeg_timeout": 300,
@@ -58,11 +57,14 @@ def test_out_dir_is_relative_to_repository_root(tmp_path, repo, monkeypatch):
     assert repo / load_config(path).out_dir == repo / "a/b"
 
 
-def test_approved_config_has_starting_values(repo):
-    cfg = load_config(repo / "configs/vpt-gui-frames.yaml")
+def test_reconciled_starting_values_from_test_owned_config(tmp_path):
+    fields = STARTING | {"out_dir": "data/gui_frames"}
+    path = tmp_path / "vpt-gui-frames.yaml"
+    path.write_text(yaml.safe_dump(fields, sort_keys=False))
+    cfg = load_config(path)
+    assert dataclasses.asdict(cfg) == fields
     assert {k: getattr(cfg, k) for k in STARTING} == STARTING
     assert list(cfg.index_urls) == ["6xx", "7xx", "8xx", "9xx", "10xx"]
-    assert Path(repo, cfg.out_dir) == repo / "data/gui_frames"
 
 
 def test_pyproject_pins_httpx(repo):

@@ -12,13 +12,13 @@ import time
 import numpy as np
 import pytest
 import torch
+from runtime_configs import write_repository
 from transformers import AutoTokenizer
 from transformers.image_utils import PILImageResampling
 from transformers.models.qwen2_vl.image_processing_qwen2_vl import (
     Qwen2VLImageProcessor,
 )
 
-from mcpref import REPO
 from mcpref.clips.collect import load_config as load_data_config
 from mcpref.perception.config import load_config
 from mcpref.perception.phi import build_phi
@@ -26,7 +26,7 @@ from mcpref.perception.stream import PhiStream
 from mcpref.perception.tokens import image_inputs, segment, specials
 from mcpref.pretrain.clip import Clip
 
-from .world import fla_chosen
+from .world import STARTING, fla_chosen
 
 M = importlib.import_module("transformers.models.qwen3_5.modeling_qwen3_5")
 BF16 = {"rtol": 1.6e-2, "atol": 1.6e-2}  # bfloat16's precision, also absolute
@@ -83,14 +83,21 @@ def synthetic_line() -> dict:
             "ypos": 64.0, "zpos": 0.0}  # fmt: skip
 
 
+def runtime_config(tmp_path):
+    root = tmp_path / "repo"
+    write_repository(root, states=12, alpha=STARTING["alpha"])
+    cfg = load_config(root / "configs/perception.yaml")
+    L = load_data_config(root / "configs/perception-data.yaml").states
+    return cfg, L
+
+
 @pytest.mark.gpu
 @pytest.mark.timeout(3600)  # the first run downloads the weights
-def test_stream_latency(capsys):
+def test_stream_latency(capsys, tmp_path):
     """(13): median of 3L stream steps after a warm-up stream of L, each timed with
     perf_counter around the step and cuda.synchronize(); fails above 300 ms (target
     150 ms); prints it and one training forward and backward of a clip of L states."""
-    cfg = load_config(REPO / "configs/perception.yaml")
-    L = load_data_config(REPO / "configs/perception-data.yaml").states
+    cfg, L = runtime_config(tmp_path)
     phi = build_phi(cfg).to("cuda").eval()
     rng = np.random.default_rng(0)
     stream, line = PhiStream(phi, L), synthetic_line()
@@ -121,10 +128,10 @@ def test_stream_latency(capsys):
 
 @pytest.mark.gpu
 @pytest.mark.timeout(3600)
-def test_image_tokens_per_frame():
+def test_image_tokens_per_frame(tmp_path):
     """A 640 x 360 frame: grid [1, 22, 40], 220 image tokens in its segment and 220 image
     features of the real backbone."""
-    cfg = load_config(REPO / "configs/perception.yaml")
+    cfg, _ = runtime_config(tmp_path)
     phi = build_phi(cfg).to("cuda").eval()
     vision = phi.backbone.config.vision_config
     proc = Qwen2VLImageProcessor(

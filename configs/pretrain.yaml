@@ -7,9 +7,10 @@ perception: "configs/perception.yaml"
 action_mask: "configs/action-mask.yaml"
 policy: "configs/policy.yaml"
 preference: "configs/preference.yaml"
+diagnostics: "configs/diagnostics.yaml"
 seed: 0
 epochs: 1
-batch: 32
+batch: 4
 micro_batch: 1
 diagnostic_window: 100
 reference_steps: 500

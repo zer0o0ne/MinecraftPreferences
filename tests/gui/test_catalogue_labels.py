@@ -1,5 +1,5 @@
-"""Label entries of configs/gui-screens.yaml (the approved catalogue) against
-specs/gui-screens.md (5) and the Interface's data change of 2026-10-14."""
+"""Label entries of the exact test-owned catalogue snapshot against specs/gui-screens.md
+(5) and the Interface's data change of 2026-10-14."""
 
 import re
 from collections import Counter
@@ -33,10 +33,11 @@ def test_label_colours_follow_data_change(classes):
     assert colours == {0x404040: 98, 0xFFFFFF: 13, 0xE0E0E0: 2}
 
 
-def test_colours_are_yaml_hex_literals(repo, classes):
+def test_colours_are_yaml_hex_literals(classes):
     """Interface: `color` is 0xRRGGBB written as a YAML hex literal, on every label."""
-    text = (repo / "configs/gui-screens.yaml").read_text()
-    values = re.findall(r"^[ -]*color:[ ]*(.*?)[ ]*$", text, flags=re.MULTILINE)
+    from gui.catalogue_snapshot import TEXT
+
+    values = re.findall(r"^[ -]*color:[ ]*(.*?)[ ]*$", TEXT, flags=re.MULTILINE)
     assert all(re.fullmatch(r"0x[0-9A-Fa-f]{6}", v) for v in values), set(values)
     assert len(values) == len(labels(classes))
 

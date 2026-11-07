@@ -62,7 +62,7 @@ class FakeAskMany:
 @dataclass
 class Site(Expected):
     """tmp/repo — the repository root; tmp/cwd — the working directory; tmp/vlm-labels.yaml
-    — the config; repo/w/vlm.yaml — a copy of configs/vlm.yaml whose server refuses."""
+    — the config; repo/w/vlm.yaml — test-owned VLM config whose server refuses."""
 
     tmp: Path
     shards: list = field(default_factory=lambda: HAND)
@@ -82,11 +82,14 @@ class Site(Expected):
         return self.at("out_dir")
 
     def write(self, run: dict | None = None) -> None:
+        from vlm.config_files import STARTING
+
         write_config(self.path, self.config)
-        vlm = yaml.safe_load(
-            (Path(__file__).parents[2] / "configs/vlm.yaml").read_text()
-        )
-        vlm["client"].update(base_url="http://127.0.0.1:9", max_resends=0)
+        vlm = {
+            "client": STARTING["client"]
+            | {"base_url": "http://127.0.0.1:9", "max_resends": 0},
+            "server": STARTING["server"],
+        }
         self.at("vlm").parent.mkdir(parents=True, exist_ok=True)
         self.at("vlm").write_text(yaml.safe_dump(vlm))
         write_pool(self.at("pool_dir"), self.shards, run or pool_run(self.shards))

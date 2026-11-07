@@ -28,9 +28,11 @@ STARTING_PATHS.update(vlm="configs/vlm.yaml", out_dir="data/gui_labels")
 
 
 def test_load_config_starting_values(repo, tmp_path, monkeypatch):
-    """Starting values; paths relative to the repository root, whatever the working directory."""
+    """Test-owned starting values; paths relative to the repository root."""
     monkeypatch.chdir(tmp_path)
-    cfg = load_config(repo / "configs/gui-labels.yaml")
+    path = tmp_path / "gui-labels.yaml"
+    path.write_text(yaml.safe_dump(STARTING | STARTING_PATHS, sort_keys=False))
+    cfg = load_config(path)
     assert isinstance(cfg, GuiLabelsConfig)
     assert {f.name for f in dataclasses.fields(cfg)} == {*STARTING, *STARTING_PATHS}
     assert {k: getattr(cfg, k) for k in STARTING} == STARTING
@@ -42,12 +44,12 @@ def test_load_config_starting_values(repo, tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def labels_config(repo, tmp_path):
-    """Writes the starting config with `texts` replaced; returns it loaded."""
+def labels_config(tmp_path):
+    """Writes the test-owned starting config with `texts` replaced and loads it."""
 
     def write(**texts: str) -> GuiLabelsConfig:
-        cfg = yaml.safe_load((repo / "configs/gui-labels.yaml").read_text())
-        (tmp_path / "gui-labels.yaml").write_text(yaml.safe_dump({**cfg, **texts}))
+        cfg = STARTING | STARTING_PATHS | texts
+        (tmp_path / "gui-labels.yaml").write_text(yaml.safe_dump(cfg))
         return load_config(tmp_path / "gui-labels.yaml")
 
     return write
@@ -73,14 +75,17 @@ def test_prompt_order_placeholders_image(catalogue, write_config, labels_config)
     assert np.array_equal(parts[1], image)
 
 
-def test_prompt_starting_config_and_catalogue(repo, classes):
-    """(1) with the approved config and catalogue; the oracle reads descriptions as plain YAML."""
-    cfg = load_config(repo / "configs/gui-labels.yaml")
-    screens = load_screens(repo / "configs/gui-screens.yaml")
+def test_prompt_starting_config_and_catalogue(tmp_path, classes):
+    """(1) with the test-owned starting config and exact catalogue snapshot."""
+    from gui.catalogue_snapshot import screens
+
+    path = tmp_path / "gui-labels.yaml"
+    path.write_text(yaml.safe_dump(STARTING | STARTING_PATHS, sort_keys=False))
+    cfg = load_config(path)
     lines = [f"{name}: {c['description']}" for name, c in classes.items()]
     text = "\n".join([QUESTION, *lines, "other: any other screen, or no screen"])
     image = np.zeros((360, 640, 3), dtype=np.uint8)
-    parts = prompt(cfg, list(screens.values()), image)
+    parts = prompt(cfg, list(screens().values()), image)
     assert parts[0] == STARTING["instruction"] and parts[2] == text
 
 

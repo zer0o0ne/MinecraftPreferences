@@ -22,7 +22,9 @@ from .acyclic_world import DYADIC, HAND, POOL, name, votes_run, write_votes
 
 PREFIX = "mcpref.preferences.acyclic: "
 CONFIG = {  # AcyclicConfig in field order
-    "votes_dir": "w/votes", "out_dir": "w/labels", "weights": DYADIC, "refusal_share": 0.5,
+    "votes_dir": "w/votes", "out_dir": "w/labels",
+    "diagnostics": "w/configs/diagnostics.yaml",
+    "weights": DYADIC, "refusal_share": 0.5,
 }  # fmt: skip
 
 

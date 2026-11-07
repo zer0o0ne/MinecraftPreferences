@@ -63,14 +63,16 @@ def test_serve_command_is_step_4(fields, repo, docker):
     assert docker.calls == []  # pure
 
 
-def test_serve_command_with_starting_values(repo, docker):
-    cfg, srv = load_config(repo / "configs/vlm.yaml")
+def test_serve_command_with_starting_values(
+    starting_fields, write_config, repo, docker
+):
+    cfg, srv = load_config(write_config(starting_fields))
     argv = serve_command(cfg, srv)
     assert argv == expected_serve(
         dataclasses.asdict(cfg), dataclasses.asdict(srv), repo
     )
     after = dict(pairwise(argv))
-    assert after["--max-model-len"] == "8492"  # 300 + 8192
+    assert after["--max-model-len"] == "5420"  # 300 + 5120
     assert after["--limit-mm-per-prompt"] == '{"image": 32, "video": 0}'
     pixels = '{"min_pixels": 65536, "max_pixels": 230400}'
     assert after["--mm-processor-kwargs"] == pixels

@@ -8,7 +8,6 @@ import pytest
 from drawn_world import H, W, hand_font, label, pixels
 from PIL import Image
 
-from mcpref.gui.screens import load_screens
 from mcpref.gui.textures import load_textures_config
 from mcpref.recognition.drawn_masks import text_pixels
 
@@ -66,19 +65,21 @@ def test_hand_font_widths():
 
 @pytest.fixture(scope="module")
 def real_font(repo) -> np.ndarray:
-    """Phi of the real font/ascii.png under the catalogue's textures directory."""
-    path = load_textures_config(repo / "configs/gui-screens.yaml").out_dir
-    path = path / "font/ascii.png"
+    """Phi of the real font/ascii.png under the exact snapshot's textures directory."""
+    from gui.catalogue_snapshot import PATH
+
+    path = load_textures_config(PATH).out_dir / "font/ascii.png"
     if not path.exists():
         pytest.skip(f"{path} is absent: scripts/download_data.sh fetches it")
     return np.asarray(Image.open(path).convert("RGBA"))[..., 3]
 
 
 @pytest.fixture(scope="module")
-def catalogue_labels(repo) -> list:
-    screens = load_screens(repo / "configs/gui-screens.yaml")
+def catalogue_labels() -> list:
+    from gui.catalogue_snapshot import screens
+
     return [
-        lab for c in screens.values() for m in c.members.values() for lab in m.labels
+        lab for c in screens().values() for m in c.members.values() for lab in m.labels
     ]
 
 

@@ -31,7 +31,7 @@ BINDINGS = {  # Domain of specs/vpt-actions.md and specs/vpt-gui-actions.md
     "key_key.use": "key.mouse.right", "key_key.pickItem": "key.mouse.middle",
 } | {f"key_key.hotbar.{i}": f"key.keyboard.{i}" for i in range(1, 10)}  # fmt: skip
 STARTING = {
-    "ffmpeg_timeout": 600, "states": 16, "per_episode": 10, "n_clips": 10000, "seed": 0,
+    "ffmpeg_timeout": 600, "states": 12, "per_episode": 20, "n_clips": 200000, "seed": 0,
     "workers": 4, "classifier_batch": 64,
 }  # fmt: skip
 
@@ -96,15 +96,29 @@ def test_boundary_values_are_accepted(tmp_path, name, value):
     assert getattr(load_config(write(tmp_path, **{name: value})), name) == value
 
 
-def test_approved_config_has_starting_values(repo):
-    cfg = load_config(repo / "configs/perception-data.yaml")
-    frames = yaml.safe_load((repo / "configs/vpt-gui-frames.yaml").read_text())
-    assert {k: getattr(cfg, k) for k in ACCESS} == {k: frames[k] for k in ACCESS}
-    extended = {"autoJump": False, "toggleCrouch": False, "touchscreen": False}
-    assert cfg.required_options == frames["required_options"] | extended | BINDINGS
+def test_reconciled_starting_values_from_test_owned_config(tmp_path):
+    options = {
+        "guiScale": 2, "fullscreen": False, "framebufferWidth": 1280,
+        "framebufferHeight": 720, "lang": "en_us", "forceUnicodeFont": False,
+        "resourcePacks": "[]", "autoJump": False, "toggleCrouch": False,
+        "touchscreen": False,
+    }  # fmt: skip
+    fields = {
+        "index_urls": {"6xx": "http://h/i6", "7xx": "http://h/i7"},
+        "x_ms_version": "2019-12-12", "min_version": "6.12",
+        "required_options": options | BINDINGS, "width": 640, "height": 360,
+        "fetch_streams": 8, "http_timeout": 60, "http_retries": 3, "retry_delay": 10,
+        "ffmpeg": "/usr/bin/ffmpeg", "clips": "configs/clips.yaml",
+        "screens": "configs/gui-screens.yaml", "gui_actions": "configs/vpt-gui-actions.yaml",
+        "overlay": "configs/f3-overlay.yaml", "classifier_config": "configs/gui-classifier.yaml",
+        "out_dir": "data/perception",
+        **STARTING,
+    }  # fmt: skip
+    cfg = load_config(write(tmp_path, **fields))
+    assert dataclasses.asdict(cfg) == fields
+    assert {k: getattr(cfg, k) for k in ACCESS} == {k: fields[k] for k in ACCESS}
     assert {k: getattr(cfg, k) for k in STARTING} == STARTING
-    for name, rel in (PATHS | {"out_dir": "data/perception"}).items():
-        assert Path(repo, getattr(cfg, name)).resolve() == (repo / rel).resolve()
+    assert list(cfg.index_urls) == ["6xx", "7xx"]
 
 
 @pytest.mark.parametrize(

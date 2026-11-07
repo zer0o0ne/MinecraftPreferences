@@ -34,16 +34,16 @@ def preference(a=10, b=11):
             "labels": {"p": 0.75, "inc": 0}}  # fmt: skip
 
 
-def call(items, mods, micro_batch=2, m=4, n_a=2, n_delta=2, r_c=1):
+def call(items, mods, micro_batch=2, m=4, n_a=2, n_delta=2, r_c=1, horizon=2):
     w_ppo, w_delta, w_metra, w_pref = WEIGHTS
     return step_gradients(
         items,
         mods,
-        sampling=SimpleNamespace(steps=2, out_dir="data/sampling"),
+        sampling=SimpleNamespace(steps=max(2, horizon), out_dir="data/sampling"),
         perception=SimpleNamespace(alpha=tuple(ALPHA.tolist())),
         states=3,
         alpha=ALPHA,
-        ppo=ppo_config(),
+        ppo=ppo_config(horizon=horizon),
         discount=0.8,
         min_p=0.1,
         m=m,

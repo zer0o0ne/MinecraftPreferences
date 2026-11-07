@@ -1,7 +1,6 @@
 """Temporary repositories and tiny configurations for specs/rl-cycle.md."""
 
 import json
-import shutil
 from pathlib import Path
 
 import yaml
@@ -49,31 +48,10 @@ BASE = {
 
 
 def repository(root: Path, repo: Path, steps=2, horizon=2, pairs=2) -> None:
-    """Copy approved configs, changing only the tiny scenario's explicit values."""
-    shutil.copytree(repo / "configs", root / "configs")
-    edits = {
-        "env-sampling.yaml": {"steps": steps, "out_dir": "data/sampling"},
-        "ppo.yaml": {"horizon": horizon},
-        "rl-preference-pairs.yaml": {
-            "out_dir": "data/rl_preference_pairs",
-            "history_dir": "data/rl_preference_history",
-            "sample_states": pairs,
-            "temporal_per_state": 1,
-            "nearest_per_state": 1,
-            "branch": 1,
-            "beam_width": 1,
-            "beam_depth": 1,
-            "items_per_shard": 2,
-            "history_per_shard": 2,
-        },
-        "perception-data.yaml": {"states": 3},
-        "perception.yaml": {"alpha": [1.5, 0.5]},
-        "pretrain.yaml": {"device": "cpu"},
-    }
-    for name, changes in edits.items():
-        path = root / "configs" / name
-        value = yaml.safe_load(path.read_text()) | changes
-        path.write_text(yaml.safe_dump(value, sort_keys=False))
+    """Write the complete tiny repository from test-owned config mappings."""
+    from runtime_configs import write_repository
+
+    write_repository(root, steps=steps, horizon=horizon, pairs=pairs)
 
 
 def config_path(path: Path, **changes) -> Path:

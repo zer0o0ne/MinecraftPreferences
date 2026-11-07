@@ -17,7 +17,7 @@ from mask_oracle import (
     world_allowed,
 )
 
-from mcpref.gui.mask import Masks, load_config, load_masks, state_mask
+from mcpref.gui.mask import Masks, state_mask
 
 A = names(90)
 STATES = [(-LIMIT, 0), (0.0, 4), (LIMIT, 8)]  # (theta, h): the domain's ends and inside
@@ -137,8 +137,8 @@ def test_outside_the_domain_raises(masks, cls):
     assert str(info.value) == f"no mask for the screen {cls}"
 
 
-def test_state_mask_returns_a_new_array(repo):
-    own = load_masks(load_config(repo / "configs/action-mask.yaml"))
+def test_state_mask_returns_a_new_array(masks):
+    own = masks
     world, screens = own.world.copy(), {k: v.copy() for k, v in own.screens.items()}
     for gui, cls in [(False, None), (True, "chest6"), (True, "death")]:
         first = state_mask(own, gui, cls, LIMIT, 8)

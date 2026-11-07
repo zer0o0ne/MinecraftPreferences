@@ -29,10 +29,9 @@ def error(tmp_path, **changes) -> str:
     return str(e.value)
 
 
-def test_starting_values(repo):
-    """configs/engine.yaml holds the starting values; `minestudio_dir` absolute under the
-    repository root; `render_size` a tuple; `min_rate` a float; frozen."""
-    cfg = load_config(repo / "configs/engine.yaml")
+def test_starting_values_from_test_owned_config(repo, tmp_path):
+    """The starting mapping as input; paths and tuples parsed as the Interface says."""
+    cfg = load_config(write_config(tmp_path / "engine.yaml", STARTING))
     assert isinstance(cfg, EngineConfig)
     assert {f.name for f in dataclasses.fields(cfg)} == set(FIELDS)
     plain = [k for k in FIELDS if k not in ("minestudio_dir", "render_size")]

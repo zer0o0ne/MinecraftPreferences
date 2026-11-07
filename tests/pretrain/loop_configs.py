@@ -10,6 +10,7 @@ MODULE_CONFIGS = {"perception": "w/configs/perception.yaml",
                   "action_mask": "w/configs/action-mask.yaml",
                   "policy": "w/configs/policy.yaml",
                   "preference": "w/configs/preference.yaml"}  # fmt: skip
+DIAGNOSTICS = "w/configs/diagnostics.yaml"
 SCREENS = "w/configs/screens.yaml"  # the catalogue named by the action-mask config
 
 
@@ -22,6 +23,31 @@ def write_module_configs(repo: Path) -> None:
     text = f'screens: "{SCREENS}"\npitch_limit: 90\n'
     (repo / MODULE_CONFIGS["action_mask"]).write_text(text)
     (repo / SCREENS).write_text("# screens\n")
+
+
+def action_mask_catalogue() -> dict:
+    """A test-owned catalogue whose 90 slots give the 395 action names of the latency/loop tests."""
+    elements = [
+        {"index": i, "name": f"slot_{i}", "kind": "slot",
+         "hit": [0, 0, 18, 18], "click": [9.0, 9.0]}
+        for i in range(1, 91)
+    ]  # fmt: skip
+    elements[0] = elements[0] | {"hit": [239, 238, 18, 18], "click": [248.0, 247.0]}
+    member = {"blits": [], "dynamic": [], "labels": []}
+    screen = {"members": {"only": member}, "description": "Test screen.",
+              "window": [0, 0, 640, 360], "elements": elements}  # fmt: skip
+    respawn = {"index": 90, "name": "respawn", "kind": "button",
+               "hit": [0, 0, 18, 18], "click": [9.0, 9.0]}  # fmt: skip
+    death = screen | {"description": "Test death screen.", "elements": [respawn]}
+    textures = {"url": "http://127.0.0.1:9/client.jar", "sha1": "0" * 40,
+                "out_dir": "data/textures", "http_timeout": 2.0, "http_retries": 2,
+                "retry_delay": 0.05}  # fmt: skip
+    return {"classes": {"inventory": screen, "death": death}, "textures": textures}
+
+
+def write_action_mask_catalogue(repo: Path) -> None:
+    doc = action_mask_catalogue()
+    (repo / SCREENS).write_text(yaml.safe_dump(doc, sort_keys=False))
 
 
 GROUPS = {  # in another order than the groups' (phi_A, phi_c, dual, pi, idle, pref)

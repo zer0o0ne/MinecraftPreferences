@@ -10,16 +10,15 @@ from mcpref.preferences.labels import VlmLabelsConfig, load_config
 
 from .config_files import FIELDS, STARTING, TINY, load, write_config
 
-PATHS = ("pool_dir", "vlm", "out_dir")
-TEXTS = FIELDS[3:12]
+PATHS = ("pool_dir", "vlm", "out_dir", "diagnostics", "acyclic")
+TEXTS = FIELDS[5:14]
 COUNTS = ("frames", "stride", "samples")
 
 
-def test_starting_values(repo, tmp_path, monkeypatch):
-    """configs/vlm-labels.yaml holds the starting values of Interface; fields in the order
-    of Notation; paths kept as written; answers a list of dicts; frozen."""
+def test_starting_values_from_test_owned_config(tmp_path, monkeypatch):
+    """The starting values of Interface in this test's YAML; fields in Notation's order."""
     monkeypatch.chdir(tmp_path)
-    cfg = load_config(repo / "configs/vlm-labels.yaml")
+    cfg = load(tmp_path, STARTING)
     assert isinstance(cfg, VlmLabelsConfig)
     assert tuple(f.name for f in dataclasses.fields(cfg)) == FIELDS
     assert dataclasses.asdict(cfg) == STARTING

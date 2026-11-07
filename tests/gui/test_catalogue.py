@@ -1,4 +1,4 @@
-"""configs/gui-screens.yaml (the approved catalogue) against specs/gui-screens.md."""
+"""The exact test-owned catalogue snapshot against specs/gui-screens.md."""
 
 import itertools
 

@@ -3,6 +3,8 @@
 pool_dir: "data/pair_clips"
 vlm: "configs/vlm.yaml"
 out_dir: "data/pair_votes"
+diagnostics: "configs/diagnostics.yaml"
+acyclic: "configs/acyclic.yaml"
 instruction: "You will see two moments, A and B, from the same game of Minecraft Java
   Edition 1.16 in survival mode, played by one player in one world. Each moment is shown
   as a few screenshots taken shortly one after another, oldest first; the last screenshot

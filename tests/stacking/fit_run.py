@@ -10,7 +10,7 @@ import pytest
 import torch
 from progress_bars import tqdm_defaults
 
-from mcpref.stacking.config import load_config
+from mcpref.stacking.config import GuiStackConfig
 from mcpref.stacking.fit import fit
 
 from . import fit_oracle as fo
@@ -22,9 +22,16 @@ FIT = {"hidden": 4, "l2": 0.02, "lr": 0.05, "betas": (0.8, 0.95), "adam_eps": 1e
        "epochs": 2, "batch": 2, "checkpoint_steps": 1, "seed": 9}  # fmt: skip
 
 
-def config(repo: Path, **fields):
-    """The starting config with `fields` replaced."""
-    return dataclasses.replace(load_config(repo / "configs/gui-stack.yaml"), **fields)
+BASE = {
+    "masks_dir": "data/gui_masks", "hidden": 64, "l2": 1e-4, "lr": 0.01,
+    "betas": (0.9, 0.999), "adam_eps": 1e-8, "epochs": 50, "batch": 32,
+    "checkpoint_steps": 500, "seed": 0, "device": "cpu", "out_dir": "data/gui_stack",
+}  # fmt: skip
+
+
+def config(_repo: Path, **fields):
+    """The explicit starting config with `fields` replaced; no repository read."""
+    return dataclasses.replace(GuiStackConfig(**BASE), **fields)
 
 
 def fit_in(repo: Path, out: Path, read, cfg: dict) -> tuple:

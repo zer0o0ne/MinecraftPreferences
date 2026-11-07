@@ -1,13 +1,12 @@
 """Runs of `main` of specs/policy.md (13) on the worlds of loop_world.py: a `Loop` whose module
-configs are valid (perception with $D$ = 2 and its cursor sprite, the approved action-mask
-catalogue linked under the temporary repository root, a policy with $L_\\pi = L$, a preference
-with $L_P \\le L$) and whose groups are the starting ones; fake builders of $\\phi$ (no
-download) and, where a test says so, of $\\phi$'s loss and of the loop."""
+configs are valid and test-owned (perception with $D$ = 2 and its cursor sprite, an action-mask
+catalogue under the temporary repository root, a policy with $L_\\pi = L$, a preference with
+$L_P \\le L$) and whose groups have the starting values; fake builders of $\\phi$ (no download)
+and, where a test says so, of $\\phi$'s loss and of the loop."""
 
 import contextlib
 import dataclasses
 import io
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,7 +25,7 @@ import mcpref.pretrain.run
 from mcpref.pretrain.run import main
 
 from .index_run import repo_root
-from .loop_configs import MODULE_CONFIGS, SCREENS
+from .loop_configs import MODULE_CONFIGS
 from .loop_modules import L
 from .loop_run import Loop
 from .loop_starting import PhiLossStart, PhiStart
@@ -59,24 +58,26 @@ def dump(cfg) -> str:
 
 
 class Site(Loop):
-    """A Loop with the starting groups of configs/pretrain.yaml and valid module configs."""
+    """A Loop with test-owned starting groups and valid module configs."""
 
     def __init__(self, tmp: Path, repo: Path, world: World = WORLD, policy=POLICY,
                  preference=PREFERENCE, **changes):  # fmt: skip
-        groups = yaml.safe_load((repo / "configs/pretrain.yaml").read_text())["groups"]
-        super().__init__(tmp, world=world, **({"groups": groups} | changes))
-        self.approved, self.policy, self.preference = repo, policy, preference
+        from .loop_starting import starting_groups
+
+        super().__init__(tmp, world=world, **({"groups": starting_groups()} | changes))
+        self.policy, self.preference = policy, preference
         self.built: list = []  # the configs given to the fake build_phi
 
     def write(self) -> "Site":
+        from .loop_configs import write_action_mask_catalogue
+
         super().write()
         at = {k: self.repo / v for k, v in MODULE_CONFIGS.items()}
         perception = write_perception(self.tmp / "perception", alpha=[1.0, 2.0])
         at["perception"].write_bytes(perception.read_bytes())
         at["policy"].write_text(dump(self.policy))
         at["preference"].write_text(dump(self.preference))
-        (self.repo / SCREENS).unlink()
-        os.symlink(self.approved / "configs/gui-screens.yaml", self.repo / SCREENS)
+        write_action_mask_catalogue(self.repo)
         return self
 
     def fakes(self, mp: pytest.MonkeyPatch, phi_loss: bool = False, loop=None) -> None:

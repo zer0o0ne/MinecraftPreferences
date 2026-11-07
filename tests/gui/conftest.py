@@ -75,10 +75,11 @@ def catalogue() -> dict:
 
 
 @pytest.fixture(scope="session")
-def classes(repo) -> dict:
-    """`classes` of the approved configs/gui-screens.yaml as plain YAML; read-only."""
-    text = (repo / "configs/gui-screens.yaml").read_text()
-    return yaml.load(text, Loader=yaml.CSafeLoader)["classes"]
+def classes() -> dict:
+    """The exact test-owned catalogue's classes as plain YAML; read-only."""
+    from gui.catalogue_snapshot import classes as snapshot_classes
+
+    return snapshot_classes()
 
 
 @pytest.fixture
@@ -180,8 +181,13 @@ def lab(tmp_path, repo, catalogue, write_config, fake_ask_many, monkeypatch, cap
     book = {**copy.deepcopy(alpha), "description": "Alpha with the book."}
     catalogue["classes"] = {"inventory": alpha, "inventory_book": book, "chest3": beta}
     write_config(catalogue)
-    vlm = yaml.safe_load((repo / "configs/vlm.yaml").read_text())
-    vlm["client"].update(base_url="http://127.0.0.1:9", max_resends=0)
+    from vlm.config_files import STARTING
+
+    vlm = {
+        "client": STARTING["client"]
+        | {"base_url": "http://127.0.0.1:9", "max_resends": 0},
+        "server": STARTING["server"],
+    }
     (tmp_path / "vlm.yaml").write_text(yaml.safe_dump(vlm))
     statuses = [f[:2] for f in FRAMES]
     ids = write_frames(tmp_path / "frames", statuses, SHARDS, 2, True)
@@ -196,10 +202,10 @@ def lab(tmp_path, repo, catalogue, write_config, fake_ask_many, monkeypatch, cap
     return Lab(tmp_path, cfg, ids, fake, capsys)
 
 
-# specs/action-mask.md: the approved catalogue, read-only (the masks: tests/conftest.py).
+# specs/action-mask.md: the exact test-owned catalogue, read-only.
 @pytest.fixture(scope="session")
-def approved_screens(repo) -> dict:
-    """`load_screens` of the approved configs/gui-screens.yaml."""
-    from mcpref.gui.screens import load_screens
+def approved_screens() -> dict:
+    """`load_screens` of the exact test-owned catalogue."""
+    from gui.catalogue_snapshot import screens
 
-    return load_screens(repo / "configs/gui-screens.yaml")
+    return screens()

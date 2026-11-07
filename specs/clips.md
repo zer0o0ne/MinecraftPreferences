@@ -1,5 +1,5 @@
 # Clips
-Status: approved (2026-10-15; clarified after the prototype the same day: library mapping of the draw, `opens_container`, `gui_flag` in the Interface)
+Status: approved (2026-10-15; clarified after the prototype the same day: library mapping of the draw, `opens_container`, `gui_flag` in the Interface); 2026-11-06: starting-value reconciliation, approved
 Stage: data of P1, P2 (blocks perception-data, preference-pool; `specs/00-overview.md`, block 22)
 
 ## Sources
@@ -35,7 +35,7 @@ Stage: data of P1, P2 (blocks perception-data, preference-pool; `specs/00-overvi
 - Callers: block perception-data ($L$, $m$ from its config), block preference-pool.
 - No progress bar here: the caller's bar counts clips (one episode's work is in memory; the run time of `valid_starts` on a 6000-line episode is measured at the prototype and reported).
 - `specs/00-overview.md`: block 22 clips; block 25 perception-data; package map `clips` → P1, P2 data → this spec and `specs/perception-data.md`.
-- Starting config values: `delta` = 20 (one second), `actions` = `configs/vpt-actions.yaml`.
+- Starting config values: `delta` = 6 (300 ms), `actions` = `configs/vpt-actions.yaml`.
 - Tests: hand-made lines, segments, cuts, foreign lines and modes: $\kappa$ around cut spans; a world hold across a cut span (one segment); interval $p$ with $\Delta$ kept lines across a cut span; validity by $n = 0$, by a foreign line, by a riding line inside a cut span, by a mode on a state (first, middle, last); a clip that does not fit; (3) against a naive reference over all $p$; (4) with a fixed seed: draw order on an ascending $W$, overlap removal (spans touching at one line overlap), rejection by `accept`, stop at $m$ and at an empty $W$; (5); the config loader.
 
 ## Library mapping

@@ -59,7 +59,9 @@ def test_load_textures_config_reads_textures_keys(
 
 def test_approved_config_names_the_1_16_5_client_jar(repo):
     """[J]: official 1.16.5 client jar."""
-    cfg = load_textures_config(repo / "configs/gui-screens.yaml")
+    from gui.catalogue_snapshot import PATH
+
+    cfg = load_textures_config(PATH)
     assert cfg.sha1 == "37fd3c903861eeff3bc24b71eed48f828b5269c8"
 
 

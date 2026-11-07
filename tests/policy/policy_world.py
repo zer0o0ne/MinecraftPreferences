@@ -7,6 +7,25 @@ import numpy as np
 
 from mcpref.pretrain.clip import Clip
 
+
+def action_masks(root):
+    """Masks loaded entirely from test-owned action-mask and GUI catalogue configs."""
+    from pretrain.index_run import repo_root
+    from pretrain.loop_configs import (
+        MODULE_CONFIGS,
+        write_action_mask_catalogue,
+        write_module_configs,
+    )
+
+    from mcpref.gui.mask import load_config, load_masks
+
+    root.mkdir(parents=True)
+    write_module_configs(root)
+    write_action_mask_catalogue(root)
+    with repo_root(root):
+        return load_masks(load_config(root / MODULE_CONFIGS["action_mask"]))
+
+
 FIRST, STEP = 100, 4  # the line of state 0, the lines from one state to the next
 # tiny A for the network tests (|A| = 7)
 NAMES = ("forward", "jump", "attack", "use", "turn_up", "hotbar_3", "left_click_1")

@@ -20,6 +20,15 @@ class EnvState:
     mask: np.ndarray
 
 
+@dataclass(frozen=True)
+class EnvContinuation:
+    """(11): raw completion baselines, tracked cursor and unfinished long action."""
+
+    info: Mapping
+    cursor: tuple[float, float]
+    held_action: int | None
+
+
 def inventory(info: Mapping) -> list[dict]:
     """(3): non-air slot entries in slot-index order, without the minecraft prefix."""
     from minestudio.simulator.minerl.herobraine.hero.mc import strip_item_prefix

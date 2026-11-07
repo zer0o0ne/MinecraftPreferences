@@ -98,9 +98,18 @@ def test_invalid_config(tmp_path, changes):
         load(tmp_path, **changes)
 
 
-def test_starting_values(repo):
-    """configs/train-index.yaml: the starting values of the Interface."""
-    cfg = load_config(repo / "configs/train-index.yaml")
+def test_starting_values_from_test_owned_config(tmp_path):
+    """The starting values of the Interface, written by this test."""
+    cfg = load(
+        tmp_path,
+        clips_dir="data/perception",
+        pair_clips_dir="data/pair_clips",
+        pair_labels_dir="data/pair_labels",
+        out_dir="data/train_index",
+        validation='"0.05"',
+        seed="0",
+        items_per_shard="256",
+    )
     assert cfg == TrainIndexConfig(
         clips_dir="data/perception",
         pair_clips_dir="data/pair_clips",

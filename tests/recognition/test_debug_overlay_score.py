@@ -5,7 +5,7 @@ overlay_oracle.score; masks P, Q of the hand-made font by overlay_oracle.masks."
 import numpy as np
 import overlay_oracle as oo
 import pytest
-import yaml
+from config_files import OVERLAY_STARTING, write
 from drawn_world import hand_font
 
 from mcpref.recognition.debug_overlay import load_config, overlay_score, overlay_shown
@@ -22,13 +22,12 @@ INT = {  # templates with integer bounds
 
 
 @pytest.fixture
-def cfg(repo, tmp_path):
-    """Loads the starting config with `changes`."""
+def cfg(tmp_path):
+    """Loads the test-owned starting config with `changes`."""
 
     def load(**changes):
-        data = yaml.safe_load((repo / "configs/f3-overlay.yaml").read_text())
-        (tmp_path / "f3.yaml").write_text(yaml.safe_dump({**data, **changes}))
-        return load_config(tmp_path / "f3.yaml")
+        path = write(tmp_path / "f3.yaml", OVERLAY_STARTING, **changes)
+        return load_config(path)
 
     return load
 

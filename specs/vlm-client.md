@@ -1,5 +1,5 @@
 # VLM client
-Status: approved (2026-10-10; clarifications after prototype and refactor the same day: transport errors, captured outputs, error messages, library arguments, starting values; 2026-10-14: pixel bounds set by the server only, approved); 2026-10-20: a reference updated (`specs/preference-pool.md` Revisions), approved
+Status: approved (2026-10-10; clarifications after prototype and refactor the same day: transport errors, captured outputs, error messages, library arguments, starting values; 2026-10-14: pixel bounds set by the server only, approved); 2026-10-20: a reference updated (`specs/preference-pool.md` Revisions), approved; 2026-11-06: starting-value reconciliation, approved
 Stage: P2 VLM labels (`specs/00-overview.md`, block 0)
 
 ## Sources
@@ -26,7 +26,7 @@ Open questions: `specs/00-questions.md`, section VLMC.
 (5) At most $K$ requests in flight. An attempt longer than $T_{out}$ from its start (waiting for a slot excluded) is cancelled → `None`, not resent (Q VLMC-6).
 (6) Transport error (any `httpx.TransportError`) or HTTP 5xx → resend after $\delta$, keeping its slot, at most $R$ times. Then, or at once on HTTP 4xx: cancel all requests in flight and raise `RuntimeError` with the HTTP status and body, or with the transport error.
 
-Starting values of the other client fields: `base_url` = `http://localhost:8100`, `model` = `qwen3vl-instruct-fp8`, `max_in_flight` = 16, `attempt_timeout` = 300, `max_resends` = 3, `resend_delay` = 10.
+Starting values of the other client fields: `base_url` = `http://localhost:8100`, `model` = `qwen3vl-instruct-fp8`, `max_in_flight` = 48, `attempt_timeout` = 300, `max_resends` = 3, `resend_delay` = 10.
 
 Table 1 — sampling and preprocessing fields; all are config fields with the same names.
 | Field | Starting value | Source / note |
@@ -84,7 +84,7 @@ docker run -d --name {server.container} --gpus all --ipc=host --ulimit memlock=-
   --generation-config vllm --seed {server.seed}
 ```
    The two JSON arguments are single argv items built with `json.dumps`. Switches, not tunables: `memlock=-1` (unlimited), `"video": 0` (no video input), `VLLM_USE_DEEP_GEMM=0` (off), `HF_HUB_OFFLINE=1` (no downloads in the container).
-   Starting values: `image` = `vllm/vllm-openai:v0.31.0-aarch64@sha256:3f7dd5b777d34d1724456ce71f87385dca288c3bb23029ab27dee358f5d2b971`, `model_repo` = `Qwen/Qwen3-VL-30B-A3B-Instruct-FP8`, `revision` = `d9748a51ae66354c4dad665aab2c71f26cf2c8cd`, `hf_cli` = `1.33.0`, `hf_home` = `data/hf`, `container` = `qwen3vl`, `port` = 8100 (8000 is taken on the user's Spark), `gpu_memory_utilization` = 0.5 ([U] 2026-10-10: half the memory stays for other work on the Spark), `max_images` = 32, `max_prompt_tokens` = 8192, `seed` = 0, `stack_ulimit` = 67108864, `ready_timeout` = 1800, `poll_interval` = 5, `poll_request_timeout` = 5, `log_tail` = 200, `transformers_version` = `5.17.0`, `model` = `qwen3vl-instruct-fp8`, `max_in_flight` = 16.
+   Starting values: `image` = `vllm/vllm-openai:v0.31.0-aarch64@sha256:3f7dd5b777d34d1724456ce71f87385dca288c3bb23029ab27dee358f5d2b971`, `model_repo` = `Qwen/Qwen3-VL-30B-A3B-Instruct-FP8`, `revision` = `d9748a51ae66354c4dad665aab2c71f26cf2c8cd`, `hf_cli` = `1.33.0`, `hf_home` = `data/hf`, `container` = `qwen3vl`, `port` = 8100 (8000 is taken on the user's Spark), `gpu_memory_utilization` = 0.5 ([U] 2026-10-10: half the memory stays for other work on the Spark), `max_images` = 32, `max_prompt_tokens` = 5120, `seed` = 0, `stack_ulimit` = 67108864, `ready_timeout` = 1800, `poll_interval` = 5, `poll_request_timeout` = 5, `log_tail` = 200, `transformers_version` = `5.17.0`, `model` = `qwen3vl-instruct-fp8`, `max_in_flight` = 48.
    - `--moe-backend triton`, `VLLM_USE_DEEP_GEMM=0`: otherwise vLLM picks DeepGEMM on GB10, which rounds the checkpoint's FP32 block scales to powers of two (vllm#50332).
    - `--generation-config vllm`: otherwise `generation_config.json` silently fills every sampling field a request omits.
    - `--chat-template-content-format openai`: pins the layout of (1) instead of auto-detection.

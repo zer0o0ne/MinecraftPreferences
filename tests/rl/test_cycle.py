@@ -48,11 +48,11 @@ def test_exact_two_cycle_roles_order_publish_and_stream_rebuild(
     monkeypatch.setattr(cycle_module, "publish_memory", published)
     real_train = cycle_module.train
 
-    def trained(cfg, modules, index_dir):
+    def trained(cfg, modules, index_dir, initial_optimizer):
         cycle = int(index_dir.parent.name)
         assert not (root / f"data/rl_preference_history/{cycle:06d}").exists()
         events.append(("train-start", cycle))
-        result = real_train(cfg, modules, index_dir)
+        result = real_train(cfg, modules, index_dir, initial_optimizer)
         events.append(("train-end", cycle))
         return result
 

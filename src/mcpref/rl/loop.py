@@ -39,13 +39,45 @@ def shard_sizes(index_dir: Path) -> list[int]:
     ]
 
 
-def started(cfg: RLCycleConfig, modules: dict, groups: dict, directory: Path):
+def load_initial_optimizer(optimizer: torch.optim.AdamW, path: Path) -> None:
+    """Load persistent Adam state after final-step and group compatibility checks."""
+    state = torch.load(path, map_location="cpu", weights_only=True)
+    previous_root = path.parent.parent.parent
+    run = json.loads((previous_root / "index" / "run.json").read_text())
+    if state["step"] != run["steps"]:
+        raise RuntimeError(f"previous checkpoint is not final: {path}")
+    saved_groups = state["optimizer"]["param_groups"]
+    current_groups = optimizer.state_dict()["param_groups"]
+    if len(saved_groups) != len(current_groups):
+        raise RuntimeError("initial optimizer group count does not match")
+    for q, (saved, current) in enumerate(zip(saved_groups, current_groups)):
+        for key in ("params", "betas", "eps", "weight_decay"):
+            if saved[key] != current[key]:
+                raise RuntimeError(f"initial optimizer group {q} has mismatched {key}")
+    rates = [group["lr"] for group in optimizer.param_groups]
+    optimizer.load_state_dict(state["optimizer"])
+    for group, rate in zip(optimizer.param_groups, rates):
+        group["lr"] = rate
+
+
+def started(
+    cfg: RLCycleConfig,
+    modules: dict,
+    groups: dict,
+    directory: Path,
+    initial_optimizer: Path | None,
+):
     """Create a cycle-local AdamW, then freshly seed or restore an exact position."""
     stateful = {name: modules[name] for name in STATEFUL}
     h = complete_shards(directory)
     if h == 0:
+        if initial_optimizer is None and int(directory.parent.name) > 0:
+            raise RuntimeError("cycle > 0 requires an initial optimizer checkpoint")
         torch.manual_seed(cfg.seed)
-        return adamw(cfg, groups), dict(START), 0
+        optimizer = adamw(cfg, groups)
+        if initial_optimizer is not None:
+            load_initial_optimizer(optimizer, initial_optimizer)
+        return optimizer, dict(START), 0
     state = restore(directory, h, stateful)
     optimizer = adamw(cfg, groups)
     optimizer.load_state_dict(state["optimizer"])
@@ -53,7 +85,10 @@ def started(cfg: RLCycleConfig, modules: dict, groups: dict, directory: Path):
 
 
 def train(
-    cfg: RLCycleConfig, modules: dict[str, torch.nn.Module], index_dir: Path
+    cfg: RLCycleConfig,
+    modules: dict[str, torch.nn.Module],
+    index_dir: Path,
+    initial_optimizer: Path | None,
 ) -> None:
     """Run (1)-(6), checkpointing periodically and always at the final step T."""
     for module in modules.values():
@@ -63,7 +98,7 @@ def train(
     run = json.loads((index_dir / "run.json").read_text())
     sizes, total = shard_sizes(index_dir), run["steps"]
     directory = index_dir.parent / "checkpoints"
-    optimizer, position, j = started(cfg, modules, groups, directory)
+    optimizer, position, j = started(cfg, modules, groups, directory, initial_optimizer)
     stateful = {name: modules[name] for name in STATEFUL}
     if position["step"] == total:
         print("rl cycle: already done", file=sys.stderr)

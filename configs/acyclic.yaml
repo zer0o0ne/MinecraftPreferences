@@ -3,6 +3,7 @@
 # (null: the refusal); refusal_share: tau.
 votes_dir: "data/pair_votes"
 out_dir: "data/pair_labels"
+diagnostics: "configs/diagnostics.yaml"
 weights:
   MUCH_BETTER: 1.0
   BETTER: 0.8

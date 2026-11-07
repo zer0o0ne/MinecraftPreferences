@@ -186,8 +186,10 @@ def test_element_at_half_open_borders(catalogue, write_config, x, y, index):
 
 
 @pytest.fixture(scope="module")
-def screens(repo) -> dict:
-    return load_screens(repo / "configs/gui-screens.yaml")
+def screens() -> dict:
+    from gui.catalogue_snapshot import screens as snapshot_screens
+
+    return snapshot_screens()
 
 
 def transcribe(name: str, c: dict) -> ScreenClass:

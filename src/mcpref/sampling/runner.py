@@ -88,6 +88,7 @@ class Sampler:
     def _restore(self, out: Path) -> None:
         """(2): restore a complete boundary, rebuilding raw history if models changed."""
         state = load_state(out, self.modules.phi, self.states, self.device)
+        self.env.restore(state.observation, state.env)
         self._observation, self.history, self.tree = (
             state.observation,
             state.history,

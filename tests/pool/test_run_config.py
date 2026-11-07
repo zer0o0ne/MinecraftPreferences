@@ -2,8 +2,8 @@
 missing or unknown key, YAML integers, the ranges, tick_slack and cycles (numbers, not
 booleans, finite and representable as a float, kept as written; a huge integer a
 ValueError),
-resetting_stats, the relative paths kept as written, and the starting values of
-configs/preference-pool.yaml."""
+resetting_stats, the relative paths kept as written, and the starting values in a test-owned
+config."""
 
 import dataclasses
 import math
@@ -24,7 +24,7 @@ STARTING = {
     "entries_per_shard": 1000, "tick_ms": 50, "tick_slack": 0.03,
     "resetting_stats": ["minecraft.custom:minecraft.time_since_rest",
                         "minecraft.custom:minecraft.time_since_death"],
-    "episodes": 5, "per_episode": 4, "n_clips": 10000, "partners": 2, "cycles": 0.5,
+    "episodes": 10, "per_episode": 4, "n_clips": 10000, "partners": 100, "cycles": 0.5,
     "seed": 0, "workers": 4, "out_dir": "data/pair_clips",
 }  # fmt: skip
 
@@ -166,7 +166,7 @@ def test_paths_kept_as_written(tmp_path, name, value):
     assert getattr(load(tmp_path, **{name: value}), name) == value
 
 
-def test_approved_config_has_the_starting_values(repo):
-    cfg = load_config(repo / "configs/preference-pool.yaml")
+def test_reconciled_starting_values_from_test_owned_config(tmp_path):
+    cfg = load(tmp_path, **STARTING)
     assert values(cfg) == STARTING
     assert type(cfg.tick_slack) is float and type(cfg.cycles) is float

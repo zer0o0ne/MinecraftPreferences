@@ -19,7 +19,7 @@ from mcpref.sampling.shards import (
     write_step,
 )
 
-from .helpers import FakePhi, FakeStream, state
+from .helpers import FakePhi, FakeStream, continuation, state
 
 
 def tree_mapping():
@@ -135,6 +135,7 @@ def sampler_state(phi: FakePhi) -> SamplerState:
     )
     return SamplerState(
         observation=state(2),
+        env=continuation(held_action=1),
         history=real,
         tree=tree,
         rng_state=np.random.default_rng(7).bit_generator.state,
@@ -146,7 +147,7 @@ def sampler_state(phi: FakePhi) -> SamplerState:
 
 def test_state_round_trip_restores_tree_links_stream_and_fields(tmp_path):
     assert [field.name for field in dataclasses.fields(SamplerState)] == [
-        "observation", "history", "tree", "rng_state", "next_step", "stream",
+        "observation", "env", "history", "tree", "rng_state", "next_step", "stream",
         "fingerprint",
     ]  # fmt: skip
     assert [field.name for field in dataclasses.fields(RawHistory)] == [
@@ -161,13 +162,26 @@ def test_state_round_trip_restores_tree_links_stream_and_fields(tmp_path):
     write_state(shard, sampler_state(phi))
     raw = torch.load(shard / "state.pt", map_location="cpu", weights_only=True)
     assert set(raw) == {
-        "observation", "history", "tree", "rng", "next_step", "stream", "fingerprint",
+        "observation", "env", "history", "tree", "rng", "next_step", "stream",
+        "fingerprint",
     }  # fmt: skip
     assert "parent" not in raw["tree"]["root"]
+    assert raw["env"] == {
+        "info": {
+            "isGuiOpen": True,
+            "custom": {"jump": 2},
+            "mine_block": {"stone": 3},
+            "use_item": {"torch": 4},
+        },
+        "cursor": (12.5, 34.25),
+        "held_action": 1,
+    }
     got = load_state(out, phi, 2, torch.device("cpu"))
     assert got.next_step == 2 and got.fingerprint == "fake-model"
     assert got.rng_state == sampler_state(phi).rng_state
     np.testing.assert_array_equal(got.observation.frame, state(2).frame)
+    assert got.env == continuation(held_action=1)
+    assert isinstance(got.env.cursor, tuple)
     torch.testing.assert_close(got.history.Y, sampler_state(phi).history.Y)
     child = got.tree.root.children[0]
     assert child.parent is got.tree.root and child.children[0].parent is child

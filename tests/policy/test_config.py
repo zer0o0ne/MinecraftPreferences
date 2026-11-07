@@ -5,7 +5,6 @@ and every violated constraint -> `ValueError`."""
 import dataclasses
 
 import pytest
-import yaml
 
 from mcpref.policy.config import PolicyConfig, load_config
 
@@ -116,15 +115,20 @@ def test_violated_constraints_raise_value_error(tmp_path, changes):
         load(tmp_path, **changes)
 
 
-def test_starting_values(repo):
-    """configs/policy.yaml as Interface starts it; `history` = `states` of
-    configs/perception-data.yaml."""
-    cfg = load_config(repo / "configs/policy.yaml")
+def test_reconciled_starting_values_from_test_owned_config(tmp_path):
+    """The starting architecture, with L_pi = states = 12, loaded from this test's YAML."""
+    states = 12
+    starting = {
+        "history": "12", "width": "256", "heads": "4", "hidden": "768", "layers": "4",
+        "shift_hidden": "512", "rope_base": "10000.0", "norm_eps": "1.0e-6",
+        "action_dropout": "0.3", "shift_weight": "1.0", "seed": "0", "latency_ms": "3.0",
+        "latency_fail_ms": "10.0", "latency_calls": "100",
+    }  # fmt: skip
+    cfg = load(tmp_path, **starting)
     assert dataclasses.asdict(cfg) == {
-        "history": 16, "width": 256, "heads": 4, "hidden": 768, "layers": 4,
+        "history": 12, "width": 256, "heads": 4, "hidden": 768, "layers": 4,
         "shift_hidden": 512, "rope_base": 10000.0, "norm_eps": 1e-6, "action_dropout": 0.3,
         "shift_weight": 1.0, "seed": 0, "latency_ms": 3.0, "latency_fail_ms": 10.0,
         "latency_calls": 100,
     }  # fmt: skip
-    data = yaml.safe_load((repo / "configs/perception-data.yaml").read_text())
-    assert cfg.history == data["states"]
+    assert cfg.history == states

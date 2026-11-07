@@ -4,25 +4,9 @@ import dataclasses
 
 import pytest
 import yaml
+from runtime_configs import RL_PAIRS_STARTING as BASE
 
 from mcpref.rl_pairs.config import RLPreferencePairsConfig, load_config
-
-BASE = {
-    "history_dir": "data/rl_preference_history",
-    "out_dir": "data/rl_preference_pairs",
-    "sample_states": 32,
-    "temporal_per_state": 4,
-    "nearest_per_state": 4,
-    "branch": 4,
-    "beam_width": 6,
-    "beam_depth": 3,
-    "capacity": 10000,
-    "items_per_shard": 256,
-    "history_per_shard": 256,
-    "base_threshold": 0.5,
-    "temporal_penalty": 1.0,
-    "threshold_scale": 0.95,
-}
 
 
 def text(**changes) -> str:
@@ -40,8 +24,8 @@ def with_raw(key, raw) -> str:
     return text(**{key: None}) + f"{key}: {raw}\n"
 
 
-def test_starting_values(repo):
-    cfg = load_config(repo / "configs/rl-preference-pairs.yaml")
+def test_starting_values_from_test_owned_config(tmp_path):
+    cfg = load(tmp_path, text())
     assert dataclasses.astuple(cfg) == tuple(BASE.values())
 
 

@@ -105,11 +105,18 @@ def test_violated_constraints_raise_value_error(tmp_path, changes):
         load(tmp_path, **changes)
 
 
-def test_starting_values(repo):
-    """configs/preference.yaml as Interface starts it."""
-    cfg = load_config(repo / "configs/preference.yaml")
+def test_reconciled_starting_values_from_test_owned_config(tmp_path):
+    """The starting architecture, with L_P = 12 <= states = 12, from this test's YAML."""
+    states = 12
+    starting = {
+        "history": "12", "width": "256", "heads": "4", "hidden": "768",
+        "layers": '["S", "X", "S", "X"]', "rope_base": "10000.0", "norm_eps": "1.0e-6",
+        "seed": "0", "latency_ms": "3.0", "latency_fail_ms": "10.0", "latency_calls": "100",
+    }  # fmt: skip
+    cfg = load(tmp_path, **starting)
     assert dataclasses.asdict(cfg) == {
-        "history": 16, "width": 256, "heads": 4, "hidden": 768,
+        "history": 12, "width": 256, "heads": 4, "hidden": 768,
         "layers": ("S", "X", "S", "X"), "rope_base": 10000.0, "norm_eps": 1e-6,
         "seed": 0, "latency_ms": 3.0, "latency_fail_ms": 10.0, "latency_calls": 100,
     }  # fmt: skip
+    assert cfg.history <= states

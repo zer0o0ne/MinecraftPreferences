@@ -42,9 +42,12 @@ def test_exit_0_with_the_loop(tmp_path, repo):
     assert list(model["pi"]) == list(Policy(POLICY, D, ("a",)).state_dict())
 
 
-def test_modules_given_to_the_loop(tmp_path, repo, masks):
+def test_modules_given_to_the_loop(tmp_path, repo):
     """pretrain(cfg, path, modules): the config at the path, the path as given, the six
-    modules (pi over the approved A, D = len(alpha) of the perception config)."""
+    modules (pi over the test-owned A, D = len(alpha) of the perception config)."""
+    from policy.policy_world import action_masks
+
+    masks = action_masks(tmp_path / "masks")
     site = Site(tmp_path, repo).write()
     calls = []
     o = site.main(loop=recorder(calls))
@@ -185,12 +188,12 @@ def test_python_m(tmp_path, repo):
     the import of the module (torch, transformers) alone takes about 4 s."""
     missing = "data/__no_such_pretrain_input__/perception.yaml"
     assert not (repo / missing).exists()
-    config = yaml.safe_load((repo / "configs/pretrain.yaml").read_text())
-    path = tmp_path / "c.yaml"
-    path.write_text(yaml.safe_dump(config | {"perception": missing}))
+    site = Site(tmp_path, repo).write()
+    config = yaml.safe_load(site.path.read_text())
+    site.path.write_text(yaml.safe_dump(config | {"perception": missing}))
     env = {k: v for k, v in os.environ.items() if not k.startswith("TQDM_")}
-    proc = subprocess.run([sys.executable, "-m", "mcpref.pretrain.run", str(path)],
-                          cwd=tmp_path, env=env, capture_output=True, text=True,
+    proc = subprocess.run([sys.executable, "-m", "mcpref.pretrain.run", str(site.path)],
+                          cwd=site.cwd, env=env, capture_output=True, text=True,
                           timeout=60, check=False)  # fmt: skip
     assert proc.returncode == 1 and proc.stdout == "", proc.stderr
     line = proc.stderr.splitlines()[-1]

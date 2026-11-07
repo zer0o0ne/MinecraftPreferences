@@ -120,7 +120,7 @@ def test_interrupted_training_restores_rng_schedule_and_modules_bitwise(
     install_steps(monkeypatch, [])
     interrupt_at(monkeypatch, at)
     with pytest.raises(Interrupted), repo_root(cut):
-        train(cfg, modules(), index)
+        train(cfg, modules(), index, None)
     capsys.readouterr()
     torch.manual_seed(9182)
     torch.rand(4)

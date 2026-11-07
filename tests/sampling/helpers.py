@@ -1,7 +1,6 @@
 """Temporary repository and deterministic fake env/networks for env-sampling tests."""
 
 import json
-import shutil
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +10,7 @@ from mcts.helpers import FakePolicy, FakePreference
 from torch import nn
 from transformers import DynamicCache, PretrainedConfig
 
-from mcpref.env.state import EnvState
+from mcpref.env.state import EnvContinuation, EnvState
 from mcpref.sampling.config import SamplingConfig, load_config
 from mcpref.sampling.models import SamplingModules
 
@@ -29,10 +28,25 @@ def state(index: int) -> EnvState:
     )
 
 
+def continuation(index: int = 2, held_action: int | None = None) -> EnvContinuation:
+    return EnvContinuation(
+        info={
+            "isGuiOpen": True,
+            "custom": {"jump": index},
+            "mine_block": {"stone": index + 1},
+            "use_item": {"torch": index + 2},
+        },
+        cursor=(12.5, 34.25),
+        held_action=held_action,
+    )
+
+
 class FakeEnv:
     def __init__(self, events=None):
         self.index = 0
         self.resets = 0
+        self.restores = 0
+        self.held_action = None
         self.events = [] if events is None else events
 
     def reset(self):
@@ -44,6 +58,14 @@ class FakeEnv:
         self.events.append(("step", action))
         self.index += 1
         return state(self.index)
+
+    def continuation(self):
+        return continuation(self.index, self.held_action)
+
+    def restore(self, observation: EnvState, saved: EnvContinuation):
+        self.restores += 1
+        self.index = observation.line["id"]
+        self.saved = saved
 
 
 class FakePhi(nn.Module):
@@ -77,7 +99,7 @@ class FakeStream:
         self.first = None
 
     def step(self, frame: np.ndarray, line: dict) -> torch.Tensor:
-        index = line["id"]
+        index = line["id"] if "id" in line else line["xpos"]
         if len(self.grids) == self.states:
             self.ids, self.grids = [], []
             self.cache = DynamicCache(config=self.phi.backbone.config)
@@ -93,17 +115,15 @@ class FakeStream:
 
 
 class Policy(nn.Module, FakePolicy):
-    def __init__(self, events=None):
+    def __init__(self, events=None, actions=ACTIONS, preferred=None):
         nn.Module.__init__(self)
-        FakePolicy.__init__(
-            self,
-            logits=[0.0] * ACTIONS,
-            shifts=torch.tensor(
-                [[0.01, 0.02], [0.1, 0.2], [0.2, -0.1]], dtype=torch.float64
-            ),
-        )
+        logits = [0.0] * actions
+        if preferred is not None:
+            logits[preferred] = 10.0
+        shifts = torch.arange(2 * actions, dtype=torch.float64).reshape(actions, 2)
+        FakePolicy.__init__(self, logits=logits, shifts=shifts / 1000.0)
         self.weight = nn.Parameter(torch.tensor(1.0, dtype=torch.float64))
-        self.names = [f"action_{index}" for index in range(ACTIONS)]
+        self.names = [f"action_{index}" for index in range(actions)]
         self.events = [] if events is None else events
 
     def readout(self, Y, C):
@@ -129,10 +149,12 @@ class Preference(FakePreference, nn.Module):
         return super().__call__(Ya, Yb)
 
 
-def modules(fingerprint="fake-model", events=None, offset=0.0) -> SamplingModules:
+def modules(
+    fingerprint="fake-model", events=None, offset=0.0, actions=ACTIONS, preferred=None
+) -> SamplingModules:
     return SamplingModules(
         phi=FakePhi(offset, events),
-        pi=Policy(events),
+        pi=Policy(events, actions, preferred),
         P=Preference(events),
         fingerprint=fingerprint,
     )
@@ -140,19 +162,22 @@ def modules(fingerprint="fake-model", events=None, offset=0.0) -> SamplingModule
 
 class Site:
     def __init__(self, tmp: Path, repo: Path, steps=2, states=2):
+        from runtime_configs import write_repository
+
         self.root = tmp / "repo"
-        shutil.copytree(repo / "configs", self.root / "configs")
-        self._edit("clips.yaml", delta=5)
-        self._edit("perception.yaml", alpha=[1.0, 2.0])
-        self._edit("perception-data.yaml", states=states)
-        self._edit("pretrain.yaml", device="cpu")
-        self._edit(
-            "mcts.yaml",
-            simulations=1,
-            min_n_sampling=1,
-            depth=1,
-            width=3,
-            latency_calls=1,
+        write_repository(
+            self.root,
+            steps=steps,
+            states=states,
+            alpha=[1.0, 2.0],
+            delta=5,
+            mcts={
+                "simulations": 1,
+                "min_n_sampling": 1,
+                "depth": 1,
+                "width": 3,
+                "latency_calls": 1,
+            },
         )
         self.mapping = {
             "pretrain": "configs/pretrain.yaml",
@@ -175,11 +200,6 @@ class Site:
         self.events = []
         self.env = FakeEnv(self.events)
         self.modules = modules(events=self.events)
-
-    def _edit(self, name: str, **changes) -> None:
-        path = self.root / "configs" / name
-        value = yaml.safe_load(path.read_text()) | changes
-        path.write_text(yaml.safe_dump(value, sort_keys=False))
 
     def config(self, **changes) -> SamplingConfig:
         values = dict(self.mapping) | changes

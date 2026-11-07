@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import torch
 
+from mcpref.diagnostics.preference import on_pretrain_step, on_reference
+from mcpref.diagnostics.types import ReferencePair
 from mcpref.preferences.diagnostics import (
     BASELINE_KEYS,
     GlobalFit,
@@ -34,12 +36,15 @@ __all__ = [
     "PhiObservations",
     "PolicyObservations",
     "PreferenceRows",
+    "ReferencePair",
     "StepObservations",
     "Stratum",
     "calibration",
     "head_suite",
     "inc_classification",
     "mean_nullable",
+    "on_pretrain_step",
+    "on_reference",
     "phi_suite",
     "policy_suite",
     "preference_baselines",

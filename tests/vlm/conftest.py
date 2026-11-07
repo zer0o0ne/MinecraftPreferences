@@ -12,6 +12,7 @@ from subprocess import PIPE, STDOUT, CalledProcessError, CompletedProcess
 
 import pytest
 import yaml
+from vlm.config_files import STARTING
 
 RUNNING, NAMES = "{{.State.Running}}", "{{.Names}}"
 TRANSFORMERS = "import transformers; print(transformers.__version__)"
@@ -35,6 +36,12 @@ def fields() -> dict:
               "ready_timeout": 4, "poll_interval": 0.05, "poll_request_timeout": 0.5,
               "log_tail": 3, "transformers_version": "4.99.1"}  # fmt: skip
     return {"client": client, "server": server}
+
+
+@pytest.fixture
+def starting_fields() -> dict:
+    """The starting values of specs/vlm-client.md, owned by the tests."""
+    return {name: dict(values) for name, values in STARTING.items()}
 
 
 @pytest.fixture

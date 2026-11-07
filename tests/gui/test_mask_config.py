@@ -24,9 +24,10 @@ def dump(tmp_path, doc: dict) -> os.PathLike:
     return write(tmp_path, yaml.safe_dump(doc, sort_keys=False))
 
 
-def test_approved_config(repo):
-    cfg = load_config(repo / "configs/action-mask.yaml")
-    assert cfg == ActionMaskConfig(screens="configs/gui-screens.yaml", pitch_limit=90)
+def test_starting_values_from_test_owned_config(tmp_path):
+    starting = {"screens": "configs/gui-screens.yaml", "pitch_limit": 90}
+    cfg = load_config(dump(tmp_path, starting))
+    assert cfg == ActionMaskConfig(**starting)
     assert [f.name for f in dataclasses.fields(cfg)] == ["screens", "pitch_limit"]
     with pytest.raises(dataclasses.FrozenInstanceError):
         cfg.pitch_limit = 1

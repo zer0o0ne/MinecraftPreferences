@@ -47,6 +47,20 @@ def initial_model(cfg: RLCycleConfig, sampling: SamplingConfig, cycle: int) -> P
     return REPO / pretrain.out_dir / "model.pt"
 
 
+def initial_optimizer(cfg: RLCycleConfig, cycle: int) -> Path | None:
+    """No prior state at cycle 0, otherwise the previous final checkpoint path."""
+    if cycle == 0:
+        return None
+    directory = REPO / cfg.out_dir / f"{cycle - 1:06d}" / "checkpoints"
+    count = complete_shards(directory)
+    if count == 0:
+        raise RuntimeError(f"previous cycle has no complete checkpoint: {directory}")
+    path = shard_path(directory, count - 1) / "checkpoint.pt"
+    if not path.is_file():
+        raise RuntimeError(f"previous cycle has no final checkpoint: {path}")
+    return path
+
+
 def fingerprints(
     cfg: RLCycleConfig, path: Path, sampling: SamplingConfig, model: Path
 ) -> dict:

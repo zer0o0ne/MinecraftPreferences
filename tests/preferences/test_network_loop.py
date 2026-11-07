@@ -1,8 +1,7 @@
 """`Preference` and `PreferenceLoss` inside `pretrain` of specs/pretrain.md (the protocol;
-specs/preference.md Interface) with fake $\\phi$ and $\\pi$ (tests/pretrain/loop_starting.py)
-declaring the starting `groups` of configs/pretrain.yaml, labels of specs/acyclic.md (4),
-against the loop oracle of tests/pretrain run with $P$ and $\\ell^P$ transcribed
-(preference_oracle.py) on the same initial weights."""
+specs/preference.md Interface) with fake $\\phi$ and $\\pi$, test-owned starting groups, labels
+of specs/acyclic.md (4), against the loop oracle of tests/pretrain run with $P$ and $\\ell^P$
+transcribed (preference_oracle.py) on the same initial weights."""
 
 import torch
 from pretrain.loop_checks import assert_run
@@ -15,7 +14,6 @@ from torch import nn
 
 from mcpref.preferences.loss import PreferenceLoss
 from mcpref.preferences.network import Preference
-from mcpref.pretrain.config import load_config
 
 from .preference_oracle import cfg_of, decayed_names, loss, preference
 
@@ -53,10 +51,13 @@ def components(P: nn.Module, P_loss: nn.Module) -> dict:
     return starting(P=P, P_loss=P_loss)
 
 
-def test_preference_in_the_loop(tmp_path, repo):
+def test_preference_in_the_loop(tmp_path):
     """Every step's losses, checkpoint and model.pt against the oracle; P trained."""
-    groups = load_config(repo / "configs/pretrain.yaml").groups
-    loop = Loop(tmp_path, world=LABELED, keep_checkpoints=20, groups=groups).write()
+    from pretrain.loop_starting import starting_groups
+
+    loop = Loop(
+        tmp_path, world=LABELED, keep_checkpoints=20, groups=starting_groups()
+    ).write()
     loop.run(components(Preference(CFG, D).double(), PreferenceLoss()))
     make = lambda: components(RefP(), RefLoss())
     steps, states = train(loop.world, loop.config, make)

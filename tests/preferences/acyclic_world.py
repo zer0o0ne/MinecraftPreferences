@@ -79,6 +79,7 @@ def votes_run(shards: list, tokens: tuple = TOKENS, pool: str = POOL) -> dict:
     s = next((len(ls) // 2 for shard in shards for _, _, ls in shard), 1)
     config = {
         "pool_dir": "data/pair_clips", "vlm": "configs/vlm.yaml", "out_dir": "data/pair_votes",
+        "diagnostics": "configs/diagnostics.yaml", "acyclic": "configs/acyclic.yaml",
         "instruction": "Judge.\n", "first": "A:\n", "second": "B:\n",
         "question": "Which?\n{answers}", "answer_line": "{token}: {description}",
         "prefix": "Answer: ", "inventory_line": "Inventory: {items}\n",

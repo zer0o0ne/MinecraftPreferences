@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from config_files import MASKS_STARTING
 
 from mcpref.recognition.classifier import GuiClassifierConfig, load_config
 
@@ -55,8 +56,9 @@ def test_criterion_outside_criteria(tmp_path, value):
     assert str(info.value) == f"criterion {value!r} is not one of {NAMES}"
 
 
-def test_starting_values(repo):
-    cfg = load_config(repo / "configs/gui-classifier.yaml")
-    assert cfg == GuiClassifierConfig(masks_dir="data/gui_masks", criterion="agreement")
-    masks = yaml.safe_load((repo / "configs/gui-masks.yaml").read_text())["out_dir"]
+def test_starting_values_from_test_owned_config(repo, tmp_path):
+    starting = {"masks_dir": "data/gui_masks", "criterion": "agreement"}
+    cfg = load_config(write(tmp_path, starting))
+    assert cfg == GuiClassifierConfig(**starting)
+    masks = MASKS_STARTING["out_dir"]
     assert Path(repo, cfg.masks_dir).resolve() == Path(repo, masks).resolve()

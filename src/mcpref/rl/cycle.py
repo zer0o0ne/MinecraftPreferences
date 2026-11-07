@@ -17,11 +17,13 @@ from mcpref.ppo.metra import MetraLoss
 from mcpref.preferences.config import load_config as load_preference_config
 from mcpref.pretrain.config import load_config as load_pretrain_config
 from mcpref.pretrain.run import build_modules
+from mcpref.rl.checkpoints import STATEFUL
 from mcpref.rl.config import RLCycleConfig
 from mcpref.rl.files import (
     advance,
     fingerprints,
     initial_model,
+    initial_optimizer,
     pair_rng,
     select_cycle,
     shards_digest,
@@ -30,7 +32,7 @@ from mcpref.rl.files import (
 )
 from mcpref.rl.history import eval_encoder
 from mcpref.rl.index import build_index
-from mcpref.rl.loop import STATEFUL, train
+from mcpref.rl.loop import train
 from mcpref.rl_pairs.config import load_config as load_pairs_config
 from mcpref.rl_pairs.cycle import publish_memory, sample_pairs
 from mcpref.rl_pairs.types import StateRef
@@ -73,6 +75,7 @@ def run_cycle(cfg: RLCycleConfig, path: Path, env: Env) -> Path:
     u_before, u_after = cycle * sampling.steps, (cycle + 1) * sampling.steps
     root = REPO / cfg.out_dir / f"{cycle:06d}"
     model = initial_model(cfg, sampling, cycle)
+    optimizer_path = initial_optimizer(cfg, cycle)
     modules = build_rl_modules(cfg, sampling, ppo)
     load_model(model, modules, ("phi", "pi", "P") if cycle == 0 else STATEFUL)
     run_path, run = start_run(
@@ -128,7 +131,7 @@ def run_cycle(cfg: RLCycleConfig, path: Path, env: Env) -> Path:
         tail=shards_digest(root / "tail" / "shards", "items.json"),
     )
     if not (root / "model.pt").exists():
-        train(cfg, modules, root / "index")
+        train(cfg, modules, root / "index", optimizer_path)
     load_model(root / "model.pt", modules, STATEFUL)
     run = advance(run_path, run, "trained")
     history_run = REPO / pairs_cfg.history_dir / f"{cycle:06d}" / "run.json"

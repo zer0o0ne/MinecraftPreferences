@@ -141,7 +141,7 @@ def install(monkeypatch, events):
     monkeypatch.setattr("mcpref.rl.loss.load_step", load_step)
 
 
-def item_losses(item, mods, discount=0.8, min_p=0.1):
+def item_losses(item, mods, discount=0.8, min_p=0.1, horizon=2):
     """Direct transcription of ppo.md (1)-(6), preference loss, and raw fake wiring."""
     kind = item["kind"]
     phi, pi, preference = mods["phi"], mods["pi"], mods["P"]
@@ -165,7 +165,7 @@ def item_losses(item, mods, discount=0.8, min_p=0.1):
         logits = readout @ pi.logit_weight.T + pi.logit_bias
         action = t % 3
         advantages = torch.zeros((), dtype=F64)
-        for k in range(1, 3):
+        for k in range(1, horizon + 1):
             future = base(t + k) * phi.scale
             succ = (future - z) @ preference.weight
             inc = (future + z) @ preference.weight
@@ -196,8 +196,10 @@ def item_losses(item, mods, discount=0.8, min_p=0.1):
     return result
 
 
-def expected(items, mods, m, n_a, n_delta, r_c, weights=(2.0, 3.0, 0.7, 1.4)):
-    roles = [item_losses(item, mods) for item in items]
+def expected(
+    items, mods, m, n_a, n_delta, r_c, weights=(2.0, 3.0, 0.7, 1.4), horizon=2
+):
+    roles = [item_losses(item, mods, horizon=horizon) for item in items]
     sums = {role: sum((values[role] for values in roles if role in values),
                       torch.zeros((), dtype=F64)) for role in ["ppo", "shift", "metra", "P"]}  # fmt: skip
     w_ppo, w_delta, w_metra, w_pref = weights

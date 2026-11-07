@@ -66,16 +66,23 @@ def expand(
         node.children.append(child)
 
 
-def select(root: Node, c_puct: float) -> list[Node]:
-    """(4): the root-to-leaf edges, with PUCT ties in expansion order."""
-    node, path = root, []
-    while node.children:
-        total = sum(child.n for child in node.children)
+def eligible(tree: Tree, node: Node, mask: np.ndarray) -> list[Node]:
+    """Notation: existing root children allowed by the current mask, or all below it."""
+    if node is not tree.root:
+        return node.children
+    return [child for child in node.children if mask[child.action]]
+
+
+def select(tree: Tree, mask: np.ndarray, c_puct: float) -> list[Node]:
+    """(4): the root-to-leaf edges, with PUCT over eligible children."""
+    node, path = tree.root, []
+    while children := eligible(tree, node, mask):
+        total = sum(child.n for child in children)
         scores = [
             child.mean + c_puct * child.prior * total**0.5 / (1 + child.n)
-            for child in node.children
+            for child in children
         ]
-        node = node.children[max(range(len(scores)), key=scores.__getitem__)]
+        node = children[max(range(len(scores)), key=scores.__getitem__)]
         path.append(node)
     return path
 
@@ -89,7 +96,7 @@ def simulate(
     cfg: MctsConfig,
 ) -> None:
     """(5): select, evaluate and optionally expand one leaf, then back up its value."""
-    path = select(tree.root, cfg.c_puct)
+    path = select(tree, mask, cfg.c_puct)
     leaf = path[-1] if path else tree.root
     value = leaf_value(tree, leaf, P, cfg.min_p)
     if len(path) < cfg.depth:
@@ -116,7 +123,7 @@ def decide(
             if completed >= cfg.min_n_sampling and time.perf_counter() >= deadline:
                 break
             simulate(tree, mask, pi, P, alpha, cfg)
-    children = tree.root.children
+    children = eligible(tree, tree.root, mask)
     weights = np.array(
         [child.n ** (1 / cfg.temperature) for child in children], dtype=np.float64
     )

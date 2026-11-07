@@ -8,15 +8,17 @@ import yaml
 
 from mcpref.perception.config import PerceptionConfig, load_config
 
-from .world import BASE, config, values
+from .world import BASE, STARTING, config, values
 
 NAMES = set(BASE)
-ALPHA = [float(2**k) for k in range(10) for _ in range(4)]
+ALPHA = STARTING["alpha"]
 
 
-def test_starting_values(repo):
-    """configs/perception.yaml as Interface starts it; `cursor` resolved against the root."""
-    cfg = load_config(repo / "configs/perception.yaml")
+def test_starting_values_from_test_owned_config(repo, tmp_path):
+    """The complete starting mapping as input; `cursor` resolved against the root."""
+    path = tmp_path / "perception.yaml"
+    path.write_text(yaml.safe_dump(STARTING, sort_keys=False))
+    cfg = load_config(path)
     assert {f.name for f in dataclasses.fields(PerceptionConfig)} == NAMES
     got = dataclasses.asdict(cfg)
     cursor = got.pop("cursor")

@@ -110,15 +110,13 @@ def test_valid_boundaries(tmp_path):
     assert all(getattr(cfg, key) == 1 for key in POSITIVE)
 
 
-def test_starting_values_and_group_order(repo):
-    cfg = load_config(repo / "configs/rl-cycle.yaml")
-    expected = BASE | {
-        "batch": 32,
-        "items_per_shard": 256,
-        "checkpoint_steps": 100,
-        "warmup_steps": 100,
-        "device": "cuda",
-    }
+def test_starting_values_and_group_order(tmp_path):
+    starting = {
+        "batch": 32, "items_per_shard": 256, "checkpoint_steps": 100,
+        "warmup_steps": 100, "device": "cuda",
+    }  # fmt: skip
+    cfg = load(tmp_path, **starting)
+    expected = BASE | starting
     assert dataclasses.asdict(cfg) | {"device": "cuda"} == expected | {
         "betas": (0.9, 0.999)
     }

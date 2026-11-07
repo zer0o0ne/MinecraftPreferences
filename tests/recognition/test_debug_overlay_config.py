@@ -30,11 +30,10 @@ def numbers(cfg: OverlayConfig, name: str) -> dict:
     return {k: m[k] for k in TEMPLATES}
 
 
-def test_starting_values(repo, tmp_path, monkeypatch):
-    """Interface: starting values; `screens` resolved against the repository root whatever
-    the working directory; integers of `tolerance` read with float()."""
+def test_starting_values_from_test_owned_config(repo, tmp_path, monkeypatch):
+    """The explicit starting YAML; paths resolved and numeric types parsed as Interface."""
     monkeypatch.chdir(tmp_path)
-    cfg = load_config(repo / "configs/f3-overlay.yaml")
+    cfg = load(tmp_path)
     assert {f.name for f in dataclasses.fields(OverlayConfig)} == set(VALID)
     assert Path(repo, cfg.screens).resolve() == (repo / "configs/gui-screens.yaml")
     assert cfg.prefix == "Minecraft 1.16.5 ("

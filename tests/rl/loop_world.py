@@ -41,6 +41,31 @@ def write_world(tmp_path, repo, **changes):
     return root, cfg, index
 
 
+def write_unit_world(tmp_path, repo, cycle=0, epochs=1, **changes):
+    root = tmp_path / "repo"
+    if not (root / "configs").exists():
+        repository(root, repo)
+    values = {"epochs": epochs, "batch": 1, "items_per_shard": 1,
+              "checkpoint_steps": 1, "keep_checkpoints": 20} | changes  # fmt: skip
+    cfg = config(tmp_path / f"rl-{cycle}.yaml", **values)
+    index = root / f"data/rl_cycle/{cycle:06d}/index"
+    write_json(
+        index / "shards/000000/items.json",
+        {"items": [{"kind": "fresh", "index": 2 * cycle}]},
+    )
+    write_json(
+        index / "run.json",
+        {
+            "complete": True,
+            "counts": {"fresh": 1, "pending": 0, "ppo": 1, "preference": 0, "items": 1},
+            "batches": 1,
+            "steps": epochs,
+            "sha256": "fake",
+        },
+    )
+    return root, cfg, index
+
+
 def install_steps(monkeypatch, calls, updates=None, all_parameters=False):
     def fake(items, modules, **kwargs):
         draw = torch.rand((), dtype=torch.float64)
@@ -69,14 +94,14 @@ def install_steps(monkeypatch, calls, updates=None, all_parameters=False):
         monkeypatch.setattr("mcpref.rl.loop.update", counted)
 
 
-def run_train(root, cfg, index, mods):
+def run_train(root, cfg, index, mods, initial_optimizer=None):
     err, out = io.StringIO(), io.StringIO()
     with (
         repo_root(root),
         contextlib.redirect_stderr(err),
         contextlib.redirect_stdout(out),
     ):
-        train(cfg, mods, index)
+        train(cfg, mods, index, initial_optimizer)
     return err.getvalue(), out.getvalue()
 
 

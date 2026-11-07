@@ -83,8 +83,8 @@ def test_invalid_config_raises_value_error(tmp_path, changes):
         load(tmp_path, **changes)
 
 
-def test_starting_values(repo):
-    assert dataclasses.asdict(load_config(repo / "configs/ppo.yaml")) == {
+def test_starting_values_from_test_owned_config(tmp_path):
+    assert dataclasses.asdict(load(tmp_path)) == {
         "horizon": 64,
         "clip": 0.2,
         "skill_eps": 1.0e-8,

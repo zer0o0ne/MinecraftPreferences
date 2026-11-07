@@ -11,13 +11,16 @@ from torch import Tensor
 from tqdm import tqdm
 
 from mcpref import REPO
+from mcpref.diagnostics.artifacts import read_pairs
+from mcpref.diagnostics.types import ReferencePair
 from mcpref.pretrain.config import PretrainConfig
 from mcpref.pretrain.diagnostics import GlobalFit, Stratum
 from mcpref.pretrain.reference_select import PARTS, select_items
-from mcpref.runs.files import json_bytes, write_json
-from mcpref.shards.store import complete_shards, shard_path, write_shard
+from mcpref.pretrain.reference_store import GLOBAL_FIT, write_initial, write_metrics
+from mcpref.runs.files import write_json
+from mcpref.shards.store import complete_shards, shard_path
 
-GLOBAL_FIT = "global-fit.json"
+__all__ = ["write_initial", "write_metrics"]
 
 
 @dataclass(frozen=True)
@@ -27,6 +30,7 @@ class ReferenceData:
     Z0: Tensor
     P0: dict[str, Tensor]
     initial_metrics: dict
+    initial_pairs: tuple[ReferencePair, ...] | None
 
 
 def fit_from_json(value: dict) -> GlobalFit:
@@ -168,38 +172,24 @@ def select_reference(cfg: PretrainConfig, run: dict) -> tuple[dict, GlobalFit]:
 
 
 def load_initial(directory: Path) -> ReferenceData:
-    """Load the complete typed shard 0 without selection or model evaluation."""
+    """Load shard 0 and reject any mixed legacy/new layout before evaluation."""
+    count = complete_shards(directory)
     initial = shard_path(directory, 0)
+    legacy = not (initial / "pairs.json").is_file()
+    for k in range(count):
+        shard = shard_path(directory, k)
+        if not (shard / "metrics.json").is_file():
+            raise RuntimeError(f"reference shard {k} has no metrics.json")
+        has_pairs = (shard / "pairs.json").is_file()
+        if has_pairs == legacy:
+            raise RuntimeError("reference shards mix legacy and pairs-bearing layouts")
     saved = torch.load(initial / "initial.pt", map_location="cpu", weights_only=True)
+    pairs = None if legacy else tuple(read_pairs(initial))
     return ReferenceData(
         selection=json.loads((initial / "selection.json").read_bytes()),
         baselines=read_fit(initial / "baselines.json"),
         Z0=saved["Z0"],
         P0=saved["P0"],
         initial_metrics=json.loads((initial / "metrics.json").read_bytes()),
+        initial_pairs=pairs,
     )
-
-
-def write_initial(
-    directory: Path,
-    selection: dict,
-    baselines: GlobalFit,
-    initial: dict,
-    metrics: dict,
-) -> None:
-    """(18): atomically publish complete shard 0 and byte-identical baselines."""
-    shared = directory.parent / GLOBAL_FIT
-    baseline_bytes = (
-        shared.read_bytes() if shared.exists() else json_bytes(asdict(baselines))
-    )
-    with write_shard(directory, 0) as staged:
-        (staged / "selection.json").write_bytes(json_bytes(selection))
-        (staged / "baselines.json").write_bytes(baseline_bytes)
-        torch.save(initial, staged / "initial.pt")
-        (staged / "metrics.json").write_bytes(json_bytes(metrics))
-
-
-def write_metrics(directory: Path, k: int, metrics: dict) -> None:
-    """(21): atomically publish one positive-cadence reference shard."""
-    with write_shard(directory, k) as staged:
-        (staged / "metrics.json").write_bytes(json_bytes(metrics))

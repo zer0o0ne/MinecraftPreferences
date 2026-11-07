@@ -178,8 +178,8 @@ def write(tmp_path, **fields) -> object:
     return path
 
 
-def test_approved_config_has_starting_values(repo):
-    cfg = load_config(repo / "configs/vpt-actions.yaml")
+def test_starting_values_from_test_owned_config(tmp_path):
+    cfg = load_config(write(tmp_path))
     assert isinstance(cfg, ActionsConfig)
     assert [f.name for f in dataclasses.fields(cfg)] == ["turn_deg", "r_min"]
     assert (cfg.turn_deg, cfg.r_min) == (10.0, 3)
