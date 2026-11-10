@@ -62,6 +62,8 @@ BAD = {
     "seed bool": {"seed": True},
     "seed float": {"seed": 1.0},
     "seed string": {"seed": "1"},
+    "retrain integer": {"retrain": 1},
+    "retrain string": {"retrain": "true"},
     **{
         f"{key} {raw}": {key: raw}
         for key in POSITIVE

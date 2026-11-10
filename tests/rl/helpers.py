@@ -28,6 +28,7 @@ BASE = {
     "out_dir": "data/rl_cycle",
     "seed": 0,
     "epochs": 1,
+    "retrain": False,
     "batch": 2,
     "micro_batch": 1,
     "items_per_shard": 3,

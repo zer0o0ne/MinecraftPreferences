@@ -40,6 +40,7 @@ class PretrainConfig:
     diagnostics: str
     seed: int
     epochs: int
+    retrain: bool
     batch: int
     micro_batch: int
     diagnostic_window: int
@@ -121,6 +122,12 @@ def diagnostic_values(raw: dict) -> dict:
     }
 
 
+def boolean(name: str, value: object) -> bool:
+    if type(value) is not bool:
+        raise ValueError(f"{name} {value!r} is not a boolean")
+    return value
+
+
 def load_config(path: Path) -> PretrainConfig:
     """Interface: the YAML file, validated, into PretrainConfig."""
     raw = config_mapping(yaml.safe_load(path.read_text()), path, PretrainConfig)
@@ -135,6 +142,7 @@ def load_config(path: Path) -> PretrainConfig:
     if not math.isfinite(read["latent_init_scale"]):
         raise ValueError("latent_init_scale must be finite")
     read |= {"seed": integer("seed", raw["seed"], 0, 2**32 - 1)}
+    read |= {"retrain": boolean("retrain", raw["retrain"])}
     read |= {"warmup_steps": integer("warmup_steps", raw["warmup_steps"], 0, math.inf)}
     lr_floor = number("lr_floor", raw["lr_floor"])
     if not 0 <= lr_floor <= 1:

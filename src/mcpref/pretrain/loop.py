@@ -142,6 +142,10 @@ def pretrain(
     else:
         train(cfg, modules, groups, data, run, diagnostics)
         write_model(model, modules)
+    if cfg.retrain:
+        from mcpref.pretrain.retrain import retrain
+
+        retrain(cfg, modules, data)
     write_json(REPO / cfg.out_dir / "run.json", head | {"complete": True})
     if run["counts"]["train"]["pairs"]:
         if completed:

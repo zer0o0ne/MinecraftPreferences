@@ -22,7 +22,7 @@ PATHS = [
     "preference",
     "diagnostics",
 ]
-NAMES = [*PATHS, "seed", "epochs", "batch", "micro_batch", "diagnostic_window",
+NAMES = [*PATHS, "seed", "epochs", "retrain", "batch", "micro_batch", "diagnostic_window",
          "reference_steps", "reference_pairs", "calibration_bins", "saturation_threshold",
          "inc_classification_threshold", "quantiles", "action_copy_eps", "latent_init_scale",
          "checkpoint_steps", "keep_checkpoints", "warmup_steps", "w_phi", "w_pi", "w_P", "grad_clip",
@@ -37,6 +37,7 @@ VALID = {  # YAML lines of a valid config
     "diagnostics": "c/diagnostics.yaml",
     "seed": "4294967295",
     "epochs": "1",
+    "retrain": "false",
     "batch": "3",
     "micro_batch": "2",
     "diagnostic_window": "1",
@@ -119,6 +120,7 @@ ACCEPTED = {  # boundaries inside the domain: field, YAML, value
     "copy eps 0": ("action_copy_eps", "0", 0.0),
     "copy eps 1": ("action_copy_eps", "1", 1.0),
     "one quantile": ("quantiles", "[0.5]", (0.5,)),
+    "retrain true": ("retrain", "true", True),
 }
 
 
@@ -142,6 +144,9 @@ BAD = {
     "missing key": {"seed": None},
     "missing groups": {"groups": None},
     "unknown key": {"lr": "0.1"},
+    "retrain missing": {"retrain": None},
+    "retrain integer": {"retrain": "1"},
+    "retrain string": {"retrain": '"true"'},
     "index_dir empty": {"index_dir": '""'},
     "index_dir absolute": {"index_dir": "/abs/x"},
     "index_dir with ..": {"index_dir": "x/../y"},
@@ -312,7 +317,7 @@ def test_starting_values_from_test_owned_config(tmp_path):
         "perception": "configs/perception.yaml", "action_mask": "configs/action-mask.yaml",
         "policy": "configs/policy.yaml", "preference": "configs/preference.yaml",
         "diagnostics": "configs/diagnostics.yaml", "seed": 0,
-        "epochs": 1, "batch": 32, "micro_batch": 1,
+        "epochs": 1, "retrain": False, "batch": 32, "micro_batch": 1,
         "diagnostic_window": 100, "reference_steps": 500, "reference_pairs": 64,
         "calibration_bins": 10, "saturation_threshold": 0.01,
         "inc_classification_threshold": 0.5, "quantiles": [0.05, 0.5, 0.95],

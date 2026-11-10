@@ -43,6 +43,7 @@ from mcpref.rl.memory_producer import (
 from mcpref.rl.memory_producer import (
     stage as stage_memory,
 )
+from mcpref.rl.retrain import retrain as retrain_heads
 from mcpref.rl_pairs.config import load_config as load_pairs_config
 from mcpref.rl_pairs.cycle import publish_memory, sample_pairs
 from mcpref.rl_pairs.types import StateRef
@@ -154,10 +155,16 @@ def _run_cycle(cfg, path, env, sampling, ppo, states) -> Path:
         index=shards_digest(root / "index" / "shards", "items.json"),
         tail=shards_digest(root / "tail" / "shards", "items.json"),
     )
-    if not (root / "model.pt").exists():
-        train(cfg, modules, root / "index", optimizer_path)
-    load_model(root / "model.pt", modules, STATEFUL)
+    pending = cfg.retrain and not (root / "retrain/run.json").exists()
+    resumed = complete_shards(root / "retrain/checkpoints") > 0
+    optimizer = None
+    if not (root / "model.pt").exists() or (pending and not resumed):
+        optimizer = train(cfg, modules, root / "index", optimizer_path)
     run = advance(run_path, run, "trained")
+    if pending:
+        retrain_heads(cfg, modules, root / "index", optimizer)
+        run = advance(run_path, run, "retrained")
+    load_model(root / "model.pt", modules, STATEFUL)
     history_run = REPO / pairs_cfg.history_dir / f"{cycle:06d}" / "run.json"
     published = history_run.exists() and json.loads(history_run.read_text()).get(
         "complete"

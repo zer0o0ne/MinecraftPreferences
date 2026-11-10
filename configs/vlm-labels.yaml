@@ -9,11 +9,17 @@ instruction: "You will see two moments, A and B, from the same game of Minecraft
   Edition 1.16 in survival mode, played by one player in one world. Each moment is shown
   as a few screenshots taken shortly one after another, oldest first; the last screenshot
   is the moment itself. After the screenshots comes the player's inventory at that
-  moment.\nJudge which moment is better for the player. A moment is better when the
-  player has made more progress (better tools, weapons and armour; more and rarer
-  resources; food; a shelter; crafting stations; explored places), is safer (not
-  falling, drowning, burning, starving or being attacked) and has better prospects.
-  Refuse to compare only when the two moments really cannot be compared.\n\n"
+  moment.\nEvaluate each moment on three criteria: available potential for gathering
+  resources of every kind, safety, and current level of progress. Compare the moments
+  only under the following rules:\n1. If one moment is Pareto-better (at least as good
+  on every criterion and strictly better on at least one), use the six graded answers to
+  indicate how much better or worse A is than B.\n2. Exception: if one moment is only
+  very slightly worse on some criteria but much better on others, treat it as nearly
+  Pareto-better and compare the moments using the same six answers.\n3. If the moments
+  are approximately equal on all three criteria, you may choose between them on aesthetic
+  grounds, especially the beauty or rarity of the situation. Prefer the more beautiful
+  or rarer moment when differences in resource-gathering potential, safety, and progress
+  are negligible.\nOtherwise, answer INCOMPARABLE.\n\n"
 first: "Moment A:\n"
 second: "Moment B:\n"
 question: "How good is moment A for the player compared with moment B? Explain in at

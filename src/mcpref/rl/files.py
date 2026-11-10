@@ -51,7 +51,10 @@ def initial_optimizer(cfg: RLCycleConfig, cycle: int) -> Path | None:
     """No prior state at cycle 0, otherwise the previous final checkpoint path."""
     if cycle == 0:
         return None
-    directory = REPO / cfg.out_dir / f"{cycle - 1:06d}" / "checkpoints"
+    previous = REPO / cfg.out_dir / f"{cycle - 1:06d}"
+    directory = previous / "checkpoints"
+    if cfg.retrain and (previous / "retrain/run.json").exists():
+        directory = previous / "retrain/checkpoints"
     count = complete_shards(directory)
     if count == 0:
         raise RuntimeError(f"previous cycle has no complete checkpoint: {directory}")

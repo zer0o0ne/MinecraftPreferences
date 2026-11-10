@@ -34,7 +34,17 @@ def preference(a=10, b=11):
             "labels": {"p": 0.75, "inc": 0}}  # fmt: skip
 
 
-def call(items, mods, micro_batch=2, m=4, n_a=2, n_delta=2, r_c=1, horizon=2):
+def call(
+    items,
+    mods,
+    micro_batch=2,
+    m=4,
+    n_a=2,
+    n_delta=2,
+    r_c=1,
+    horizon=2,
+    fixed_advantages=None,
+):
     w_ppo, w_delta, w_metra, w_pref = WEIGHTS
     return step_gradients(
         items,
@@ -55,6 +65,7 @@ def call(items, mods, micro_batch=2, m=4, n_a=2, n_delta=2, r_c=1, horizon=2):
         w_metra=w_metra,
         w_P=w_pref,
         micro_batch=micro_batch,
+        fixed_advantages=fixed_advantages,
     )
 
 
@@ -205,3 +216,29 @@ def test_metric_created_once_per_step(monkeypatch):
     monkeypatch.setattr(loss_module, "latent_metric", counting)
     call([fresh(0), fresh(1), pending(2), preference()], modules(), micro_batch=1)
     assert len(calls) == 1
+
+
+def test_fixed_advantage_skips_reward_encoding_and_p_reference(monkeypatch):
+    from .loss_fakes import BEHAVIOR, base
+
+    events = []
+    install(monkeypatch, events)
+    mods = modules(events)
+    result = call(
+        [fresh(0)],
+        mods,
+        n_a=1,
+        n_delta=1,
+        r_c=0,
+        fixed_advantages={("fresh", 0): 1.25},
+    )
+    readout = base(0, mods["phi"].scale.dtype) * mods["phi"].scale
+    readout = readout * mods["pi"].read_weight
+    logits = readout @ mods["pi"].logit_weight.T + mods["pi"].logit_bias
+    ratio = torch.exp(torch.log_softmax(logits, dim=-1)[0]) / BEHAVIOR[0]
+    clipped = torch.clamp(ratio, 0.8, 1.2)
+    expected = -torch.minimum(ratio * 1.25, clipped * 1.25)
+    assert result["ppo"] == pytest.approx(float(expected.detach()))
+    assert [event[1] for event in events if event[0] == "encode"] == [0, 1]
+    assert not [event for event in events if event[0] == "P"]
+    assert all(parameter.grad is None for parameter in mods["P"].parameters())

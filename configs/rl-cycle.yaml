@@ -5,7 +5,8 @@ rl_pairs: "configs/rl-preference-pairs.yaml"
 out_dir: "data/rl_cycle"
 seed: 0
 epochs: 1
-batch: 32
+retrain: true
+batch: 16
 micro_batch: 1
 items_per_shard: 256
 checkpoint_steps: 100

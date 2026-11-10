@@ -1,4 +1,4 @@
-"""Notation: the validated 22-field configs/rl-cycle.yaml mapping."""
+"""Notation: the validated 23-field configs/rl-cycle.yaml mapping."""
 
 import math
 from dataclasses import dataclass
@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 from mcpref import config_mapping, integer, number, positive, positive_int, relative
-from mcpref.pretrain.config import betas, groups
+from mcpref.pretrain.config import betas, boolean, groups
 from mcpref.training.devices import device
 
 PATHS = ("sampling", "ppo", "rl_pairs", "out_dir")
@@ -32,6 +32,7 @@ class RLCycleConfig:
     out_dir: str
     seed: int
     epochs: int
+    retrain: bool
     batch: int
     micro_batch: int
     items_per_shard: int
@@ -59,6 +60,7 @@ def load_config(path: Path) -> RLCycleConfig:
     read |= {name: positive(name, raw[name]) for name in POSITIVE_REALS}
     read |= {
         "seed": integer("seed", raw["seed"], 0, 2**32 - 1),
+        "retrain": boolean("retrain", raw["retrain"]),
         "warmup_steps": integer("warmup_steps", raw["warmup_steps"], 0, math.inf),
         "betas": betas(raw["betas"]),
         "groups": groups(raw["groups"]),

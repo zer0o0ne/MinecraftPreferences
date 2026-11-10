@@ -304,3 +304,41 @@ def test_run_fingerprints_cover_immutable_artifacts(tmp_path, repo, monkeypatch)
         json.dumps(read(pair_run) | {"phase": "history", "complete": True})
     )
     assert read(out / "run.json")["sha256"]["pairs"] == before
+
+
+def test_retrain_runs_after_joint_optimizer_and_before_memory_publication(
+    tmp_path, repo, monkeypatch
+):
+    import yaml
+
+    root, path = prepare(tmp_path, repo)
+    path.write_text(
+        yaml.safe_dump(
+            yaml.safe_load(path.read_text()) | {"retrain": True}, sort_keys=False
+        )
+    )
+    events, batches = [], []
+    install(monkeypatch, events, batches)
+    real_train = cycle_module.train
+
+    def trained(cfg, modules, index_dir, initial_optimizer):
+        result = real_train(cfg, modules, index_dir, initial_optimizer)
+        events.append(("joint-end", 0))
+        return result
+
+    def separated(cfg, modules, index_dir, optimizer):
+        assert isinstance(optimizer, torch.optim.AdamW)
+        assert (index_dir.parent / "model.pt").exists()
+        events.append(("retrain", 0))
+
+    monkeypatch.setattr(cycle_module, "train", trained)
+    monkeypatch.setattr(cycle_module, "retrain_heads", separated)
+    monkeypatch.setattr(
+        cycle_module,
+        "publish_memory",
+        lambda *args, **kwargs: events.append(("publish", 0)),
+    )
+    out = run(root, path, Env(events))
+    assert read(out / "run.json")["phase"] == "finalized"
+    assert events.index(("joint-end", 0)) < events.index(("retrain", 0))
+    assert events.index(("retrain", 0)) < events.index(("publish", 0))

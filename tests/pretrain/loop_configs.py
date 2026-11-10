@@ -78,6 +78,7 @@ CONFIG = {
     "diagnostics": DIAGNOSTICS,
     "seed": 5,
     "epochs": 2,
+    "retrain": False,
     "batch": 2,
     "micro_batch": 1,
     "diagnostic_window": 1,

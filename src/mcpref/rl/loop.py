@@ -51,6 +51,8 @@ def load_initial_optimizer(optimizer: torch.optim.AdamW, path: Path) -> None:
     """Load persistent Adam state after final-step and group compatibility checks."""
     state = torch.load(path, map_location="cpu", weights_only=True)
     previous_root = path.parent.parent.parent
+    if previous_root.name == "retrain":
+        previous_root = previous_root.parent
     run = json.loads((previous_root / "index" / "run.json").read_text())
     if state["step"] != run["steps"]:
         raise RuntimeError(f"previous checkpoint is not final: {path}")
@@ -97,7 +99,7 @@ def train(
     modules: dict[str, torch.nn.Module],
     index_dir: Path,
     initial_optimizer: Path | None,
-) -> None:
+) -> torch.optim.AdamW:
     """Run (1)-(6), checkpointing periodically and always at the final step T."""
     for module in modules.values():
         module.train()
@@ -123,7 +125,7 @@ def train(
         print("rl cycle: already done", file=sys.stderr)
         accept(diagnostics, cfg, cycle, event_start, total)
         write_model(index_dir.parent / "model.pt", stateful)
-        return
+        return optimizer
     perception = load_perception_config(REPO / pretrain.perception)
     states = load_perception_data_config(REPO / sampling.perception_data).states
     ppo = load_ppo_config(REPO / cfg.ppo)
@@ -206,3 +208,4 @@ def train(
         if bar is not None:
             bar.update()
     write_model(index_dir.parent / "model.pt", stateful)
+    return optimizer

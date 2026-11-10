@@ -26,6 +26,14 @@ def state_ref(sampling: SamplingConfig, index: int) -> StateRef:
     return StateRef(f"{sampling.out_dir}#{cycle:06d}", index)
 
 
+def ppo_eligible(item: dict, sampling: SamplingConfig, ppo: PpoConfig) -> bool:
+    kind, t = item["kind"], item["index"]
+    return (
+        kind == "pending"
+        or t + ppo.horizon <= (t // sampling.steps + 1) * sampling.steps
+    )
+
+
 def micro_loss(
     items: list[dict],
     modules: dict[str, torch.nn.Module],
@@ -38,6 +46,7 @@ def micro_loss(
     min_p: float,
     metric: Callable[[Tensor], Tensor],
     observations: dict | None = None,
+    fixed_advantages: dict[tuple[str, int], float] | None = None,
 ) -> tuple[dict[str, list[Tensor]], dict[str, list[Tensor]]]:
     """Compute each item's supplied roles with one shared fresh policy readout."""
     phi, pi, P = modules["phi"], modules["pi"], modules["P"]
@@ -60,21 +69,27 @@ def micro_loss(
         origin = encode(state_ref(sampling, t))
         record = load_step(REPO / sampling.out_dir, t)
         R = pi.readout(origin.Y, origin.C)[:, -1]
-        eligible = (
-            kind == "pending"
-            or t + ppo.horizon <= (t // sampling.steps + 1) * sampling.steps
-        )
+        eligible = ppo_eligible(item, sampling, ppo)
         successor = encode(state_ref(sampling, t + 1)) if kind == "fresh" else None
         if eligible:
             logits = pi.logits(R)
-            with torch.no_grad():
-                futures = [
-                    encode(state_ref(sampling, t + k)).Y
-                    for k in range(1 if successor is None else 2, ppo.horizon + 1)
-                ]
-            if successor is not None:
-                futures = [successor.Y] + futures
-            advantage = reward(P, [origin.Y], [futures], ppo.horizon, discount, min_p)
+            if fixed_advantages is None:
+                with torch.no_grad():
+                    futures = [
+                        encode(state_ref(sampling, t + k)).Y
+                        for k in range(1 if successor is None else 2, ppo.horizon + 1)
+                    ]
+                if successor is not None:
+                    futures = [successor.Y] + futures
+                advantage = reward(
+                    P, [origin.Y], [futures], ppo.horizon, discount, min_p
+                )
+            else:
+                advantage = torch.tensor(
+                    [fixed_advantages[kind, t]],
+                    dtype=logits.dtype,
+                    device=logits.device,
+                )
             actions = torch.tensor(
                 [record.action], dtype=torch.int64, device=logits.device
             )
@@ -160,6 +175,7 @@ def step_gradients(
     w_P: float,
     micro_batch: int,
     observations: dict | None = None,
+    fixed_advantages: dict[tuple[str, int], float] | None = None,
 ) -> dict:
     """Accumulate Eq. (3) into existing gradients, one backward per micro-batch."""
     metric = latent_metric(perception)
@@ -178,6 +194,7 @@ def step_gradients(
             min_p,
             metric,
             observations,
+            fixed_advantages,
         )
         total = None
         if n_a and terms["ppo"]:
