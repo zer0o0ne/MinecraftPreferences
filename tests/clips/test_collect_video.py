@@ -6,12 +6,14 @@ the failure of pass 2, ffmpeg's stderr; with the fake ffmpeg of fake_decoder.py.
 import itertools
 import os
 import time
+import weakref
 
 import pytest
 from progress_bars import Bar, screen
 from vpt_checks import part_ranges
 
 from .collect_out import assert_outputs
+from .collect_site import track_range_executors
 from .collect_world import EPISODES, Ep
 
 SCRIPT = "w" * 8  # starts 0..3
@@ -22,14 +24,41 @@ def one(make_site, **kw):
     return make_site(episodes={"6xx": [Ep("data/7.0/a.mp4", SCRIPT, **kw)]})
 
 
-def command(site, k: int) -> list[str]:
+def test_pass_1_frames_are_released_before_pass_2(make_site, monkeypatch):
+    from mcpref.clips import episode
+
+    site = one(make_site)
+    first, second, refs = episode.pass_1, episode.pass_2, []
+
+    class Frames(dict):
+        pass
+
+    def pass_1(*args):
+        frames = Frames(first(*args))
+        refs.append(weakref.ref(frames))
+        return frames
+
+    def pass_2(*args):
+        assert refs and refs[-1]() is None
+        return second(*args)
+
+    monkeypatch.setattr(episode, "pass_1", pass_1)
+    monkeypatch.setattr(episode, "pass_2", pass_2)
+    site.run()
+    assert_outputs(site, site.expected())
+
+
+def command(site, k: int, keep: list[int] | None = None) -> list[str]:
     video = os.path.realpath(site.out / "staging" / f"{k}.mp4")
-    return [site.fields["ffmpeg"], "-nostdin", "-loglevel", "error", "-i", video,
-            "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "yuv420p", "pipe:1"]  # fmt: skip
+    cmd = [site.fields["ffmpeg"], "-nostdin", "-loglevel", "error", "-i", video]
+    if keep is not None:
+        expression = "+".join(f"eq(n\\,{i})" for i in keep)
+        cmd += ["-vf", f"select={expression}"]
+    return cmd + ["-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "yuv420p", "pipe:1"]  # fmt: skip
 
 
 def test_each_episode_with_clips_is_decoded_twice_with_the_command(site):
-    """The video of the candidate of draw k is decoded from {out_dir}/staging/<k>.mp4."""
+    """Pass 1 decodes every frame; pass 2 selects exactly the states of its stored clips."""
     site.run(workers=3)
     ex = site.expected()
     runs = {}
@@ -41,8 +70,12 @@ def test_each_episode_with_clips_is_decoded_twice_with_the_command(site):
     with_clips = {r["relpath"] for r in ex.records if r["clips"]}
     assert {stems[x] for x in runs} == {r["relpath"] for r in ex.records if r["reason"] in (None, "no_clip")}  # fmt: skip
     for stem, argvs in runs.items():
-        assert all(a == command(site, ex.draw[stems[stem]]) for a in argvs), stem
-        assert len(argvs) == 1 + (stems[stem] in with_clips), stem
+        relpath, k = stems[stem], ex.draw[stems[stem]]
+        expected = [command(site, k)]
+        if relpath in with_clips:
+            states = {t for row in site.rows() if row["relpath"] == relpath for t in row["states"]}  # fmt: skip
+            expected.append(command(site, k, sorted(states)))
+        assert argvs == expected, stem
 
 
 def test_video_is_fetched_by_ranges_after_one_head(site):
@@ -54,6 +87,17 @@ def test_video_is_fetched_by_ranges_after_one_head(site):
     assert asked[0] == site.head(path) and sorted(asked[1:]) == sorted(parts)
     heads = [r.headers for r in site.server.requests if r.path == path]
     assert all(h["x-ms-version"] == "2019-12-12" for h in heads)
+
+
+@pytest.mark.parametrize("abort", [False, True])
+def test_pipeline_reuses_and_closes_one_range_executor(site, monkeypatch, abort):
+    created, closed = track_range_executors(monkeypatch)
+    if abort:
+        site.aborted(ffmpeg=str(site.tmp / "no-ffmpeg"))
+    else:
+        site.run()
+    assert len(created) == 1
+    assert closed == [True]
 
 
 @pytest.mark.parametrize("session", [False, True])

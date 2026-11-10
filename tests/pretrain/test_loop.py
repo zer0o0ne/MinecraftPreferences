@@ -12,14 +12,14 @@ from progress_bars import Bar, assert_progress, screen
 
 from .index_oracle import json_bytes, sha
 from .loop_checks import assert_run
-from .loop_configs import MODULE_CONFIGS, SCREENS
+from .loop_configs import DIAGNOSTICS, MODULE_CONFIGS, SCREENS
 from .loop_modules import Phi
 from .loop_oracle import train
 from .loop_run import Loop
 from .loop_world import NO_PAIRS, VALIDATION_PAIRS
 
 FINGERPRINTS = ("config", "index", "perception", "action_mask", "policy", "preference",
-                "screens")  # (R) 6, in this order  # fmt: skip
+                "diagnostics", "screens")  # (R) 6, in this order  # fmt: skip
 
 CASES = {  # sizes 3, 3, 2
     "b 2, micro 1 (T = 10)": {},
@@ -73,7 +73,7 @@ def test_kept_checkpoints_and_files(tmp_path):
     files = {"run.json", "model.pt", "global-fit.json", "gradient-flow/selection.json",
              "gradient-flow/summary.json", "reference/000000/selection.json",
              "reference/000000/baselines.json", "reference/000000/initial.pt",
-             "reference/000000/metrics.json"}  # fmt: skip
+             "reference/000000/metrics.json", "reference/000000/pairs.json"}  # fmt: skip
     for j in range(4):
         files.add(f"checkpoints/{j:06d}/losses.json")
         files.add(f"checkpoints/{j:06d}/diagnostics.json")
@@ -108,22 +108,26 @@ def test_modules_put_in_training_mode(tmp_path):
 
 
 def test_run_json(tmp_path):
-    """After (R) 6 the run's config and its seven fingerprints (the config, the index, the
-    module configs, the catalogue named by the action-mask config); after (T) `complete`
-    added."""
+    """After (R) 6 the run's config and its eight fingerprints (the config, the index, the
+    module configs, diagnostics and the screen catalogue); after (T) `complete` added."""
     loop = Loop(tmp_path).write()
     first = {}
 
     def peek(mp):
-        def forward(self, clips):
+        def forward(self, clips, states=None):
             first.setdefault("run", (loop.out / "run.json").read_bytes())
-            return real(self, clips)
+            return real(self, clips, states)
 
         real = Phi.forward
         mp.setattr(Phi, "forward", forward)
 
     loop.run(patch=peek)
-    files = {"index": "w/index/run.json", **MODULE_CONFIGS, "screens": SCREENS}
+    files = {
+        "index": "w/index/run.json",
+        **MODULE_CONFIGS,
+        "diagnostics": DIAGNOSTICS,
+        "screens": SCREENS,
+    }
     value = {
         "config": yaml.safe_load(loop.path.read_bytes()),
         "sha256": {"config": sha(loop.path.read_bytes())}
@@ -146,7 +150,11 @@ def test_model_present_already_done(tmp_path):
     (loop.out / "run.json").write_bytes(json_bytes({k: run[k] for k in ("config", "sha256")}))  # fmt: skip
     mods = loop.modules()
     r = loop.run(mods)
-    assert screen(r.err) == [Bar("pretrain inputs", 6, 6, "shard"), "pretrain: already done"]  # fmt: skip
+    assert screen(r.err) == [
+        Bar("pretrain inputs", 6, 6, "shard"),
+        "pretrain: already done",
+        "diagnostics pretrain: already done",
+    ]
     assert_progress(r.err)
     assert all(m.calls == 0 for m in mods.values())
     assert loop.tree() == before and r.out == ""
@@ -163,6 +171,7 @@ def test_restored_last_step_already_done(tmp_path):
     mods = loop.modules()
     r = loop.run(mods)
     assert screen(r.err) == [Bar("pretrain inputs", 6, 6, "shard"),
+                             "diagnostics pretrain: already done",
                              "pretrain reference counts: already done",
                              "pretrain reference select: already done",
                              "pretrain reference initial: already done",

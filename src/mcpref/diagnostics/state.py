@@ -33,10 +33,11 @@ def load_state(path: Path, cfg: DiagnosticsConfig) -> dict:
     }
 
 
-def save_state(out_dir: Path, state: dict) -> None:
+def save_state(out_dir: Path, state: dict, *, index: bool = True) -> None:
     state["counts"] = {
         channel: {"events": len(value["events"]), "records": value["records"]}
         for channel, value in state["channels"].items()
     }
-    write_accepted_index(out_dir)
+    if index:
+        write_accepted_index(out_dir)
     write_json(out_dir / "run.json", state)

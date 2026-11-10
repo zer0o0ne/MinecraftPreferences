@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from vpt_world import FIELDS
 
+from mcpref.vpt.ffmpeg import decode_episode, episode_command
 from mcpref.vpt.gui_frames import GuiFramesConfig, ffmpeg_command, frame_time
 
 
@@ -52,3 +53,59 @@ def test_ffmpeg_command_takes_header_version_from_config():
     )
     assert cmd[cmd.index("-headers") + 1] == "x-ms-version: 2020-04-08\r\n"
     assert cmd[cmd.index("-ss") + 1] == "0.00"
+
+
+def test_episode_command_selects_sorted_source_frames():
+    assert episode_command(config(), Path("v.mp4"), {3, 1, 2}) == [
+        config().ffmpeg, "-nostdin", "-loglevel", "error", "-i", "v.mp4",
+        "-vf", r"select=eq(n\,1)+eq(n\,2)+eq(n\,3)", "-fps_mode", "passthrough",
+        "-f", "rawvideo", "-pix_fmt", "yuv420p", "pipe:1",
+    ]  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "select, n, keep, indices",
+    [(False, 2, {0, 1}, [0, 1]), (True, 4, {1, 3}, [1, 3])],
+)
+def test_decode_episode_fills_one_buffer_across_short_reads(
+    monkeypatch, select, n, keep, indices
+):
+    data = bytes(range(12))
+
+    class Stdout:
+        def __init__(self):
+            self.pos, self.buffers = 0, []
+
+        def readinto(self, buf):
+            self.buffers.append(buf.obj)
+            n = min(3, len(buf), len(data) - self.pos)
+            buf[:n] = data[self.pos : self.pos + n]
+            self.pos += n
+            return n
+
+    class Proc:
+        def __init__(self):
+            self.stdout, self.returncode = Stdout(), 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def wait(self):
+            pass
+
+        def kill(self):
+            pass
+
+    proc = Proc()
+    monkeypatch.setattr(
+        "mcpref.vpt.ffmpeg.subprocess.Popen", lambda *args, **kwargs: proc
+    )
+    frames = decode_episode(
+        config(width=2, height=2), Path("fake"), n, keep, 10, select=select
+    )
+    expected = {i: data[j * 6 : (j + 1) * 6] for j, i in enumerate(indices)}
+    assert frames == expected
+    assert all(buf is proc.stdout.buffers[0] for buf in proc.stdout.buffers)

@@ -37,49 +37,43 @@ class PolicyLoss(torch.nn.Module):
         self.shift_weight, self.masks, self.metric = cfg.shift_weight, masks, metric
 
     def terms(
-        self, out: tuple[Tensor, Tensor], Z: Tensor, clips: list[Clip]
-    ) -> tuple[dict[str, Tensor], dict[str, Tensor]]:
-        """(3) of specs/pretrain-diagnostics.md: per-clip terms and valid rows."""
-        logits, shift = out
+        self, out: tuple[Tensor, ...], Z: Tensor, clips: list[Clip]
+    ) -> tuple[dict[str, Tensor], dict[str, Tensor], dict[str, Tensor]]:
+        """(3) of specs/pretrain-diagnostics.md: terms, valid rows and observations."""
+        logits, shift, *shared = out
         L = logits.shape[1]
+        if shared:
+            current = shared[0]
+        else:
+            index = {a: i for i, a in enumerate(self.masks.names)}
+            current = np.stack([weights(clip, index) for clip in clips])
+            current = torch.tensor(current, dtype=logits.dtype, device=logits.device)
+        current = current[:, : L - 2]
         q, chi = zip(*(targets(clip, self.masks) for clip in clips))
         q = torch.tensor(np.stack(q), dtype=logits.dtype, device=logits.device)
         chi = torch.tensor(np.stack(chi), device=logits.device)
-        index = {a: i for i, a in enumerate(self.masks.names)}
-        current = np.stack([weights(clip, index)[: L - 2] for clip in clips])
-        current = torch.tensor(current, dtype=logits.dtype, device=logits.device)
         ce = cross_entropy(logits[:, : L - 2], q)
-        error = shift[:, : L - 2] - (Z[:, 1 : L - 1] - Z[:, : L - 2]).detach()
-        d2 = self.metric(error).square()
+        factual = (Z[:, 1 : L - 1] - Z[:, : L - 2]).detach()
+        d2 = self.metric(shift[:, : L - 2] - factual).square()
+        factual_d2 = self.metric(factual).square()
         shift_term = self.shift_weight * torch.where(chi, d2, 0.0)
+        zero_shift = self.shift_weight * torch.where(chi, factual_d2, 0.0)
         terms = {
             "action": ce.sum(dim=1) / (L - 2),
             "shift": shift_term.sum(dim=1) / (L - 2),
             "total": (ce + shift_term).sum(dim=1) / (L - 2),
         }
         valid = {"action_valid": q.sum(dim=-1) > 0, "shift_valid": chi}
-        self._diagnostic_targets = (q.detach(), current.detach())
-        return terms, valid
+        observations = {
+            "q": q.detach(),
+            "current": current.detach(),
+            "zero_shift": (zero_shift.sum(dim=1) / (L - 2)).detach(),
+        }
+        return terms, valid, observations
 
-    def diagnostic_targets(self) -> tuple[Tensor, Tensor]:
-        value = self._diagnostic_targets
-        self._diagnostic_targets = None
-        return value
-
-    def zero_shift(self, Z: Tensor, chi: Tensor) -> Tensor:
-        """(16): the shift term with every predicted shift replaced by zero."""
-        L = Z.shape[1]
-        error = -(Z[:, 1 : L - 1] - Z[:, : L - 2]).detach()
-        d2 = self.metric(error).square()
-        return (self.shift_weight * torch.where(chi, d2, 0.0)).sum(dim=1) / (L - 2)
-
-    def forward(
-        self, out: tuple[Tensor, Tensor], Z: Tensor, clips: list[Clip]
-    ) -> Tensor:
+    def forward(self, out: tuple[Tensor, ...], Z: Tensor, clips: list[Clip]) -> Tensor:
         """(9): the original per-state addition and reduction, shape (m,)."""
-        total = self.terms(out, Z, clips)[0]["total"]
-        self._diagnostic_targets = None
-        return total
+        return self.terms(out, Z, clips)[0]["total"]
 
     def groups(self) -> dict[str, list[torch.nn.Parameter]]:
         """(11): l^pi declares no group."""

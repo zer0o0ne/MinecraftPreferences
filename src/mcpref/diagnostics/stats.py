@@ -76,7 +76,7 @@ def distribution(
     missing: int = 0,
     reason: str | None = None,
 ) -> dict:
-    materialized = list(values)
+    materialized = [float(value) for value in values]
     n = len(materialized)
     return {
         "n": n,

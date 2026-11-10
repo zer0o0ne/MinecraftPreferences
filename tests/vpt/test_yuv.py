@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from mcpref.vpt.gui_frames import yuv420p_to_rgb
+from mcpref.vpt.yuv import yuv420p_to_rgb_at
 
 K = Fraction(255, 224)
 C_Y = Fraction(255, 219)
@@ -79,6 +80,21 @@ def test_plane_layout_and_chroma_blocks():
     out = yuv420p_to_rgb(frame(y, u, v), w, h)
     assert out.shape == (h, w, 3) and out.dtype == np.uint8
     assert (out == exact_rgb(y, upsampled(u, h, w), upsampled(v, h, w))).all()
+
+
+def test_gathered_pixels_match_exact_rational_rgb():
+    """Gathered Y and half-resolution U/V give (5) at only the requested flat positions."""
+    rng = np.random.default_rng(91)
+    h, w = 8, 10
+    y, u, v = (
+        rng.integers(0, 256, s) for s in ((h, w), (h // 2, w // 2), (h // 2, w // 2))
+    )
+    flat = np.array([0, h * w - 1, 7, 7, 23, 41, 12, 79], dtype=np.int64)
+    chroma_at = (flat // w // 2) * (w // 2) + (flat % w) // 2
+    want = exact_rgb(y.flat[flat], u.flat[chroma_at], v.flat[chroma_at])
+    out = yuv420p_to_rgb_at(frame(y, u, v), w, h, flat)
+    assert out.dtype == np.uint8 and out.shape == (len(flat), 3)
+    assert (out == want).all()
 
 
 def test_no_exact_half_for_any_yuv():

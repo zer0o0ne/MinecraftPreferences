@@ -1,9 +1,15 @@
-"""Stage-33a outbox staging and exact accepted-artifact joins for pretraining."""
+"""Block 33 outbox staging and exact accepted-artifact joins for pretraining."""
 
 import json
 from collections.abc import Sequence
 
+import torch
+
 from mcpref import REPO
+from mcpref.diagnostics.observations import (
+    PolicyObservations as DiagnosticPolicyObservations,
+)
+from mcpref.diagnostics.policy import on_policy_observation
 from mcpref.diagnostics.preference import (
     join_pretrain_step,
     join_reference,
@@ -43,7 +49,7 @@ def stage_step(
     step: int,
     total: int,
     batch: list[dict],
-    rows: PreferenceRows | None,
+    observations,
 ) -> None:
     sources = step_sources(cfg, checkpoint, step, total)
     clusters = tuple(episode(item["a"]) for item in batch if "labels" in item)
@@ -58,12 +64,67 @@ def stage_step(
         clusters,
         tuple(sources),
     )
-    record = on_pretrain_step(rows, fit=fit, cfg=diagnostics.cfg, context=context)
+    record = on_pretrain_step(
+        observations.preference, fit=fit, cfg=diagnostics.cfg, context=context
+    )
+    raw = getattr(observations, "raw_policy", ())
+    if raw and (not step % cfg.checkpoint_steps or step == total):
+        targets = torch.cat([item["targets"] for item in raw])
+        valid = targets.sum(dim=-1) > 0
+        prior = targets[valid].sum(dim=0)
+        if prior.sum() > 0:
+            prior = prior / prior.sum()
+        observation = DiagnosticPolicyObservations(
+            torch.cat([item["logits"] for item in raw]),
+            targets,
+            torch.cat([item["masks"] for item in raw]),
+            torch.cat([item["previous"] for item in raw]),
+            torch.cat([item["actions"] for item in raw]),
+            prior,
+            1,
+            cfg.action_copy_eps,
+            cfg.calibration_bins,
+        )
+        policy_clusters = tuple(cluster for item in raw for cluster in item["clusters"])
+        policy_context = ProducerContext(
+            "pretrain-policy",
+            "train",
+            "joint",
+            "pretrain",
+            cfg.out_dir,
+            {},
+            (step,),
+            policy_clusters,
+            tuple(sources),
+        )
+        policy_record = on_policy_observation(
+            observation, cfg=diagnostics.cfg, context=policy_context
+        )
+        record["metrics"].update(policy_record["metrics"])
+        record["populations"].update(policy_record["populations"])
+        record["joined"]["policy"] = policy_record["joined"]
     diagnostics.stage("pretrain-step", step, f"step:{step}", step + 1, sources, record)
 
 
-def accept_step(diagnostics: DiagnosticRun, step: int) -> None:
-    diagnostics.accept("pretrain-step", f"step:{step}", join=join_pretrain_step)
+def accept_step(
+    diagnostics: DiagnosticRun,
+    step: int,
+    *,
+    save: bool = True,
+    remove: bool = True,
+    index: bool = True,
+) -> None:
+    accepted = diagnostics.accept(
+        "pretrain-step",
+        f"step:{step}",
+        join=join_pretrain_step,
+        save=False,
+        remove=False,
+    )
+    if save and accepted:
+        diagnostics.save(index=index)
+    if remove:
+        diagnostics.remove([path for path, _ in diagnostics.outbox("pretrain-step")])
 
 
 def reference_sources(

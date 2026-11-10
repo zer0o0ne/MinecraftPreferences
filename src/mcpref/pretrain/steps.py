@@ -88,7 +88,7 @@ def steps(
                 t,
                 data.total,
                 batch,
-                observations.preference,
+                observations,
             )
         if t % cfg.checkpoint_steps == 0 or t == data.total:
             saved = {"step": t} | at
@@ -112,9 +112,13 @@ def steps(
             )
             if fit is not None:
                 for loss in losses:
-                    accept_step(diagnostics, loss["step"])
+                    accept_step(diagnostics, loss["step"], remove=False, index=False)
                     if diagnostic is not None:
                         diagnostic.update()
+                diagnostics.save()
+                diagnostics.remove(
+                    [path for path, _ in diagnostics.outbox("pretrain-step")]
+                )
             j, losses = j + 1, []
             if reference is not None and t % cfg.reference_steps == 0:
                 k = t // cfg.reference_steps

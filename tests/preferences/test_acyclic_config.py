@@ -38,7 +38,7 @@ def test_starting_values_from_test_owned_config(tmp_path):
     """The explicit starting mapping parses to the starting values of Interface."""
     c = load(tmp_path, text())
     assert dataclasses.astuple(c) == (
-        "data/pair_votes", "data/pair_labels", START, 0.5
+        "data/pair_votes", "data/pair_labels", "configs/diagnostics.yaml", START, 0.5
     )  # fmt: skip
     assert list(c.weights) == list(START)
 
@@ -54,6 +54,7 @@ def test_values_kept_as_written(tmp_path):
     """Paths, the weights' order and numbers, refusal_share as written (no conversion)."""
     raw = (
         'votes_dir: "data/./votes"\nout_dir: "x"\n'
+        'diagnostics: "configs/diagnostics.yaml"\n'
         "weights:\n  Z: 1\n  A: 0.30\n  R: null\n  M: 0\nrefusal_share: 0\n"
     )
     c = load(tmp_path, raw)
@@ -99,6 +100,7 @@ BAD = [
     *(("votes_dir", raw) for raw in ['""', '"/abs/votes"', '"a/../b"', '".."', "5", "null",
                                       '["a"]']),
     *(("out_dir", raw) for raw in ['""', '"/abs"', '"x/.."', "true"]),
+    *(("diagnostics", raw) for raw in ['""', '"/abs"', '"x/.."', "true"]),
     *(("weights", raw) for raw in [
         "{}", "[0.5, null]", '"x"', "null", "{1: 0.5, R: null}", "{true: 0.5, R: null}",
         "{X: true, R: null}", '{X: "0.5", R: null}', "{X: -0.1, R: null}",

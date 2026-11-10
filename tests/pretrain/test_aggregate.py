@@ -167,7 +167,7 @@ def test_window_equal_step_losses_pooled_outputs_and_exact_coverage():
     assert got["pi"]["copy_current"] == pytest.approx(0.4) and got["pi"][
         "uniform"
     ] == pytest.approx(math.log(2))
-    assert got["pi"]["empirical_constant_oracle"] == pytest.approx(2 * math.log(2))
+    assert got["pi"]["empirical_constant_oracle"] == pytest.approx(math.log(2))
     assert got["phi"]["dual_lambda"] == 1.5 and got["phi"]["d_alpha_mean"] == 0.75
     assert got["gradients"]["global"] == {
         "mean_norm": 1.0,

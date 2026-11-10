@@ -15,7 +15,7 @@ from .loop_modules import fakes, group_order
 from .loop_world import World, clip
 
 
-def terms(items, mods, read, m, k_tot, r_tot, w_pi, w_P) -> tuple:
+def terms(items, mods, read, m, k_tot, r_tot, w_phi, w_pi, w_P) -> tuple:
     """(1) over the clips K and the pairs R of `items`: (the loss, l_phi, l_pi, l_P or
     None), the calls in the order phi, l_phi, pi, l_pi, P, l_P."""
     clips, at, labels = [], [], []
@@ -29,7 +29,7 @@ def terms(items, mods, read, m, k_tot, r_tot, w_pi, w_P) -> tuple:
     Z = mods["phi"](clips)
     l_phi = mods["phi_loss"](Z, clips)
     l_pi = mods["pi_loss"](mods["pi"](Z, clips), Z, clips)
-    loss = m / k_tot * (l_phi + w_pi * l_pi).sum()
+    loss = m / k_tot * (w_phi * l_phi + w_pi * l_pi).sum()
     l_P = None
     if labels:
         ia, ib = (list(x) for x in zip(*at))
@@ -38,11 +38,11 @@ def terms(items, mods, read, m, k_tot, r_tot, w_pi, w_P) -> tuple:
     return loss, l_phi, l_pi, l_P
 
 
-def gradients(items, mods, read, m, k_tot, r_tot, w_pi, w_P, micro) -> dict:
+def gradients(items, mods, read, m, k_tot, r_tot, w_phi, w_pi, w_P, micro) -> dict:
     """(2): backward of each micro-batch's terms, accumulating; (7) without lr."""
     sums, n_k, n_r = {"phi": 0.0, "pi": 0.0, "P": 0.0, "loss": 0.0}, 0, 0
     for j in range(0, len(items), micro):
-        loss, l_phi, l_pi, l_P = terms(items[j : j + micro], mods, read, m, k_tot, r_tot, w_pi, w_P)  # fmt: skip
+        loss, l_phi, l_pi, l_P = terms(items[j : j + micro], mods, read, m, k_tot, r_tot, w_phi, w_pi, w_P)  # fmt: skip
         loss.backward()
         sums["phi"] += l_phi.detach().sum().item()
         sums["pi"] += l_pi.detach().sum().item()
@@ -136,8 +136,8 @@ def train(world: World, cfg: dict, make=None) -> tuple[list[Step], list]:
                 for q in ps:
                     q.grad = None
             items = [world.train[s][k] for k in pos]
-            logged = gradients(items, mods, clip, M, k_tot, r_tot, cfg["w_pi"],
-                               cfg["w_P"], cfg["micro_batch"])  # fmt: skip
+            logged = gradients(items, mods, clip, M, k_tot, r_tot, cfg["w_phi"],
+                               cfg["w_pi"], cfg["w_P"], cfg["micro_batch"])  # fmt: skip
             f = factor(t, T, cfg["warmup_steps"], cfg["lr_floor"])
             clipped = update(groups, moments, cfg, f)
             lr = {q: cfg["groups"][q]["lr"] * f for q, _ in groups}

@@ -15,7 +15,7 @@ Stage: every block that builds or reads a dataset (AGENTS.md Code, Data); `specs
 - $n$ — the number of complete shards of $D$; $j$ — a missing shard index in (2).
 - `part`, `path` — a file under a temporary name and its final name, in one directory; `data` — the bytes of a file.
 - $\mathrm{sync}(p)$: `os.fsync` of `fd = os.open(p, os.O_RDONLY)`, `os.close(fd)` in a `finally`; `os.fsync` is called as `os.fsync`.
-- $\mathrm{make}(p)$ [U2]: every missing directory from the topmost missing ancestor down to $p$ is created; then $p$ and every ancestor of $p$ up to `/` are synced, whether created now or earlier (a directory created by an interrupted run is synced too).
+- $\mathrm{make}(p)$ [U2]: every missing directory from the topmost missing ancestor down to $p$ is created. On the first use of $p$'s device/inode in the current process, $p$ and every ancestor of $p$ up to `/` are synced, whether created now or earlier (a directory created by an interrupted run is synced too); a later call for the same device/inode may skip this repeated chain. A new child has no entry and therefore syncs the whole chain again. A failed sync leaves $p$ uncached. Publication and shard renames still sync their parents every time, and (2) always syncs $D$.
 
 ## Domain
 - One writer of $D$ at a time; readers of $D$ run while no writer of $D$ runs.

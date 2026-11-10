@@ -23,11 +23,15 @@ def changed(frames: list[np.ndarray], metas: list[str], tau: float) -> list[bool
 
 
 def latent_metric(cfg: PerceptionConfig) -> Callable[[Tensor], Tensor]:
-    """Interface: delta -> d_alpha = ||alpha * delta||_2 over the last axis, alpha in
-    delta's dtype on its device."""
+    """Interface: delta -> d_alpha = ||alpha * delta||_2 over the last axis."""
+    cache = {}
 
     def d_alpha(delta: Tensor) -> Tensor:
-        alpha = torch.tensor(cfg.alpha, dtype=delta.dtype, device=delta.device)
+        key = (delta.device, delta.dtype)
+        alpha = cache.get(key)
+        if alpha is None:
+            alpha = torch.tensor(cfg.alpha, dtype=delta.dtype, device=delta.device)
+            cache[key] = alpha
         return torch.linalg.vector_norm(alpha * delta, ord=2, dim=-1)
 
     return d_alpha
@@ -38,6 +42,52 @@ def hinge(z: Tensor, c: float) -> Tensor:
     return torch.clamp(z.square().sum(dim=-1) - c**2, min=0)
 
 
+def _terms(
+    z: Tensor,
+    n: Tensor,
+    changed_rows: Tensor,
+    log_lambda: Tensor,
+    metric: Callable[[Tensor], Tensor],
+    c: float,
+    beta: float,
+    dual_slack: float,
+) -> tuple[dict[str, Tensor], dict[str, Tensor]]:
+    chi = changed_rows.to(z.dtype)
+    d = metric(z[1:] - z[:-1])
+    q = torch.clamp(n.square() - d.square(), max=dual_slack)
+    log_lambda = log_lambda.to(z.dtype)
+    lam = log_lambda.exp().detach()
+    push = -chi * d
+    constraint = -chi * lam * q
+    dual = chi * log_lambda * q.detach()
+    pushed = chi * (-d - lam * q + log_lambda * q.detach())
+    h = hinge(z, c)
+    norm = beta * (h[:-1] + h[1:])
+    terms = {
+        "push": push.mean(),
+        "constraint": constraint.mean(),
+        "dual": dual.mean(),
+        "norm": norm.mean(),
+        "total": (pushed + norm).mean(),
+    }
+    diagnostics = {
+        "changed": changed_rows,
+        "d_alpha": d,
+        "z_norm": torch.linalg.vector_norm(z, ord=2, dim=-1),
+        "hinge": h,
+    }
+    return terms, diagnostics
+
+
+_COMPILED_TERMS = torch.compile(
+    _terms,
+    backend="inductor",
+    fullgraph=True,
+    dynamic=False,
+    options={"compile_threads": 1},
+)
+
+
 class PhiLoss(torch.nn.Module):
     """(11): l^phi of each clip; log(lambda) starts at ln(lambda_0)."""
 
@@ -45,46 +95,66 @@ class PhiLoss(torch.nn.Module):
         super().__init__()
         self.cfg = cfg
         self.sprite = load_sprite(cfg)
+        self.metric = latent_metric(cfg)
         self.log_lambda = torch.nn.Parameter(torch.tensor(math.log(cfg.dual_init)))
 
+    def _clip_terms(
+        self,
+        z: Tensor,
+        clip: Clip,
+        states: tuple[list[np.ndarray], list[str]] | None,
+        core: Callable,
+    ) -> tuple[dict[str, Tensor], dict[str, Tensor]]:
+        cfg, like = self.cfg, {"dtype": z.dtype, "device": z.device}
+        states = clip_states(clip, cfg, self.sprite) if states is None else states
+        frames, metas = states
+        changed_rows = torch.tensor(changed(frames, metas, cfg.tau), device=z.device)
+        n = torch.tensor(clip.info["n"], **like)
+        return core(
+            z,
+            n,
+            changed_rows,
+            self.log_lambda,
+            self.metric,
+            cfg.c,
+            cfg.beta,
+            cfg.dual_slack,
+        )
+
     def clip_terms(
-        self, z: Tensor, clip: Clip
+        self,
+        z: Tensor,
+        clip: Clip,
+        states: tuple[list[np.ndarray], list[str]] | None = None,
     ) -> tuple[dict[str, Tensor], dict[str, Tensor]]:
         """(4) of specs/pretrain-diagnostics.md: one clip's terms and observations."""
-        cfg, like = self.cfg, {"dtype": z.dtype, "device": z.device}
-        frames, metas = clip_states(clip, cfg, self.sprite)
-        changed_rows = torch.tensor(changed(frames, metas, cfg.tau), device=z.device)
-        chi = changed_rows.to(z.dtype)
-        n = torch.tensor(clip.info["n"], **like)
-        d = latent_metric(cfg)(z[1:] - z[:-1])
-        q = torch.clamp(n.square() - d.square(), max=cfg.dual_slack)
-        log_lambda = self.log_lambda.to(z.dtype)
-        lam = log_lambda.exp().detach()
-        push = -chi * d
-        constraint = -chi * lam * q
-        dual = chi * log_lambda * q.detach()
-        pushed = chi * (-d - lam * q + log_lambda * q.detach())
-        h = hinge(z, cfg.c)
-        norm = cfg.beta * (h[:-1] + h[1:])
-        terms = {
-            "push": push.mean(),
-            "constraint": constraint.mean(),
-            "dual": dual.mean(),
-            "norm": norm.mean(),
-            "total": (pushed + norm).mean(),
-        }
-        diagnostics = {
-            "changed": changed_rows,
-            "d_alpha": d,
-            "z_norm": torch.linalg.vector_norm(z, ord=2, dim=-1),
-            "hinge": h,
-        }
-        return terms, diagnostics
+        return self._clip_terms(z, clip, states, _terms)
 
-    def terms(
-        self, Z: Tensor, clips: list[Clip]
+    def compiled_clip_terms(
+        self,
+        z: Tensor,
+        clip: Clip,
+        states: tuple[list[np.ndarray], list[str]] | None = None,
     ) -> tuple[dict[str, Tensor], dict[str, Tensor]]:
-        results = [self.clip_terms(z, clip) for z, clip in zip(Z, clips)]
+        """The same tensor terms, compiled for ordinary CUDA pretraining."""
+        return self._clip_terms(z, clip, states, _COMPILED_TERMS)
+
+    def _terms(
+        self,
+        Z: Tensor,
+        clips: list[Clip],
+        states: list[tuple[list[np.ndarray], list[str]]] | None,
+        core: Callable,
+    ) -> tuple[dict[str, Tensor], dict[str, Tensor]]:
+        states = (
+            [clip_states(clip, self.cfg, self.sprite) for clip in clips]
+            if states is None
+            else states
+        )
+        results = [
+            self._clip_terms(z, clip, state, core)
+            for z, clip, state in zip(Z, clips, states)
+        ]
         terms = {
             key: torch.stack([result[0][key] for result in results])
             for key in results[0][0]
@@ -94,6 +164,23 @@ class PhiLoss(torch.nn.Module):
             for key in results[0][1]
         }
         return terms, diagnostics
+
+    def terms(
+        self,
+        Z: Tensor,
+        clips: list[Clip],
+        states: list[tuple[list[np.ndarray], list[str]]] | None = None,
+    ) -> tuple[dict[str, Tensor], dict[str, Tensor]]:
+        return self._terms(Z, clips, states, _terms)
+
+    def compiled_terms(
+        self,
+        Z: Tensor,
+        clips: list[Clip],
+        states: list[tuple[list[np.ndarray], list[str]]] | None = None,
+    ) -> tuple[dict[str, Tensor], dict[str, Tensor]]:
+        """The same tensor terms, compiled for ordinary CUDA pretraining."""
+        return self._terms(Z, clips, states, _COMPILED_TERMS)
 
     def clip_loss(self, z: Tensor, clip: Clip) -> Tensor:
         return self.clip_terms(z, clip)[0]["total"]

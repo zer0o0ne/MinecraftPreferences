@@ -6,7 +6,7 @@ from pathlib import Path
 import torch
 
 from mcpref.pretrain.checks import Groups
-from mcpref.pretrain.clip import Clip
+from mcpref.pretrain.clip import Clip, prefetch_clips
 from mcpref.pretrain.config import PretrainConfig
 from mcpref.pretrain.gradient_work import collect_micro
 from mcpref.pretrain.micro_loss import MicroResult, Pairs, micro_loss
@@ -15,8 +15,15 @@ from mcpref.pretrain.observation import (
     phi_observation,
     policy_observation,
     preference_observation,
+    raw_policy_observation,
     step_observation,
 )
+
+COMPONENT_KEYS = {
+    "phi": ("push", "constraint", "dual", "norm"),
+    "pi": ("action", "shift"),
+    "P": ("inc", "succ"),
+}
 
 
 def clips_and_pairs(items: list[dict]) -> tuple[list[str], Pairs]:
@@ -29,15 +36,6 @@ def clips_and_pairs(items: list[dict]) -> tuple[list[str], Pairs]:
             pairs.append((len(paths), len(paths) + 1, item["labels"]))
             paths += [item["a"], item["b"]]
     return paths, pairs
-
-
-def add_components(totals: dict, result: MicroResult) -> None:
-    for name in totals:
-        if result.components[name] is not None:
-            totals[name] = {
-                key: totals[name][key] + value
-                for key, value in result.components[name].items()
-            }
 
 
 def component_means(totals: dict, clips: int, pairs: int) -> dict:
@@ -56,7 +54,7 @@ def step_counts(
     items: list[dict], clips: int, pairs: int, sum_p: float, observations
 ) -> dict:
     comparable = (
-        int((observations.preference.inc == 0).sum().item())
+        int((observations.preference.inc == 0).sum().tolist())
         if observations.preference is not None
         else 0
     )
@@ -74,6 +72,43 @@ def step_counts(
     }
 
 
+def logging_row(result: MicroResult, loss: torch.Tensor) -> list[torch.Tensor]:
+    zero = loss.detach().new_zeros(())
+    preference = result.components["P"]
+    return [
+        *result.sums,
+        loss.detach(),
+        *(result.components["phi"][key] for key in COMPONENT_KEYS["phi"]),
+        *(result.components["pi"][key] for key in COMPONENT_KEYS["pi"]),
+        *(
+            preference[key] if preference is not None else zero
+            for key in COMPONENT_KEYS["P"]
+        ),
+    ]
+
+
+def finish_scalars(
+    rows: list[list[torch.Tensor]], p_present: list[bool], dual: torch.Tensor
+) -> tuple[list[float], dict, float]:
+    values = torch.stack([torch.stack([*row, dual]) for row in rows]).cpu().tolist()
+    totals = [0.0] * 4
+    components = {
+        name: dict.fromkeys(keys, 0.0) for name, keys in COMPONENT_KEYS.items()
+    }
+    offsets = {"phi": 4, "pi": 8, "P": 10}
+    for j, row in enumerate(values):
+        totals = [a + b for a, b in zip(totals, row[:4])]
+        for name, keys in COMPONENT_KEYS.items():
+            if name == "P" and not p_present[j]:
+                continue
+            offset = offsets[name]
+            components[name] = {
+                key: components[name][key] + row[offset + i]
+                for i, key in enumerate(keys)
+            }
+    return totals, components, values[0][-1]
+
+
 def gradient_steps(
     items: list[dict],
     modules: dict[str, torch.nn.Module],
@@ -81,32 +116,35 @@ def gradient_steps(
     m: int,
     k_tot: int,
     r_tot: int,
+    w_phi: float,
     w_pi: float,
     w_P: float,
     micro_batch: int,
     cfg: PretrainConfig,
     selected: tuple[Groups, Path, object] | None,
 ) -> tuple[dict, list[dict]]:
-    factors = (m / k_tot, w_pi, m * w_P / r_tot if r_tot else 0.0)
-    totals, n_k, n_r = [0.0] * 4, 0, 0
-    component_totals = {
-        "phi": dict.fromkeys(("push", "constraint", "dual", "norm"), 0.0),
-        "pi": dict.fromkeys(("action", "shift"), 0.0),
-        "P": dict.fromkeys(("inc", "succ"), 0.0),
-    }
+    factors = (m / k_tot, w_phi, w_pi, m * w_P / r_tot if r_tot else 0.0)
+    n_k, n_r = 0, 0
     micro, sum_p, work_records = [], 0.0, []
-    for j in range(0, len(items), micro_batch):
-        paths, pairs = clips_and_pairs(items[j : j + micro_batch])
-        loss, result = micro_loss(modules, [read(p) for p in paths], pairs, factors)
+    scalar_rows, p_present = [], []
+    runs = [
+        clips_and_pairs(items[j : j + micro_batch])
+        for j in range(0, len(items), micro_batch)
+    ]
+    batches = (paths for paths, _ in runs)
+    for micro_index, ((paths, pairs), clips) in enumerate(
+        zip(runs, prefetch_clips(read, batches))
+    ):
+        loss, result = micro_loss(
+            modules, clips, pairs, factors, compile_tensors=selected is None
+        )
         if selected is None:
             loss.backward()
         else:
             groups, directory, progress = selected
             loss.backward(retain_graph=True)
             work_records.append(
-                collect_micro(
-                    result.weighted, modules, groups, directory, j // micro_batch
-                )
+                collect_micro(result.weighted, modules, groups, directory, micro_index)
             )
             if progress is not None:
                 progress.update()
@@ -116,17 +154,23 @@ def gradient_steps(
         )
         micro.append(
             MicroObservations(
-                preference_observation(result.preference),
+                preference_observation(result.preference, deferred=True),
                 policy,
                 phi_observation(result.phi),
                 state_rows,
+                raw_policy_observation(
+                    result.policy, clips, getattr(modules["pi_loss"], "masks", None)
+                ),
             )
         )
-        totals = [a + b for a, b in zip(totals, [*result.sums, loss.detach().item()])]
-        add_components(component_totals, result)
+        scalar_rows.append(logging_row(result, loss))
+        p_present.append(result.components["P"] is not None)
         sum_p += sum(pair[2]["p"] for pair in pairs if pair[2]["inc"] == 0)
         n_k, n_r = n_k + len(paths), n_r + len(pairs)
-        del loss, result
+        del clips, loss, result
+    totals, component_totals, dual_lambda = finish_scalars(
+        scalar_rows, p_present, modules["phi_loss"].log_lambda.exp().detach()
+    )
     phi, pi, P, loss = totals
     observations = step_observation(micro, n_k)
     logged = {
@@ -137,7 +181,7 @@ def gradient_steps(
         "counts": step_counts(items, n_k, n_r, sum_p, observations),
         "components": component_means(component_totals, n_k, n_r),
         "observations": observations,
-        "dual_lambda": modules["phi_loss"].log_lambda.exp().detach().item(),
+        "dual_lambda": dual_lambda,
     }
     return logged, work_records
 
@@ -149,15 +193,16 @@ def step_gradients(
     m: int,
     k_tot: int,
     r_tot: int,
+    w_phi: float,
     w_pi: float,
     w_P: float,
     micro_batch: int,
     *,
     cfg: PretrainConfig,
 ) -> dict:
-    """Original ordered backwards, each followed by bounded CPU observation transfer."""
+    """Original ordered backwards, followed by batched CPU observation transfers."""
     return gradient_steps(
-        items, modules, read, m, k_tot, r_tot, w_pi, w_P, micro_batch, cfg, None
+        items, modules, read, m, k_tot, r_tot, w_phi, w_pi, w_P, micro_batch, cfg, None
     )[0]
 
 
@@ -168,6 +213,7 @@ def selected_step_gradients(
     m: int,
     k_tot: int,
     r_tot: int,
+    w_phi: float,
     w_pi: float,
     w_P: float,
     micro_batch: int,
@@ -185,6 +231,7 @@ def selected_step_gradients(
         m,
         k_tot,
         r_tot,
+        w_phi,
         w_pi,
         w_P,
         micro_batch,

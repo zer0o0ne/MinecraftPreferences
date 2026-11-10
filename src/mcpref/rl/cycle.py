@@ -7,6 +7,7 @@ import torch
 
 from mcpref import REPO
 from mcpref.clips.collect import load_config as load_perception_data_config
+from mcpref.diagnostics.runtime import DiagnosticRun
 from mcpref.env.wrapper import Env
 from mcpref.gui.mask import load_config as load_mask_config
 from mcpref.gui.mask import load_masks
@@ -33,6 +34,15 @@ from mcpref.rl.files import (
 from mcpref.rl.history import eval_encoder
 from mcpref.rl.index import build_index
 from mcpref.rl.loop import train
+from mcpref.rl.memory_producer import (
+    accept as accept_memory,
+)
+from mcpref.rl.memory_producer import (
+    register as register_memory,
+)
+from mcpref.rl.memory_producer import (
+    stage as stage_memory,
+)
 from mcpref.rl_pairs.config import load_config as load_pairs_config
 from mcpref.rl_pairs.cycle import publish_memory, sample_pairs
 from mcpref.rl_pairs.types import StateRef
@@ -40,6 +50,7 @@ from mcpref.runs.files import sha256
 from mcpref.sampling.config import load_config as load_sampling_config
 from mcpref.sampling.models import SamplingModules
 from mcpref.sampling.runner import Sampler
+from mcpref.sampling.shards import record_cache
 from mcpref.shards.store import complete_shards, shard_path
 
 
@@ -50,7 +61,15 @@ def build_rl_modules(cfg: RLCycleConfig, sampling, ppo) -> dict[str, torch.nn.Mo
     masks = load_masks(load_mask_config(REPO / pretrain.action_mask))
     policy = load_policy_config(REPO / pretrain.policy)
     preference = load_preference_config(REPO / pretrain.preference)
-    built = build_modules(perception, masks, policy, preference, True, cfg.device)
+    built = build_modules(
+        perception,
+        masks,
+        policy,
+        preference,
+        True,
+        cfg.device,
+        pretrain.latent_init_scale,
+    )
     modules = {name: built[name] for name in ("phi", "pi", "P", "P_loss")}
     modules["metra"] = MetraLoss(ppo).to(torch.device(cfg.device))
     return modules
@@ -67,6 +86,12 @@ def run_cycle(cfg: RLCycleConfig, path: Path, env: Env) -> Path:
     """Run exactly one selected R1 -> R3 -> joint training -> R5 cycle."""
     sampling = load_sampling_config(REPO / cfg.sampling)
     ppo = load_ppo_config(REPO / cfg.ppo)
+    states = load_perception_data_config(REPO / sampling.perception_data).states
+    with record_cache(REPO / sampling.out_dir, states + ppo.horizon):
+        return _run_cycle(cfg, path, env, sampling, ppo, states)
+
+
+def _run_cycle(cfg, path, env, sampling, ppo, states) -> Path:
     pairs_cfg = load_pairs_config(REPO / cfg.rl_pairs)
     trajectories = complete_shards(REPO / sampling.out_dir / "shards")
     cycle = select_cycle(cfg, trajectories)
@@ -98,7 +123,6 @@ def run_cycle(cfg: RLCycleConfig, path: Path, env: Env) -> Path:
         perception = load_perception_config(
             REPO / load_pretrain_config(REPO / sampling.pretrain).perception
         )
-        states = load_perception_data_config(REPO / sampling.perception_data).states
         weight = modules["phi"].head[0].weight
         alpha = torch.tensor(perception.alpha, dtype=weight.dtype, device=weight.device)
         encode = eval_encoder(
@@ -138,13 +162,22 @@ def run_cycle(cfg: RLCycleConfig, path: Path, env: Env) -> Path:
     published = history_run.exists() and json.loads(history_run.read_text()).get(
         "complete"
     )
-    if not published:
-        pretrain = load_pretrain_config(REPO / sampling.pretrain)
+    pretrain = load_pretrain_config(REPO / sampling.pretrain)
+    diagnostics = DiagnosticRun.load(REPO / pretrain.diagnostics)
+    register_memory(diagnostics, cycle)
+    if not published or pair_run.get("phase") != "history":
         perception = load_perception_config(REPO / pretrain.perception)
-        states = load_perception_data_config(REPO / sampling.perception_data).states
         encode = eval_encoder(
             modules["phi"], perception, sampling, states, len(modules["pi"].names)
         )
-        publish_memory(pairs_cfg, cycle, encode)
+        publish_memory(
+            pairs_cfg,
+            cycle,
+            encode,
+            observe=lambda history: stage_memory(
+                diagnostics, pairs_cfg, cycle, sampling.steps, history
+            ),
+        )
+    accept_memory(diagnostics, pairs_cfg, cycle)
     advance(run_path, run, "finalized", complete=True)
     return root

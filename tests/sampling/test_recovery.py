@@ -58,6 +58,7 @@ def test_unchanged_model_restore_matches_uninterrupted_second_trajectory(site):
     sampler.sample()
     expected = [load_step(site.out, 2), load_step(site.out, 3)]
     shutil.rmtree(site.out / "shards/000001")
+    shutil.rmtree(site.root / "data/diagnostics")
     shutil.copy2(saved_run, before_run)
     env = FakeEnv()
     env.index = 2
@@ -87,6 +88,7 @@ def test_changed_model_rebuilds_suffix_but_keeps_stale_root_statistics(
     )  # fmt: skip
     old.tree.root.children = [child]
     write_state(site.out / "shards/000000", old)
+    shutil.rmtree(site.root / "data/diagnostics")
     previous = load_step(site.out, 1)
     events = []
     changed = modules("changed-model", events=events, offset=100.0)
@@ -249,6 +251,7 @@ def test_reused_root_current_mask_reaches_decision_env_and_record(site):
     mask = np.array([False, True, False])
     saved.observation = dataclasses.replace(saved.observation, mask=mask)
     write_state(site.out / "shards/000000", saved)
+    shutil.rmtree(site.root / "data/diagnostics")
 
     env = FakeEnv()
     restored = Sampler(cfg, env, modules())

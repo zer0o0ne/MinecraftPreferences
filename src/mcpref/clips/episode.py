@@ -3,6 +3,7 @@ decoded, its frames classified, its clips staged."""
 
 import threading
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -15,13 +16,13 @@ from mcpref.clips.config import ClipsConfig
 from mcpref.clips.evidence import evidence, kept
 from mcpref.clips.sample import Clip, gui_flag, sample
 from mcpref.clips.store import record, stage_clips
-from mcpref.clips.validity import valid_starts
-from mcpref.gui.actions import excluded_states, gui_actions, needed_frames
+from mcpref.clips.validity import cache_intervals, valid_starts
+from mcpref.gui.actions import excluded_states, gui_actions, needed_frames, spans
 from mcpref.gui.screens import ScreenClass
 from mcpref.http.retry import retried
 from mcpref.recognition.debug_overlay import OverlayConfig, luma, overlay_shown
 from mcpref.vpt.actions import ActionsConfig, starts_session
-from mcpref.vpt.downloads import fetch
+from mcpref.vpt.downloads import fetch_to_path
 from mcpref.vpt.episodes import Examined
 from mcpref.vpt.ffmpeg import decode_episode
 from mcpref.vpt.yuv import yuv420p_to_rgb
@@ -54,13 +55,21 @@ def serialised(classify: Classify) -> Classify:
         with lock:
             return classify(frames)
 
+    classify_yuv = getattr(classify, "classify_yuv", None)
+    if classify_yuv is not None:
+
+        def call_yuv(frames: list[bytes]) -> list[str]:
+            with lock:
+                return classify_yuv(frames)
+
+        call.classify_yuv = call_yuv
     return call
 
 
 @dataclass(frozen=True)
 class Pipeline:
-    """(2)-(5): the config with out_dir resolved, the configs it names, the catalogue,
-    the overlay masks (P, Q) and gamma (calls serialised by `serialised`)."""
+    """(2)-(5): the run's configs, catalogue, overlay masks, serialised gamma and shared
+    bounded range-fetch executor; the runner that creates it closes it on every exit."""
 
     cfg: "PerceptionDataConfig"
     out: Path
@@ -71,18 +80,22 @@ class Pipeline:
     overlay: OverlayConfig
     masks: tuple[np.ndarray, np.ndarray]
     classify: Classify
+    ranges: ThreadPoolExecutor
+
+    def close(self) -> None:
+        """Shut down this pipeline's range-fetch executor."""
+        self.ranges.shutdown(wait=True, cancel_futures=True)
 
 
 def fetch_video(
-    client: httpx.Client, cfg: "PerceptionDataConfig", url: str, video: Path
+    client: httpx.Client,
+    cfg: "PerceptionDataConfig",
+    url: str,
+    video: Path,
+    threads: ThreadPoolExecutor,
 ) -> bool:
-    """(2): the .mp4 by the ranged fetch (f) on `client` into `video`; False for a 404."""
-    data = fetch(client, cfg, url)
-    if data is None:
-        return False
-    video.parent.mkdir(parents=True, exist_ok=True)
-    video.write_bytes(data)
-    return True
+    """(2): the .mp4 streamed by ranged fetch (f) into `video`; False for a 404."""
+    return fetch_to_path(client, cfg, url, video, threads)
 
 
 def pass_1(
@@ -102,7 +115,7 @@ def pass_2(
     """(5): the frames of the taken clips' states by one run of the same decode, not
     retried; a failure raises RuntimeError, a timed-out decode TimeoutError."""
     keep = {t for c in clips for t in c.states}
-    frames = decode_episode(cfg, video, n, keep, cfg.ffmpeg_timeout)
+    frames = decode_episode(cfg, video, n, keep, cfg.ffmpeg_timeout, select=True)
     if frames is None:
         raise RuntimeError(f"pass 2 decode of {video} failed")
     return frames
@@ -114,10 +127,16 @@ def classify_frames(
     """(3), (5): the frames ts classified in their order, in consecutive chunks of
     classifier_batch frames, the last one shorter; their classes kept in `classes`."""
     cfg, b = pipe.cfg, pipe.cfg.classifier_batch
+    classify_yuv = getattr(pipe.classify, "classify_yuv", None)
     for j in range(0, len(ts), b):
         chunk = ts[j : j + b]
-        rgb = [yuv420p_to_rgb(frames[t], cfg.width, cfg.height) for t in chunk]
-        classes.update(zip(chunk, pipe.classify(rgb), strict=True))
+        raw = [frames[t] for t in chunk]
+        if classify_yuv is None:
+            rgb = [yuv420p_to_rgb(x, cfg.width, cfg.height) for x in raw]
+            labels = pipe.classify(rgb)
+        else:
+            labels = classify_yuv(raw)
+        classes.update(zip(chunk, labels, strict=True))
 
 
 def accept(
@@ -127,12 +146,18 @@ def accept(
     classes: dict,
     cut: frozenset[int],
     states: list[int],
+    *,
+    excluded: set[int] | None = None,
 ) -> bool:
     """(5) `accept`: the not yet classified states with the GUI flag true classified (in
     state order), and no state in `excluded_states`."""
     todo = [t for t in states if gui_flag(lines, t) and t not in classes]
     classify_frames(pipe, frames, todo, classes)
-    return excluded_states(lines, classes, cut).isdisjoint(states)
+    if excluded is None:
+        return excluded_states(lines, classes, cut).isdisjoint(states)
+    new_classes = {t: classes[t] for t in todo}
+    excluded.update(excluded_states(lines, new_classes, cut))
+    return excluded.isdisjoint(states)
 
 
 def start_modes(pipe: Pipeline, session: bool, frame0: bytes) -> tuple[bool, bool, int]:
@@ -153,14 +178,27 @@ def take_clips(
     """(3)-(5): classes, GUI actions, start, evidence, valid starts, at most m clips by
     the candidate's generator; returns computed record fields, clips, classes."""
     cfg, classes, lines = pipe.cfg, {}, cand.examined.lines
-    classify_frames(pipe, frames, needed_frames(lines), classes)
-    gui = gui_actions(lines, classes, pipe.screens, pipe.double_click_ms)
+    gui_spans = spans(lines)
+    needed = needed_frames(lines, gui_spans=gui_spans)
+    classify_frames(pipe, frames, needed, classes)
+    gui = gui_actions(
+        lines,
+        classes,
+        pipe.screens,
+        pipe.double_click_ms,
+        gui_spans=gui_spans,
+        frames=needed,
+    )
     start = start_modes(pipe, session, frames[0])
     ev = evidence(lines, gui, start, pipe.actions)
     kappa, delta = kept(ev), pipe.clips.delta
-    starts = valid_starts(ev, kappa, delta, cfg.states)
-    accepted = partial(accept, pipe, lines, frames, classes, gui.cut)
-    clips = sample(ev, kappa, starts, delta, cfg.states, cand.m, cand.g, accepted)
+    cache = cache_intervals(ev, kappa, delta)
+    starts = valid_starts(ev, kappa, delta, cfg.states, cache=cache)
+    excluded = set(excluded_states(lines, classes, gui.cut))
+    accepted = partial(accept, pipe, lines, frames, classes, gui.cut, excluded=excluded)
+    clips = sample(
+        ev, kappa, starts, delta, cfg.states, cand.m, cand.g, accepted, cache=cache
+    )
     return {"overlay_start": start[0], "valid_starts": len(starts)}, clips, classes
 
 
@@ -170,13 +208,14 @@ def from_video(
     """(2)-(5): the reason (`video`: a 404 or a failed decode; `no_clip`), the computed
     record fields and the ids of the staged clips in the order taken."""
     k, subset, relpath, stem, (_, _, _, jsonl, lines), video, _, _ = cand
-    ok = fetch_video(client, pipe.cfg, stem + ".mp4", video)
+    ok = fetch_video(client, pipe.cfg, stem + ".mp4", video, pipe.ranges)
     frames = pass_1(pipe.cfg, video, lines) if ok else None
     if frames is None:
         return "video", {}, []
     fields, clips, classes = take_clips(pipe, cand, frames, session)
     if not clips:
         return "no_clip", fields, []
+    del frames
     frames = pass_2(pipe.cfg, video, len(lines) + 1, clips)
     ids = stage_clips(pipe.out, k, subset, relpath, clips, frames, jsonl, classes)
     return None, fields, ids

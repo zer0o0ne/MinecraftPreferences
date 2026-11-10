@@ -3,7 +3,7 @@
 import hashlib
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from pathlib import Path
 
@@ -18,6 +18,7 @@ from mcpref.rl_pairs.config import RLPreferencePairsConfig
 from mcpref.rl_pairs.history import History
 from mcpref.rl_pairs.label import correct
 from mcpref.rl_pairs.sample import read_work, select
+from mcpref.rl_pairs.scores import memoized
 from mcpref.rl_pairs.types import Encoder, StateRef, current_comparison, ref_dict
 from mcpref.runs.files import write_json
 from mcpref.shards.store import complete_shards, shard_path
@@ -143,6 +144,7 @@ def final_keys(history: History, work: Path, encode: Encoder) -> None:
     if count == 0:
         print("rl memory: nothing to do", file=sys.stderr)
         return
+    encode = memoized(encode)
     with torch.no_grad(), tqdm(total=count, desc="rl memory", unit="seed") as bar:
         for k in range(count):
             result = read_work(shard_path(work, k))
@@ -152,7 +154,12 @@ def final_keys(history: History, work: Path, encode: Encoder) -> None:
             bar.update(1)
 
 
-def publish_memory(cfg: RLPreferencePairsConfig, cycle: int, encode: Encoder) -> Path:
+def publish_memory(
+    cfg: RLPreferencePairsConfig,
+    cycle: int,
+    encode: Encoder,
+    observe: Callable[[History], None] | None = None,
+) -> Path:
     """Run (12) after training and atomically publish the pending History."""
     out_dir = REPO / cfg.out_dir / f"{cycle:06d}"
     run = json.loads((out_dir / "run.json").read_text())
@@ -172,6 +179,8 @@ def publish_memory(cfg: RLPreferencePairsConfig, cycle: int, encode: Encoder) ->
     final_keys(history, out_dir / "work", encode)
     history.age_unused()
     history.cleanup(cfg.capacity, out_dir / "cleanup.json")
+    if observe is not None:
+        observe(history)
     published = history.publish(cycle)
     write_json(out_dir / "run.json", run | {"phase": "history", "complete": True})
     return published

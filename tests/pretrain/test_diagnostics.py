@@ -290,7 +290,7 @@ def test_policy_suite_step_pooled_action_and_empirical_oracle():
     assert got["zero_shift"] == pytest.approx(0.7)
     r = (0.375, 0.625)
     assert got["empirical_constant_oracle"] == pytest.approx(
-        -0.75 * math.log(r[0]) - 1.25 * math.log(r[1])
+        -r[0] * math.log(r[0]) - r[1] * math.log(r[1])
     )
 
 

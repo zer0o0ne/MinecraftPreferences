@@ -17,7 +17,7 @@ from progress_bars import tqdm_defaults
 import mcpref.vlm.client
 from mcpref.preferences.labels import main
 
-from .config_files import TINY, write_config
+from .config_files import ACYCLIC, DIAGNOSTICS, TINY, write_config
 from .labels_oracle import Expected
 from .labels_world import ANSWERS, HAND, pool_run, write_pool
 
@@ -92,6 +92,8 @@ class Site(Expected):
         }
         self.at("vlm").parent.mkdir(parents=True, exist_ok=True)
         self.at("vlm").write_text(yaml.safe_dump(vlm))
+        write_config(self.at("diagnostics"), DIAGNOSTICS)
+        write_config(self.at("acyclic"), ACYCLIC)
         write_pool(self.at("pool_dir"), self.shards, run or pool_run(self.shards))
 
     def run(self, patch=None, argv=None) -> Run:

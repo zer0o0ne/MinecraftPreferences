@@ -1,9 +1,16 @@
 """(3), (5) of specs/perception-data.md: calls of the classifier gamma (needed frames, then
 the GUI states of each drawn clip; at most once per frame, chunks of classifier_batch, no
-empty call, RGB views, serialised) and `accept` rejecting a clip."""
+empty call, RGB fallback or the classifier's YUV capability, serialised) and `accept`
+rejecting a clip."""
+
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from vpt.action_lines import episode as action_episode
+
+from mcpref.clips.episode import accept, classify_frames, serialised
+from mcpref.gui.actions import excluded_states
 
 from .collect_gamma import Classifier
 from .collect_world import Ep
@@ -42,6 +49,66 @@ def test_classifier_gets_the_rgb_view_of_each_frame(make_site):
     gamma = site.run(per_episode=3)
     assert gamma.bad == [] and gamma.calls[0] == [("a", 2), ("a", 7)]
     assert gamma.by_stem() == site.expected(per_episode=3).calls
+
+
+def test_yuv_capability_gets_raw_frames_in_the_same_chunks():
+    """A capable gamma gets raw YUV, not an RGB conversion; serialised keeps its capability."""
+
+    class Gamma:
+        def __init__(self):
+            self.calls = []
+
+        def __call__(self, frames):
+            raise AssertionError("RGB fallback used for a YUV-capable classifier")
+
+        def classify_yuv(self, frames):
+            self.calls.append(frames)
+            return [f"class{x[0]}" for x in frames]
+
+    gamma = Gamma()
+    cfg = SimpleNamespace(classifier_batch=2, width=4, height=4)
+    pipe = SimpleNamespace(cfg=cfg, classify=serialised(gamma))
+    frames = {t: bytes([t]) * 24 for t in (1, 2, 3)}
+    classes = {}
+    classify_frames(pipe, frames, [3, 1, 2], classes)
+    assert gamma.calls == [[frames[3], frames[1]], [frames[2]]]
+    assert classes == {3: "class3", 1: "class1", 2: "class2"}
+
+
+def test_accept_retains_previous_gui_exclusions():
+    class Gamma:
+        def classify_yuv(self, frames):
+            return ["other" if x == b"\x01" else "inv" for x in frames]
+
+    pipe = SimpleNamespace(cfg=SimpleNamespace(classifier_batch=2), classify=Gamma())
+    lines, frames, classes, excluded = (
+        action_episode("w @ @ w"),
+        {1: b"\x01", 2: b"\x02"},
+        {},
+        set(),
+    )
+    cut = frozenset()
+    assert not accept(pipe, lines, frames, classes, cut, [1], excluded=excluded)
+    assert not accept(pipe, lines, frames, classes, cut, [1, 2], excluded=excluded)
+    assert accept(pipe, lines, frames, classes, cut, [2], excluded=excluded)
+    assert excluded == set(excluded_states(lines, classes, cut)) == {1}
+
+
+def test_episode_computes_gui_spans_once(make_site, monkeypatch):
+    from mcpref.clips import episode
+    from mcpref.gui import actions
+
+    original, calls = actions.spans, []
+
+    def counted(lines):
+        calls.append(len(lines))
+        return original(lines)
+
+    monkeypatch.setattr(actions, "spans", counted)
+    monkeypatch.setattr(episode, "spans", counted)
+    site = make_site(episodes={"6xx": [Ep("data/7.0/a.mp4", "wiiwwwiiw")]})
+    site.run()
+    assert calls == [9]
 
 
 def rejecting(cls: str) -> dict:

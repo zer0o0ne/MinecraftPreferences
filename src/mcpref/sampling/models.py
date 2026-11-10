@@ -42,7 +42,13 @@ def load_pretrained(cfg: SamplingConfig) -> SamplingModules:
     policy = load_policy_config(REPO / pretrain.policy)
     preference = load_preference_config(REPO / pretrain.preference)
     built = build_modules(
-        perception, masks, policy, preference, paired=True, device=pretrain.device
+        perception,
+        masks,
+        policy,
+        preference,
+        paired=True,
+        device=pretrain.device,
+        latent_init_scale=pretrain.latent_init_scale,
     )
     path = REPO / pretrain.out_dir / "model.pt"
     weights = torch.load(path, map_location="cpu", weights_only=True)

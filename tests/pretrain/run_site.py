@@ -39,8 +39,21 @@ PREFERENCE = preference_cfg(history=2, width=4, heads=2, hidden=6)  # L_P = 2 <=
 class PhiFloat32(PhiStart):
     """The fake phi giving Z in float32, the dtype of the modules `main` builds."""
 
-    def forward(self, clips: list) -> torch.Tensor:
-        return super().forward(clips).float()
+    def __init__(self):
+        super().__init__()
+        self.head = torch.nn.Sequential(torch.nn.Linear(2, 2, dtype=torch.float32))
+
+    def forward(self, clips: list, states=None) -> torch.Tensor:
+        return super().forward(clips, states).float()
+
+    def groups(self) -> dict:
+        groups = super().groups()
+        groups["phi_head"] = [*groups["phi_head"], self.head[-1].weight]
+        groups["phi_head_no_decay"] = [
+            *groups["phi_head_no_decay"],
+            self.head[-1].bias,
+        ]
+        return groups
 
 
 @dataclass

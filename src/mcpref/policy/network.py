@@ -8,7 +8,7 @@ from torch import Tensor
 from mcpref.policy.config import PolicyConfig
 from mcpref.policy.targets import next_actions, weights
 from mcpref.pretrain.clip import Clip
-from mcpref.transformer.layers import Layer, decay_groups, mlp, rms_norm
+from mcpref.transformer.layers import Layer, decay_groups, mlp, rms_norm, rope_positions
 
 
 class LayerC(Layer):
@@ -80,7 +80,7 @@ class Policy(torch.nn.Module):
         n = min(self.history, Y.shape[1])
         Y, C = Y[:, -n:], C[:, -n:]
         H = self.embed(Y) + self.executed(self.dropped(Y, C))
-        pos = torch.arange(1 - n, 1, device=Y.device)
+        pos = rope_positions(n, Y.device)
         for layer in self.layers:
             H = layer(H, pos)
         return self.norm(H)
@@ -93,13 +93,24 @@ class Policy(torch.nn.Module):
         """(6): the shift in z of action a[...] at readout R[...], shape (..., D)."""
         return self.dynamics(torch.cat([R, self.actions(a)], dim=-1))
 
-    def forward(self, Z: Tensor, clips: list[Clip]) -> tuple[Tensor, Tensor]:
-        """(7): the logits (m, L, |A|) and the shifts of the next actions (m, L, D), C
-        by (1)."""
+    def clip_readout(self, Z: Tensor, C: Tensor) -> Tensor:
+        """(7): the last L_pi rows ending at each state, independently per state."""
+        L = Z.shape[1]
+        if self.history == L:
+            return self.readout(Z, C)
+        if self.history == 1:
+            R = self.readout(Z.flatten(0, 1)[:, None], C.flatten(0, 1)[:, None])
+            return R.reshape(Z.shape[0], L, -1)
+        rows = [self.readout(Z[:, : s + 1], C[:, : s + 1])[:, -1] for s in range(L)]
+        return torch.stack(rows, dim=1)
+
+    def forward(self, Z: Tensor, clips: list[Clip]) -> tuple[Tensor, Tensor, Tensor]:
+        """(7): logits, next-action shifts and the shared input weights by (1)."""
         C = np.stack([weights(clip, self.index) for clip in clips])
         a = np.stack([next_actions(clip, self.index) for clip in clips])
-        R = self.readout(Z, torch.tensor(C, dtype=Z.dtype, device=Z.device))
-        return self.logits(R), self.shift(R, torch.tensor(a, device=Z.device))
+        C = torch.tensor(C, dtype=Z.dtype, device=Z.device)
+        R = self.clip_readout(Z, C)
+        return self.logits(R), self.shift(R, torch.tensor(a, device=Z.device)), C
 
     def groups(self) -> dict[str, list[torch.nn.Parameter]]:
         """(11): pi - the weights of the Linears and E, pi_no_decay - the gains, each in

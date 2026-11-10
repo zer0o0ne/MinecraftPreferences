@@ -108,10 +108,9 @@ def test_policy_dropout_disabled_and_training_mode_restored(tmp_path, masks):
 
 
 def reference_function():
-    import mcpref.pretrain.loop as loop_module
-    from mcpref.pretrain import reference_eval
+    from mcpref.pretrain import steps
 
-    return (loop_module, loop_module.evaluate_reference) if hasattr(loop_module, "evaluate_reference") else (reference_eval, reference_eval.evaluate_reference)  # fmt: skip
+    return steps, steps.evaluate_reference_event
 
 
 def cadence_loop(tmp_path, keep=1):
@@ -130,7 +129,7 @@ def test_cadence_checkpoint_first_call_counts_and_no_off_cadence_final(tmp_path)
         return real(cfg, modules, reference, run, step)
 
     result = loop.run(
-        mods, patch=lambda mp: mp.setattr(target, "evaluate_reference", wrapped)
+        mods, patch=lambda mp: mp.setattr(target, "evaluate_reference_event", wrapped)
     )
     from progress_bars import Bar, screen
 
@@ -141,17 +140,42 @@ def test_cadence_checkpoint_first_call_counts_and_no_off_cadence_final(tmp_path)
         "000001",
     ]
     metrics = json.loads((loop.out / "reference/000001/metrics.json").read_text())
+    later_pairs = json.loads((loop.out / "reference/000001/pairs.json").read_text())
     assert metrics["step"] == 5 and not (loop.out / "reference/000002").exists()
+    assert len(later_pairs) == 2
+    assert all(
+        pair["delta_joint"] == pair["joint_post"] - pair["baseline"]
+        for pair in later_pairs
+    )
+    assert all(
+        pair["delta_only_phi"] == pair["only_phi_post"] - pair["baseline"]
+        for pair in later_pairs
+    )
+    diagnostic_records = [
+        json.loads(path.read_text())
+        for path in (loop.repo / "w/diagnostics/pretrain").glob("*/metrics.json")
+    ]
+    late_initial = next(
+        record
+        for record in diagnostic_records
+        if record["id"] == "reference:1:train:initial"
+    )
+    assert (
+        late_initial["joined"]["condition"] == metrics["conditions"]["initial"]["train"]
+    )
+    assert late_initial["joined"]["condition"]["losses"]["P"] is not None
+    assert late_initial["metrics"]["P"]["n"] == 0
+    assert late_initial["metrics"]["P"]["reason"] == "empty_pair_population"
     assert (
         mods["phi"].calls == 20
     )  # 2 initial + 10 training + 2 due pairs + 6 selected counterfactual calls
 
 
 def test_positive_reference_progress_has_creation_and_close_states(tmp_path):
-    from progress_bars import assert_progress
+    from progress_bars import Bar, assert_bars
 
     result = cadence_loop(tmp_path).run()
-    assert_progress(result.err)
+    assert_bars(result.err, [Bar("pretrain reference", 2, 2, "pair")])
 
 
 def test_resume_recomputes_only_missing_latest_reference(tmp_path):
@@ -166,7 +190,7 @@ def test_resume_recomputes_only_missing_latest_reference(tmp_path):
         raise Interrupted("before reference publication")
 
     cut.run(
-        patch=lambda mp: mp.setattr(target, "evaluate_reference", interrupt),
+        patch=lambda mp: mp.setattr(target, "evaluate_reference_event", interrupt),
         raises=Interrupted,
     )
     assert (cut.checkpoint_dir(4) / "losses.json").exists()
@@ -193,8 +217,14 @@ def test_resume_recomputes_only_missing_latest_reference(tmp_path):
     selected = sum(entry["step"] > 5 for entry in selection["steps"])
     assert mods["phi"].calls == 2 + remaining + 2 * selected
     for shard in ("000000", "000001"):
-        for name in ("selection.json", "baselines.json", "initial.pt", "metrics.json"):
-            if shard == "000001" and name != "metrics.json":
+        for name in (
+            "selection.json",
+            "baselines.json",
+            "initial.pt",
+            "metrics.json",
+            "pairs.json",
+        ):
+            if shard == "000001" and name not in ("metrics.json", "pairs.json"):
                 continue
             assert (cut.out / "reference" / shard / name).read_bytes() == (
                 whole.out / "reference" / shard / name
@@ -225,6 +255,7 @@ def test_resume_at_completed_due_step_prints_already_done_without_reevaluation(
     loop.run()
     (loop.out / "model.pt").unlink()
     shutil.rmtree(loop.checkpoint_dir(5))
+    shutil.rmtree(loop.repo / "w/diagnostics")
     before = (loop.out / "reference/000001/metrics.json").read_bytes()
     mods = loop.modules()
     result = loop.run(mods)
@@ -242,6 +273,48 @@ def test_resume_rejects_reference_gap_or_future_shard(tmp_path, problem):
         shutil.rmtree(loop.out / "reference/000001")
     else:
         shutil.copytree(loop.out / "reference/000001", loop.out / "reference/000002")
+    with pytest.raises(RuntimeError):
+        loop.run()
+
+
+def test_legacy_shard_zero_resumes_metrics_only_without_backfill(tmp_path):
+    loop = cadence_loop(tmp_path, keep=20)
+    loop.run()
+    (loop.out / "reference/000000/pairs.json").unlink()
+    shutil.rmtree(loop.out / "reference/000001")
+    shutil.rmtree(loop.repo / "w/diagnostics")
+    shutil.rmtree(loop.checkpoint_dir(5))
+    (loop.out / "model.pt").unlink()
+    result = loop.run(loop.modules())
+    assert result.error is None
+    assert (loop.out / "reference/000001/metrics.json").is_file()
+    assert not list((loop.out / "reference").rglob("pairs.json"))
+
+    from mcpref.pretrain.reference import load_initial
+
+    from .reference_oracle import select
+
+    reference = load_initial(loop.out / "reference")
+    assert reference.initial_pairs is None
+    (_, _), cfg, run = select(loop)
+    from mcpref.pretrain.reference_eval import evaluate_reference
+
+    from .index_run import repo_root
+
+    with repo_root(loop.repo):
+        metrics, pairs = evaluate_reference(cfg, loop.modules(), reference, run, 5)
+    assert pairs is None
+    initial = json.loads((loop.out / "reference/000000/metrics.json").read_text())
+    assert metrics["conditions"]["initial"] == initial["conditions"]["initial"]
+
+
+@pytest.mark.parametrize("problem", ["new_missing", "legacy_extra"])
+def test_resume_rejects_mixed_reference_pair_layouts(tmp_path, problem):
+    loop = cadence_loop(tmp_path)
+    loop.run()
+    (loop.out / "model.pt").unlink()
+    shard = "000001" if problem == "new_missing" else "000000"
+    (loop.out / "reference" / shard / "pairs.json").unlink()
     with pytest.raises(RuntimeError):
         loop.run()
 

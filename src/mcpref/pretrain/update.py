@@ -25,9 +25,29 @@ def lr_factor(t: int, total: int, warmup: int, floor: float) -> float:
 def adamw(cfg: PretrainConfig, groups: Groups) -> torch.optim.AdamW:
     """(6): AdamW with one parameter group per group, its eta_q and lambda_q."""
     param_groups = [{"params": params} | cfg.groups[q] for q, params in groups.items()]
-    return torch.optim.AdamW(
-        param_groups, betas=cfg.betas, eps=cfg.adam_eps, amsgrad=False, maximize=False
+    fused = torch.device(cfg.device).type == "cuda"
+    optimizer = torch.optim.AdamW(
+        param_groups,
+        betas=cfg.betas,
+        eps=cfg.adam_eps,
+        amsgrad=False,
+        maximize=False,
+        foreach=False,
+        capturable=False,
+        differentiable=False,
+        fused=fused,
     )
+
+    def restore_backend(_, state: dict) -> dict:
+        return state | {
+            "param_groups": [
+                group | {"foreach": False, "fused": fused}
+                for group in state["param_groups"]
+            ]
+        }
+
+    optimizer.register_load_state_dict_pre_hook(restore_backend)
+    return optimizer
 
 
 def update(

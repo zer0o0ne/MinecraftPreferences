@@ -14,7 +14,6 @@ from mcpref.perception.meta import meta_text
 from mcpref.perception.phi import Phi
 from mcpref.rl_pairs.types import Encoder, StateRef
 from mcpref.sampling.config import SamplingConfig
-from mcpref.sampling.history import append
 from mcpref.sampling.shards import RawHistory, read_history
 
 
@@ -25,7 +24,7 @@ def encode_raw(
     states: int,
     action_count: int,
 ) -> LatentHistory:
-    """Encode independent stream segments, then append preceding-action rows."""
+    """Encode independent stream segments and construct the final action-history tail."""
     boundaries = [0]
     boundaries += [
         i for i in range(1, len(raw.states)) if (raw.restart + i) % states == 0
@@ -41,12 +40,12 @@ def encode_raw(
         ]
         latents.append(phi.frames_z(frames, metas))
     z = torch.cat(latents, dim=0)
-    history = None
-    for row, action in zip(z, raw.actions):
-        history = append(history, row, action, action_count, states)
-    if history is None:
-        raise ValueError("a raw history must contain at least one state")
-    return history
+    tail = raw.actions[-states:]
+    Y = z[-states:].unsqueeze(0)
+    C = z.new_zeros((1, len(tail), action_count + 1))
+    columns = [action_count if action is None else action for action in tail]
+    C[0, list(range(len(tail))), columns] = 1
+    return LatentHistory(Y, C)
 
 
 def encode_ref(

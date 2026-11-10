@@ -218,5 +218,5 @@ def test_repeated_epochs_recompute_histories_but_keep_behavior_and_labels(
     assert len(behavior) == len(labels) == 2
     assert all(value.equal(BEHAVIOR) for value in behavior)
     assert labels == [[{"p": 0.75, "inc": 0}]] * 2
-    assert len([event for event in events if event[0] == "P"]) == 6
+    assert len([event for event in events if event[0] == "P"]) == 4
     assert len([event for event in events if event[0] == "encode"]) >= 8

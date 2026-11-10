@@ -13,7 +13,7 @@ Pairs = list[tuple[int, int, dict]]
 
 @dataclass(frozen=True)
 class MicroResult:
-    sums: list[float]
+    sums: list[Tensor]
     components: dict
     preference: tuple[Tensor, Tensor, list[dict]] | None
     policy: tuple[Tensor, Tensor, Tensor, dict[str, Tensor], Tensor]
@@ -21,36 +21,39 @@ class MicroResult:
     weighted: dict[str, Tensor | None]
 
 
-def component_sums(terms: dict[str, Tensor]) -> dict[str, float]:
-    return {
-        key: value.detach().sum().item()
-        for key, value in terms.items()
-        if key != "total"
-    }
+def component_sums(terms: dict[str, Tensor]) -> dict[str, Tensor]:
+    return {key: value.detach().sum() for key, value in terms.items() if key != "total"}
 
 
 def micro_loss(
     modules: dict[str, torch.nn.Module],
     clips: list[Clip],
     pairs: Pairs,
-    factors: tuple[float, float, float],
+    factors: tuple[float, float, float, float],
+    compile_tensors: bool = False,
 ) -> tuple[torch.Tensor, MicroResult]:
     """The original scalar, exact weighted components and detached observations."""
-    k_factor, w_pi, r_factor = factors
-    Z = modules["phi"](clips)
-    phi_terms, phi_diagnostics = modules["phi_loss"].terms(Z, clips)
+    k_factor, w_phi, w_pi, r_factor = factors
+    states = modules["phi"].prepare(clips)
+    Z = modules["phi"](clips, states)
+    compiled = compile_tensors and Z.is_cuda
+    phi_loss = (
+        modules["phi_loss"].compiled_terms if compiled else modules["phi_loss"].terms
+    )
+    phi_terms, phi_diagnostics = phi_loss(Z, clips, states)
     pi_out = modules["pi"](Z, clips)
-    pi_terms, valid = modules["pi_loss"].terms(pi_out, Z, clips)
-    q, current = modules["pi_loss"].diagnostic_targets()
-    zero_shift = modules["pi_loss"].zero_shift(Z, valid["shift_valid"])
+    pi_terms, valid, policy_diagnostics = modules["pi_loss"].terms(pi_out, Z, clips)
+    q = policy_diagnostics["q"]
+    current = policy_diagnostics["current"]
+    zero_shift = policy_diagnostics["zero_shift"]
     l_phi, l_pi = phi_terms["total"], pi_terms["total"]
-    loss = k_factor * (l_phi + w_pi * l_pi).sum()
+    loss = k_factor * (w_phi * l_phi + w_pi * l_pi).sum()
     weighted = {
-        "phi": k_factor * l_phi.sum(),
+        "phi": k_factor * w_phi * l_phi.sum(),
         "pi": k_factor * w_pi * l_pi.sum(),
         "P": None,
     }
-    sums = [l_phi.detach().sum().item(), l_pi.detach().sum().item(), 0.0]
+    sums = [l_phi.detach().sum(), l_pi.detach().sum(), l_phi.detach().new_zeros(())]
     components = {
         "phi": component_sums(phi_terms),
         "pi": component_sums(pi_terms),
@@ -59,12 +62,15 @@ def micro_loss(
     preference = None
     if pairs:
         i_a, i_b, labels = (list(x) for x in zip(*pairs))
+        preference_loss = (
+            modules["P_loss"].compiled_terms if compiled else modules["P_loss"].terms
+        )
         preference_out = modules["P"](Z[i_a], Z[i_b])
-        preference_terms = modules["P_loss"].terms(preference_out, labels)
+        preference_terms = preference_loss(preference_out, labels)
         l_P = preference_terms["total"]
         loss = loss + r_factor * l_P.sum()
         weighted["P"] = r_factor * l_P.sum()
-        sums[2] = l_P.detach().sum().item()
+        sums[2] = l_P.detach().sum()
         components["P"] = component_sums(preference_terms)
         preference = (preference_out[0].detach(), preference_out[1].detach(), labels)
     policy = (

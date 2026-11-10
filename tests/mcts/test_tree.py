@@ -5,7 +5,15 @@ import dataclasses
 import pytest
 import torch
 
-from mcpref.mcts.tree import LatentHistory, Node, Tree, advance, history, quantize
+from mcpref.mcts.tree import (
+    LatentHistory,
+    Node,
+    Tree,
+    advance,
+    history,
+    model_history,
+    quantize,
+)
 
 from .helpers import assert_values, latent_history, node
 
@@ -16,6 +24,7 @@ def test_tree_real_initialises_public_state():
     assert [field.name for field in dataclasses.fields(LatentHistory)] == ["Y", "C"]
     assert [field.name for field in dataclasses.fields(Node)] == [
         "z", "x", "action", "prior", "shift", "parent", "children", "n", "mean", "value",
+        "policy",
     ]  # fmt: skip
     with pytest.raises(dataclasses.FrozenInstanceError):
         real.Y = real.C
@@ -151,3 +160,88 @@ def test_advance_accumulates_exact_residuals_until_rebase():
     assert tree.root is not second
     assert_values(tree.root.x, torch.zeros(1))
     assert_values(tree.root.z, torch.zeros(1))
+
+
+def test_advance_switches_root_policy_to_the_new_root():
+    tree = Tree(latent_history([[0.0]]))
+    tree.root_policy = [0.1, 0.9]
+    child = node([0.4], x=[0.4], action=0, parent=tree.root)
+    child.policy = [0.6, 0.4]
+    tree.root.children = [child]
+    advance(tree, 0, latent_history([[0.0]]), torch.ones(1), 1.0)
+    assert tree.root is child and tree.root_policy == [0.6, 0.4]
+    advance(tree, 1, latent_history([[5.0]]), torch.ones(1), 0.1)
+    assert tree.root is not child and tree.root_policy is None
+
+
+def oracle_history(real, path):
+    Y, C = real.Y, real.C
+    for child in path:
+        row = torch.zeros(1, 1, C.shape[-1], dtype=C.dtype)
+        row[0, 0, child.action] = 1.0
+        Y = torch.cat((Y, child.z.reshape(1, 1, -1)), dim=1)
+        C = torch.cat((C, row), dim=1)
+    return Y, C
+
+
+def make_path(tree, length):
+    path = []
+    parent = tree.root
+    for i in range(length):
+        child = node(
+            [100.0 + i, 200.0 - i],
+            x=[1000.0 + i, 2000.0 - i],
+            action=(2 * i + 1) % 5,
+            parent=parent,
+        )
+        parent.children = [child]
+        path.append(child)
+        parent = child
+    return path
+
+
+@pytest.mark.parametrize(
+    ("base_rows", "path_rows", "L_pi", "L_P"),
+    [(9, 7, 3, 2), (2, 8, 4, 6), (8, 2, 20, 1), (5, 0, 2, 3)],
+)
+def test_model_history_is_exact_independent_full_history_tail(
+    base_rows, path_rows, L_pi, L_P
+):
+    real = latent_history([[float(i), -float(i)] for i in range(base_rows)], actions=5)
+    tree = Tree(real)
+    path = make_path(tree, path_rows)
+    leaf = path[-1] if path else tree.root
+    base_before = (real.Y.clone(), real.C.clone())
+    expected_Y, expected_C = oracle_history(real, path)
+    n = min(max(L_pi, L_P + 1), base_rows + path_rows)
+
+    result = model_history(tree, leaf, L_pi, L_P)
+
+    torch.testing.assert_close(result.Y, expected_Y[:, -n:], rtol=0, atol=0)
+    torch.testing.assert_close(result.C, expected_C[:, -n:], rtol=0, atol=0)
+    full = history(tree, leaf)
+    torch.testing.assert_close(full.Y, expected_Y, rtol=0, atol=0)
+    torch.testing.assert_close(full.C, expected_C, rtol=0, atol=0)
+    assert tree.base is real
+    torch.testing.assert_close(real.Y, base_before[0], rtol=0, atol=0)
+    torch.testing.assert_close(real.C, base_before[1], rtol=0, atol=0)
+
+
+def test_advance_after_model_tail_keeps_complete_long_base():
+    real = latent_history([[float(i), -float(i)] for i in range(8)], actions=5)
+    tree = Tree(real)
+    path = make_path(tree, 7)
+    leaf_Y, leaf_C = oracle_history(real, path)
+    assert model_history(tree, path[-1], 3, 2).Y.shape[1] == 3
+    expected_Y, expected_C = oracle_history(real, path[:1])
+    observed = latent_history([path[0].x.tolist()], actions=5)
+
+    advance(tree, path[0].action, observed, torch.ones(2, dtype=torch.float64), 0.1)
+
+    assert tree.root is path[0]
+    assert tree.base.Y.shape[1] == real.Y.shape[1] + 1
+    torch.testing.assert_close(tree.base.Y, expected_Y, rtol=0, atol=0)
+    torch.testing.assert_close(tree.base.C, expected_C, rtol=0, atol=0)
+    full = history(tree, path[-1])
+    torch.testing.assert_close(full.Y, leaf_Y, rtol=0, atol=0)
+    torch.testing.assert_close(full.C, leaf_C, rtol=0, atol=0)

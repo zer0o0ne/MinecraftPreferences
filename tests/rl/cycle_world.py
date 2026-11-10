@@ -99,7 +99,7 @@ def prepare(tmp_path, repo, **changes):
     repository(root, repo)
     initial = modules()
     model = {name: initial[name].state_dict() for name in ["phi", "pi", "P"]}
-    pretrain = root / "data/pretrain"
+    pretrain = root / "data/pretrain-scaled-init"
     pretrain.mkdir(parents=True)
     write_json(pretrain / "run.json", {"complete": True})
     torch.save(model, pretrain / "model.pt")

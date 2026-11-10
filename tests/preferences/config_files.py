@@ -8,9 +8,9 @@ import yaml
 from mcpref.preferences.labels import VlmLabelsConfig, load_config
 
 FIELDS = (  # Notation: VlmLabelsConfig, fields in this order
-    "pool_dir", "vlm", "out_dir", "instruction", "first", "second", "question",
-    "answer_line", "prefix", "inventory_line", "item_line", "no_items", "answers",
-    "frames", "stride", "samples", "seed",
+    "pool_dir", "vlm", "out_dir", "diagnostics", "acyclic", "instruction", "first",
+    "second", "question", "answer_line", "prefix", "inventory_line", "item_line",
+    "no_items", "answers", "frames", "stride", "samples", "seed",
 )  # fmt: skip
 INSTRUCTION = (
     "You will see two moments, A and B, from the same game of Minecraft Java Edition 1.16 "
@@ -41,6 +41,8 @@ STARTING = {
     "pool_dir": "data/pair_clips",
     "vlm": "configs/vlm.yaml",
     "out_dir": "data/pair_votes",
+    "diagnostics": "configs/diagnostics.yaml",
+    "acyclic": "configs/acyclic.yaml",
     "instruction": INSTRUCTION,
     "first": "Moment A:\n",
     "second": "Moment B:\n",
@@ -70,6 +72,8 @@ TINY = {  # the shown frames j = 1, 3, 5 of L = 6 states; two samples per order
     "out_dir": "w/votes",
     "pool_dir": "w/pair_clips",
     "vlm": "w/vlm.yaml",
+    "diagnostics": "w/diagnostics.yaml",
+    "acyclic": "w/acyclic.yaml",
     "instruction": "I\n",
     "first": "A:\n",
     "second": "B:\n",
@@ -85,11 +89,36 @@ TINY = {  # the shown frames j = 1, 3, 5 of L = 6 states; two samples per order
 TINY_THETA = "Pick:\nBETTER=A is better\nWORSE=A is worse\nSAME=même, été"
 TINY_THETA += "\nINCOMPARABLE=cannot compare"
 
+DIAGNOSTICS = {
+    "out_dir": "w/diagnostics", "seed": 0, "bootstrap_samples": 20,
+    "ci_level": 0.95, "min_cluster_count": 2, "quantiles": [0.05, 0.5, 0.95],
+}
+ACYCLIC = {
+    "votes_dir": "w/votes", "out_dir": "w/labels",
+    "diagnostics": "w/acyclic-diagnostics.yaml",
+    "weights": {"BETTER": 0.8, "WORSE": 0.2, "SAME": 0.5, "INCOMPARABLE": None},
+    "refusal_share": 0.5,
+}
+
 
 def write_config(path: Path, mapping: dict) -> Path:
     """The mapping as a YAML file, keys in its order."""
     path.write_text(yaml.safe_dump(mapping, sort_keys=False, allow_unicode=True))
     return path
+
+
+def linked_configs(directory) -> dict:
+    directory = Path(directory)
+    write_config(directory / "diagnostics.yaml", DIAGNOSTICS | {
+        "out_dir": f"{directory.name}/diagnostics"
+    })
+    write_config(directory / "acyclic.yaml", ACYCLIC | {
+        "diagnostics": f"{directory.name}/diagnostics.yaml"
+    })
+    return {
+        "diagnostics": f"{directory.name}/diagnostics.yaml",
+        "acyclic": f"{directory.name}/acyclic.yaml",
+    }
 
 
 def load(tmp_path: Path, base: dict = TINY, **changes) -> VlmLabelsConfig:

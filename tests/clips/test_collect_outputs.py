@@ -4,6 +4,7 @@ options/, clips/), the indices, run.json with its counts, no staging."""
 
 import dataclasses
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -83,6 +84,20 @@ def test_clip_files_are_the_state_frames_and_the_span_lines(site):
         span = jsonl(e.script, e.session).split(b"\n")[st[0] : st[-1] + 1]
         lines = shards[f"{clip}/lines.jsonl"]
         assert lines == b"".join(x + b"\n" for x in span) and "é".encode() in lines
+
+
+def test_clip_frame_writes_continue_after_partial_writev(site, monkeypatch):
+    calls = []
+
+    def partial(fd, buffers):
+        data = b"".join(buffers)
+        calls.append(len(data))
+        return os.write(fd, data[: max(1, len(data) // 3)])
+
+    monkeypatch.setattr("mcpref.clips.store.os.writev", partial)
+    site.run()
+    assert calls and len(calls) > len(site.rows())
+    assert_outputs(site, site.expected())
 
 
 def test_options_files_are_byte_identical_for_reasons_after_empty(site):

@@ -6,6 +6,7 @@ of `FAILURES`; others propagate; `argparse`; `python -m mcpref.preferences.label
 import os
 import subprocess
 import sys
+import tempfile
 
 import pytest
 import yaml
@@ -13,7 +14,7 @@ from progress_bars import assert_aborted
 
 from mcpref.preferences.labels import main
 
-from .config_files import TINY
+from .config_files import TINY, linked_configs
 from .labels_world import HAND, pool_run
 
 
@@ -108,21 +109,23 @@ def test_python_m(tmp_path):
         "data/__no_such_vlm_labels_input__",
         "data/__no_such_vlm_labels_out__",
     )
-    root = os.path.join(os.path.dirname(__file__), "../..")
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
     assert not os.path.exists(os.path.join(root, missing))
-    config = {**TINY, "pool_dir": missing, "out_dir": out, "vlm": "configs/vlm.yaml"}
-    path = tmp_path / "c.yaml"
-    path.write_text(yaml.safe_dump(config))
-    env = {k: v for k, v in os.environ.items() if not k.startswith("TQDM_")}
-    proc = subprocess.run(
-        [sys.executable, "-m", "mcpref.preferences.labels", str(path)],
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
+    with tempfile.TemporaryDirectory(dir=root) as work:
+        config = {**TINY, "pool_dir": missing, "out_dir": out,
+                  "vlm": "configs/vlm.yaml", **linked_configs(work)}  # fmt: skip
+        path = tmp_path / "c.yaml"
+        path.write_text(yaml.safe_dump(config))
+        env = {k: v for k, v in os.environ.items() if not k.startswith("TQDM_")}
+        proc = subprocess.run(
+            [sys.executable, "-m", "mcpref.preferences.labels", str(path)],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
     assert proc.returncode == 1 and proc.stdout == "", proc.stderr
     message = f"mcpref.preferences.labels: RuntimeError: {missing} is not complete"
     assert proc.stderr.splitlines()[-1] == message

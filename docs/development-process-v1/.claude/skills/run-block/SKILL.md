@@ -19,5 +19,5 @@ Agents start without this conversation. A brief gives exactly the stage's input 
    | redundancy or style only | 4 |
    | test contradicts the spec | 5, with the contradiction |
    | agent declined its task as too large | same stage, one brief per proposed subtask; 2 if the split changes the spec |
-7. **Report** to the user in Russian: what was implemented, files, test results, open points. Before committing (after the user's OK), delegate both full-suite tiers to the tester: `uv run pytest` and `uv run pytest -m slow`.
+7. **Report** to the user in Russian: what was implemented, files, relevant test results, open points. Run only tests relevant to the block and touched interfaces during the cycle. Delegate both full-suite tiers (`uv run pytest` and `uv run pytest -m slow`) only after the user's explicit command to run the full suite, even before committing; never run them automatically.
 8. **Retro**: every agent mistake a rule would have prevented becomes a rule in the smallest skill that owns it; merge or split skills when that makes them shorter.

@@ -1,6 +1,8 @@
 """Notation of specs/pretrain.md: a clip of perception-data's format read from disk."""
 
 import json
+from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,3 +28,25 @@ def read_clip(path: Path, states: int, width: int, height: int) -> Clip:
     pieces = (path / "lines.jsonl").read_bytes().split(b"\n")[:-1]
     lines = [json.loads(piece.decode("utf-8")) for piece in pieces]
     return Clip(frames, width, height, info, lines)
+
+
+def _read_paths(read: Callable[[str], Clip], paths: list[str]) -> list[Clip]:
+    return [read(path) for path in paths]
+
+
+def prefetch_clips(
+    read: Callable[[str], Clip], batches: Iterable[list[str]]
+) -> Iterator[list[Clip]]:
+    """Read only the current and next batches, preserving consumption and error order."""
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        paths = iter(batches)
+        try:
+            first = next(paths)
+        except StopIteration:
+            return
+        clips = _read_paths(read, first)
+        for next_paths in paths:
+            future = executor.submit(_read_paths, read, next_paths)
+            yield clips
+            clips = future.result()
+        yield clips

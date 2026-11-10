@@ -24,6 +24,7 @@ from .loop_configs import MODULE_CONFIGS, SCREENS
 from .loop_modules import NAMES, D
 from .loop_world import LABELED, NO_PAIRS, VALIDATION_PAIRS
 from .run_site import POLICY, PREFERENCE, PREFIX, Site, recorder
+from .test_run import policy_oracle
 
 
 def last_line(o) -> str:
@@ -56,7 +57,9 @@ def test_modules_given_to_the_loop(tmp_path, repo):
     assert cfg == load_config(site.path) and path == site.path
     assert list(modules) == list(NAMES)
     assert len(site.built) == 1 and site.built[0].alpha == (1.0, 2.0)
-    want = Policy(POLICY, 2, masks.names).state_dict()
+    want = policy_oracle(
+        POLICY, masks.names, (1.0, 2.0), cfg.latent_init_scale
+    ).state_dict()
     got = modules["pi"].state_dict()
     assert list(got) == list(want) and all(torch.equal(got[k], want[k]) for k in want)
 
@@ -139,7 +142,7 @@ def test_index_not_complete(tmp_path, repo):
 
 LENGTH_CASES = {  # changes of states, policy, preference, index_dir -> the message
     "L = 2": ({"states": 2}, {}, {}, "w/index has clips of 2 states, the policy needs at least 3"),
-    "L_pi other": ({}, {"history": 4}, {}, "the policy history 4 differs from the clip length 3 of w/index"),
+    "L_pi other": ({}, {"history": 4}, {}, "the policy history 4 exceeds the clip length 3 of w/index"),
     "L_P above L": ({}, {}, {"history": 4}, "the preference history 4 exceeds the clip length 3 of w/index"),
     "X as written": ({"states": 2}, {}, {}, "w/index/ has clips of 2 states, the policy needs at least 3"),
 }  # fmt: skip

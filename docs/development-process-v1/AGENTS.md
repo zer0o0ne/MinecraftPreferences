@@ -1,0 +1,71 @@
+# MinecraftPreferences
+
+Minecraft agent training pipeline (MineStudio, VPT dataset). Stages and data flow: `specs/00-overview.md`.
+
+## Task size
+- Before starting a task, judge whether you can complete all of it at full quality, meeting every requirement of the task and of this file.
+- If not, decline it explicitly; never do it partially or at reduced quality. Propose instead subtasks that together are roughly equivalent to it, each of which you can complete at full quality, and name where they differ from the original.
+- If this becomes clear only mid-task, stop: report what is done and propose subtasks for the rest.
+- Judge harshly: splitting a task you could have completed whole is better than taking one you then fail to complete at full quality.
+
+## Orchestrator (main session only)
+- The main session coordinates agents; it never writes `src/` or `tests/` itself. Talk to the user in Russian; write files in English.
+- The Task size rules include the linked protocol. Propose subtasks to the user and start only once the user accepts them.
+- Every piece of logic the user requests is a block and follows `.claude/skills/run-block/SKILL.md`; specification clarification follows `.claude/skills/clarify-spec/SKILL.md`.
+- Agent roles: `.claude/agents/analyst.md`, `.claude/agents/spec-auditor.md`, `.claude/agents/prototyper.md`, `.claude/agents/refactorer.md`, `.claude/agents/tester.md`. Their preloaded skills are part of the procedure; do not duplicate those rules here.
+- Edit permissions and the commit boundary: `CLAUDE.md`, section “What you may change”.
+
+## Source of truth
+- A block is defined by `specs/<block>.md` with `Status: approved`: math, interface, library mapping, out-of-scope.
+- Code implements exactly the approved spec: every equation and interface item has code; every piece of code traces to the spec.
+- Ambiguity, contradiction or a missing detail → stop and report it. Never pick one of several plausible readings, never approximate, never smooth over a corner case.
+- Specs change only with the user's approval.
+- Keep specs concise and proportional to the change: state the required math, interfaces and behaviour directly, without auxiliary protocols, frameworks or validation work the user did not request.
+- Keep documentation current with every approved decision and implementation. In the same change, update the owning spec, `specs/00-overview.md`, `specs/00-questions.md`, and every cross-reference affected by stage ownership, block boundaries, interfaces, data flow, artifacts or status. Search for stale references to superseded blocks and remove contradictions between old and new rules. A block is not done while the documents disagree.
+
+## Exactness
+Correct = the expectation of every computed quantity equals the spec.
+- Free: dtype, mixed precision, device; mathematically identical rewrites (e.g. `logsumexp`).
+- Only if the spec says so: eps, clamps, clipping, normalization, stop-grad, reductions, sampling schemes, math-affecting library defaults.
+
+## Libraries
+Allowed (MineStudio, transformers, RL frameworks, igraph, …) if:
+- every call that computes part of the math was vetted by reading its source and is listed in the spec's library mapping;
+- every math-relevant argument is passed explicitly; versions are pinned.
+
+## Code
+Minimal code that expresses the spec.
+- No parameter, option, flag, branch, class or config field the spec does not require. No handling of inputs outside the spec's domain.
+- No duplicated logic: search `src/` before writing; reuse or extract.
+- Complex logic is a composition of short functions, ideally one per equation or term.
+- Soft limits (hold in ≥95% of cases): file ≤ 200 lines, function ≤ 30 lines, ≤ 10 modules per directory.
+- Names follow the spec's notation and terms.
+- Docstrings: one or two lines linking code to math, e.g. `"""Eq. (5) of specs/ppo.md: METRA skill loss."""`. Tensor shapes only where the spec fixes them. No comments that restate code.
+- Code is device-agnostic: the device comes from the caller.
+- Data: every dataset a block builds or reads (the per-item results of a loop over work items, see Progress, intermediate ones included, e.g. a sampling plan) lives on disk in shards, never only in memory. A builder writes each shard as soon as it is complete, atomically (temporary name, then rename), together with the state needed to continue (e.g. an RNG state); a rerun keeps the complete shards, continues after the last one and gives the same result as an uninterrupted run. A reader loads shards from disk, one at a time; stages pass datasets as paths, never as in-memory objects. Memory holds only the shards in work and the state needed to continue, never a whole dataset. Data recomputed from stored data and seeds within a couple of seconds on real data is state, not a dataset: a rerun recomputes it. Training is by mini-batches, the mini-batch of each iteration within one shard; a training loop writes a checkpoint (weights, optimizer and RNG states, position in the data) as a shard every N steps (a config field), and a rerun continues from the last one. Exception to the same result: the VLM's answers (`specs/vlm-client.md`) depend on the batch composition, so a rerun repeats the requests and seeds, not the answers. A spec names each dataset and checkpoint of its block (skill `spec-format`).
+- Progress: a loop over work items (frames, episodes, files, requests, classes, …; not a wait for a condition) that can run longer than a couple of seconds on real data shows a `tqdm` progress bar on stderr, with its total when known. Nested loops get one bar, on the outermost loop, whose total sums the work items of the inner loops (items of different kinds count as steps); a parallel loop gets one bar for all its workers, advanced as items finish. A loop with nothing to do draws no bar and prints one line on stderr instead: `<desc>: already done` when an earlier run did the work, else `<desc>: nothing to do`. Bars replace per-item progress lines, write nothing to stdout or output files and change no result; an error message is the last line of stderr, below the bars. A spec names each bar of its block (skill `spec-format`).
+
+## Layout
+```
+specs/                                 block specs; 00-overview.md is the pipeline map
+src/mcpref/<subpackage>/<module>.py    never deeper
+tests/<subpackage>/test_<module>.py    mirrors src/
+tests/scripts/test_<script>.py         mirrors scripts/
+configs/<block>.yaml                   every exact number of a block; loaded into the block's frozen dataclass
+scripts/<action>.sh                    every action the user runs on the Spark; bash, thin wrappers over `python -m mcpref.…` (exception: `setup_env.sh` bootstraps uv and Python in bash and reads `configs/spark-env.yaml` itself)
+data/                                  gitignored: datasets, checkpoints, logs, all run outputs
+```
+Code holds no numeric defaults; secrets come from environment variables, never from configs.
+Code shared by several stages lives in a subpackage named after what it is (e.g. `rl/`), never `utils`/`common`/`helpers`.
+
+## Tests
+- This machine is the Spark: a GPU is available (apart from the memory already used by other processes), so tests may run on GPU. GPU-only tests are marked `@pytest.mark.gpu` and run here; the tier budgets below still apply.
+- Tests check the spec, not the implementation: oracles never reuse `src/` logic.
+- Two tiers. Fast (default `uv run pytest`): each test ≤ 5 s (fails at 10 s), the whole tier ≤ 10 min. Slow (`@pytest.mark.slow`, `uv run pytest -m slow`): statistical checks, long scenarios; each test ≤ 5 min (fails at 10 min), the whole tier ≤ 1 h.
+- During development, run only tests relevant to the current block and the interfaces it touches. Full-suite runs (`uv run pytest`, `uv run pytest -m slow`) are periodic and require the user's explicit command; they are never an automatic development-stage or pre-commit check.
+- Tests are independent (no shared files, no order) and run in parallel (`pytest-xdist`). They do not depend on committed configs: every field material to a scenario is set explicitly in a test-owned config or fixture.
+- A test over its budget is a defect: make it cheaper (smaller samples within the oracle's tolerance, vectorised code, tiny models) or, if it is inherently long, mark it slow; slow block code goes to refactoring.
+- Test code follows the Code rules.
+
+## Commands
+`uv sync` · `uv run pytest` · `uv run ruff format` · `uv run ruff check --fix`

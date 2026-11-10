@@ -76,11 +76,14 @@ def node(
 
 
 class FakePolicy:
-    def __init__(self, logits=None, shifts=None, *, logits_fn=None, shift_fn=None):
+    def __init__(
+        self, logits=None, shifts=None, *, logits_fn=None, shift_fn=None, history=1000
+    ):
         self.logits_values = logits
         self.shift_values = shifts
         self.logits_fn = logits_fn
         self.shift_fn = shift_fn
+        self.history = history
         self.readout_calls = []
         self.logit_calls = []
         self.shift_calls = []
@@ -88,6 +91,8 @@ class FakePolicy:
 
     def readout(self, Y, C):
         self.grad_modes.append(torch.is_grad_enabled())
+        n = min(self.history, Y.shape[1])
+        Y, C = Y[:, -n:], C[:, -n:]
         self.readout_calls.append((Y.clone(), C.clone()))
         return Y[:, -1:, :]
 
@@ -108,20 +113,25 @@ class FakePolicy:
 
 
 class FakePreference:
-    def __init__(self, logits=(0.0, 0.0), *, logits_fn=None):
+    def __init__(self, logits=(0.0, 0.0), *, logits_fn=None, history=1000):
         self.logits = logits
         self.logits_fn = logits_fn
+        self.history = history
         self.calls = []
         self.grad_modes = []
 
     def __call__(self, Ya, Yb):
         self.grad_modes.append(torch.is_grad_enabled())
+        Ya = Ya[:, -min(self.history, Ya.shape[1]) :]
+        Yb = Yb[:, -min(self.history, Yb.shape[1]) :]
         self.calls.append((Ya.clone(), Yb.clone()))
         values = self.logits_fn(Ya, Yb) if self.logits_fn is not None else self.logits
         return tuple(torch.as_tensor(v, dtype=Ya.dtype).reshape(1) for v in values)
 
 
 class UnexpectedCalls:
+    history = 1000
+
     def __init__(self):
         self.calls = 0
 

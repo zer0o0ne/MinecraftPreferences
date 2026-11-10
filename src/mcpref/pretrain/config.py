@@ -21,7 +21,7 @@ from mcpref.training.devices import device
 POSITIVE_INTS = ("epochs", "batch", "micro_batch", "checkpoint_steps")
 POSITIVE_INTS += ("keep_checkpoints", "diagnostic_window", "reference_steps")
 POSITIVE_INTS += ("reference_pairs", "calibration_bins")
-POSITIVE_REALS = ("w_pi", "w_P", "grad_clip", "adam_eps")
+POSITIVE_REALS = ("w_pi", "w_P", "grad_clip", "adam_eps", "latent_init_scale")
 CONFIGS = ("perception", "action_mask", "policy", "preference", "diagnostics")
 PATHS = ("index_dir", "out_dir", *CONFIGS)
 GROUP_KEYS = {"lr", "weight_decay"}
@@ -50,6 +50,8 @@ class PretrainConfig:
     inc_classification_threshold: float
     quantiles: tuple[float, ...]
     action_copy_eps: float
+    latent_init_scale: float
+    w_phi: float
     w_pi: float
     w_P: float
     groups: dict[str, dict[str, float]]
@@ -127,6 +129,11 @@ def load_config(path: Path) -> PretrainConfig:
     device(raw["device"])
     read = {k: positive_int(k, raw[k]) for k in POSITIVE_INTS}
     read |= {k: positive(k, raw[k]) for k in POSITIVE_REALS}
+    read["w_phi"] = number("w_phi", raw["w_phi"])
+    if not read["w_phi"] >= 0:
+        raise ValueError("w_phi must be >= 0")
+    if not math.isfinite(read["latent_init_scale"]):
+        raise ValueError("latent_init_scale must be finite")
     read |= {"seed": integer("seed", raw["seed"], 0, 2**32 - 1)}
     read |= {"warmup_steps": integer("warmup_steps", raw["warmup_steps"], 0, math.inf)}
     lr_floor = number("lr_floor", raw["lr_floor"])

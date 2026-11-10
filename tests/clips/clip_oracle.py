@@ -1,18 +1,13 @@
 """Naive references of specs/clips.md: Notation (kappa, S, F, Omega, gui_t) and (1)-(5),
-composed of the public functions of specs/vpt-actions.md exactly as the spec composes them."""
+with independent naive interval and mode oracles from specs/vpt-actions.md."""
 
 from dataclasses import dataclass
 
 import numpy as np
+from vpt.actions_reference import interval as action_interval
+from vpt.actions_reference import modes as action_modes
 
-from mcpref.vpt.actions import (
-    Segment,
-    foreign_lines,
-    interval_actions,
-    mode_frames,
-    riding_lines,
-    segments,
-)
+from mcpref.vpt.actions import Segment, foreign_lines, riding_lines, segments
 
 
 @dataclass(frozen=True)
@@ -39,14 +34,15 @@ def truth(lines, gui, start, actions) -> Truth:
     segs = sorted(world + list(gui.segments), key=lambda s: s.first)
     flags = foreign_lines(lines) | riding_lines(lines)
     foreign = frozenset(int(k) for k in np.flatnonzero(flags)) | gui.foreign
-    modes = mode_frames(lines, start)
+    modes = np.array(action_modes(lines, start), dtype=bool)
     return Truth(lines, segs, gui.cut, foreign, modes, actions.turn_deg, kappa)
 
 
 def interval_truth(tr: Truth, p: int, delta: int) -> tuple[list[str], bool]:
     """(1): the actions of interval p and n >= 1 with no line of F in a..b-1."""
     a, b = tr.kappa[p], tr.kappa[p + delta]
-    acts = interval_actions(tr.segs, tr.lines, a, b, tr.cut, tr.turn_deg)
+    segs = [(s.action, s.first, s.last) for s in tr.segs]
+    acts = action_interval(segs, tr.lines, a, b, tr.cut, tr.turn_deg)
     return acts, len(acts) >= 1 and all(k not in tr.foreign for k in range(a, b))
 
 

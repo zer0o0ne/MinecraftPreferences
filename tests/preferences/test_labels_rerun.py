@@ -6,7 +6,7 @@ import json
 
 import pytest
 from pretrain.index_run import interrupting
-from progress_bars import assert_aborted, screen, states
+from progress_bars import Bar, assert_aborted, assert_bars, screen, states
 
 from .labels_oracle import inputs_bar, label_bar, same_prompts
 from .labels_run import PREFIX
@@ -33,15 +33,24 @@ def test_interrupted_by_ask_many_and_continued(make_site):
     site = make_site()
     site.fake.fail_on = 2
     first = site.run()
-    above = assert_aborted(first.code, first.err)
+    assert first.code == 1
     assert first.err.splitlines()[-1] == f"{PREFIX}RuntimeError: HTTP 400: rejected"
-    assert above == [inputs_bar(4), label_bar(3, 5)]
+    assert_bars(
+        first.err,
+        [inputs_bar(4), Bar("diagnostics targets", 2, 4, "shard"), label_bar(3, 5)],
+    )
     expected = hand_tree(site)
     assert site.tree() == {"run.json": site.expected_run(), **shards_of(expected, 2)}
     kept = inodes(site)
     again = site.run()
     assert again.code == 0, again.err
-    assert screen(again.err) == [inputs_bar(4), label_bar(5, 5)]
+    expected_bars = [
+        inputs_bar(4),
+        Bar("diagnostics targets", 4, 4, "shard"),
+        label_bar(5, 5),
+    ]
+    for bar in expected_bars:
+        assert states(again.err, bar.desc)[-1] == bar
     assert states(again.err, "label")[0] == label_bar(3, 5)
     calls = site.fake.calls[:1] + site.fake.calls[2:]
     asked = [(c.seeds, c.prompts) for c in calls]
@@ -59,11 +68,21 @@ def test_interrupted_after_the_last_shard(make_site):
     complete."""
     site = make_site()
     first = site.run(interrupting("label", 5))
-    assert assert_aborted(first.code, first.err) == [inputs_bar(4), label_bar(5, 5)]
+    assert first.code == 1
+    assert_bars(first.err, [inputs_bar(4)])
+    targets = states(first.err, "diagnostics targets")
+    assert targets[0] == Bar("diagnostics targets", 0, 4, "shard")
+    assert targets[-1].n in {3, 4}
+    label = states(first.err, "label")
+    assert label[0] == label_bar(0, 5) and label[-1].n in {4, 5}
     assert site.tree() == {**hand_tree(site), "run.json": site.expected_run()}
     again = site.run()
     assert again.code == 0, again.err
-    assert screen(again.err) == [inputs_bar(4), "label: already done"]
+    assert screen(again.err) == [
+        inputs_bar(4),
+        "label: already done",
+        "diagnostics targets: already done",
+    ]
     assert len(site.fake.calls) == 3 and site.tree() == hand_tree(site)
 
 
@@ -74,7 +93,11 @@ def test_rest_without_comparisons(make_site):
     assert site.run(interrupting("label", 3)).code == 1
     again = site.run()
     assert again.code == 0, again.err
-    assert screen(again.err) == [inputs_bar(2), "label: nothing to do"]
+    assert screen(again.err) == [
+        inputs_bar(2),
+        "label: nothing to do",
+        Bar("diagnostics targets", 2, 2, "shard"),
+    ]
     assert len(site.fake.calls) == 1
     total = HAND_LABELS[0]
     assert site.tree() == site.expected_tree(HAND_LABELS[:2], total, HAND_ENDS[:2])
@@ -88,7 +111,11 @@ def test_rerun_of_a_finished_run(make_site):
     kept = inodes(site)
     again = site.run()
     assert again.code == 0, again.err
-    assert screen(again.err) == [inputs_bar(4), "label: already done"]
+    assert screen(again.err) == [
+        inputs_bar(4),
+        "label: already done",
+        "diagnostics targets: already done",
+    ]
     assert len(site.fake.calls) == 3
     assert site.tree() == hand_tree(site) and inodes(site) == kept
 

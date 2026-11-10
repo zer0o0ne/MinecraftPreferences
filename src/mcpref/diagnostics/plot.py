@@ -9,7 +9,9 @@ from pathlib import Path
 from tqdm import tqdm
 
 from mcpref.diagnostics.artifacts import (
+    GROUP_PANELS,
     PLOT_REGISTRY,
+    group_registry,
     iter_all_records,
     iter_records,
     pretrain_registry,
@@ -18,6 +20,13 @@ from mcpref.diagnostics.artifacts import (
 from mcpref.shards.store import make_dirs, part_path, publish
 
 COLORS = ("#2563eb", "#dc2626", "#059669", "#7c3aed", "#ea580c", "#0891b2")
+ALIASES = {
+    "preference.loss": "P",
+    "policy.loss": "pi",
+    "perception.loss": "phi",
+    "factual_shift.loss": "shift",
+    "metra.loss": "metra",
+}
 
 
 def at(value: dict, path: str):
@@ -29,12 +38,19 @@ def at(value: dict, path: str):
 
 
 def source(record: dict, key: str):
+    key = ALIASES.get(key, key)
     if key.startswith("joined."):
         return at(record, key)
-    if not key.startswith("preference."):
-        return record["metrics"].get(key)
-    path = key.removeprefix("preference.")
+    if key in record["metrics"]:
+        return record["metrics"][key]
     joined = record["joined"]
+    if key in joined.get("outputs", {}):
+        return joined["outputs"][key]
+    if key in joined.get("condition", {}).get("losses", {}):
+        return joined["condition"]["losses"][key]
+    if not key.startswith("preference."):
+        return None
+    path = key.removeprefix("preference.")
     if "condition" in joined:
         return at(joined["condition"]["preference"], path)
     window = joined.get("window_preference")
@@ -43,7 +59,8 @@ def source(record: dict, key: str):
 
 def scalar(value):
     if isinstance(value, dict):
-        return value.get("value", value.get("mean"))
+        result = value.get("value")
+        return value.get("mean") if result is None else result
     return value if isinstance(value, (int, float)) else None
 
 
@@ -52,15 +69,11 @@ def xy(record: dict, key: str, axis: str):
     if value is None:
         return None
     if axis == "index":
-        x = record["index"]
-    else:
-        steps = record["context"]["steps"]
-        if len(steps) != 1:
-            raise RuntimeError(
-                "pretrain-preference requires exactly one optimizer step"
-            )
-        x = steps[0]
-    return x, value
+        return record["index"], value
+    steps = record["context"]["steps"]
+    if len(steps) != 1:
+        raise RuntimeError("diagnostic plots require exactly one source step")
+    return steps[0], value
 
 
 def svg(
@@ -73,8 +86,7 @@ def svg(
         ymin, ymax = min(y for _, y in found), max(y for _, y in found)
     else:
         xmin, xmax, ymin, ymax = 0, 1, 0, 1
-    xspan = xmax - xmin or 1
-    yspan = ymax - ymin or 1
+    xspan, yspan = xmax - xmin or 1, ymax - ymin or 1
 
     def pixel(point):
         x, y = point
@@ -125,6 +137,27 @@ def selected(entry: dict, record: dict, name: str) -> bool:
     )
 
 
+def curve_points(record: dict, entry: dict, name: str) -> list[tuple[float, float]]:
+    axis = entry["x"]
+    if axis == "bin":
+        return [
+            (row["bin"], row[name])
+            for row in record["joined"].get("reliability", [])
+            if row[name] is not None
+        ]
+    if axis == "matched_mass":
+        return [
+            (row["mass"], float(row[name]))
+            for row in record["joined"].get("matched_reliability", [])
+        ]
+    if axis.startswith("km:"):
+        milestone = axis.removeprefix("km:")
+        rows = record["joined"].get("kaplan_meier", {}).get(milestone, [])
+        return [(row["time"], row[name]) for row in rows]
+    point = xy(record, name, axis)
+    return [] if point is None else [point]
+
+
 def collect(records: Iterable[dict], entries: Sequence[dict]) -> dict:
     points = {
         entry["file"]: {name: [] for name in entry["series"]} for entry in entries
@@ -134,31 +167,30 @@ def collect(records: Iterable[dict], entries: Sequence[dict]) -> dict:
             for name in entry["series"]:
                 if not selected(entry, record, name):
                     continue
-                point = xy(record, name, entry["x"])
-                if point is not None:
-                    points[entry["file"]][name].append(point)
+                points[entry["file"]][name].extend(curve_points(record, entry, name))
     for series in points.values():
         for values in series.values():
             values.sort()
     return points
 
 
-def facets(records: Iterable[dict]) -> list[tuple[str, str]]:
-    return sorted(
-        {
-            (record["context"]["split"], record["context"]["condition"])
-            for record in records
-        }
-    )
+def facets(
+    records: Iterable[dict], series: Sequence[str] | None = None
+) -> list[tuple[str, str]]:
+    found = set()
+    for record in records:
+        if series is None or any(source(record, name) is not None for name in series):
+            found.add((record["context"]["split"], record["context"]["condition"]))
+    return sorted(found)
 
 
 def write_group(plot_dir: Path, entries: Sequence[dict], points: dict) -> None:
     for entry in entries:
-        split = entry["file"].split("__")
+        parts = entry["file"].split("__")
         group = (
             entry["group"]
-            if len(split) == 2
-            else "/".join(part.removesuffix(".svg") for part in split[1:])
+            if len(parts) == 2
+            else "/".join(part.removesuffix(".svg") for part in parts[1:])
         )
         write_plot(
             plot_dir / entry["file"], group, entry["series"], points[entry["file"]]
@@ -170,18 +202,38 @@ def main(argv: Sequence[str]) -> int:
     parser.add_argument("diagnostics_dir", type=Path)
     parser.add_argument("plot_dir", type=Path)
     args = parser.parse_args(argv)
+    groups = ("target-provenance", "pretrain-preference", *GROUP_PANELS)
     found = facets(iter_records(args.diagnostics_dir, "pretrain"))
-    preference_entries = pretrain_registry(found)
-    with tqdm(total=2, desc="diagnostics plot", unit="group", file=sys.stderr) as bar:
-        target_points = collect(iter_all_records(args.diagnostics_dir), PLOT_REGISTRY)
-        write_group(args.plot_dir, PLOT_REGISTRY, target_points)
-        bar.update()
-        preference_points = collect(
-            iter_records(args.diagnostics_dir, "pretrain"), preference_entries
+    registries = {
+        "target-provenance": list(PLOT_REGISTRY),
+        "pretrain-preference": pretrain_registry(found),
+    }
+    generic_facets = {group: set() for group in GROUP_PANELS}
+    update_groups = set()
+    for record in iter_all_records(args.diagnostics_dir):
+        facet = (record["context"]["split"], record["context"]["condition"])
+        update_groups.update(
+            name for name in record["metrics"] if name.startswith("update.group.")
         )
-        write_group(args.plot_dir, preference_entries, preference_points)
-        bar.update()
-    plots = [*PLOT_REGISTRY, *preference_entries]
+        for group, panels in GROUP_PANELS.items():
+            series = [name for panel in panels.values() for name in panel]
+            if any(source(record, name) is not None for name in series):
+                generic_facets[group].add(facet)
+    record = None
+    for group in GROUP_PANELS:
+        registries[group] = group_registry(
+            group,
+            sorted(generic_facets[group]),
+            sorted(update_groups) if group == "update-health" else (),
+        )
+    plots = [entry for group in groups for entry in registries[group]]
+    points = collect(iter_all_records(args.diagnostics_dir), plots)
+    with tqdm(
+        total=len(groups), desc="diagnostics plot", unit="group", file=sys.stderr
+    ) as bar:
+        for group in groups:
+            write_group(args.plot_dir, registries[group], points)
+            bar.update()
     stream_index(args.diagnostics_dir, iter_all_records(args.diagnostics_dir), plots)
     return 0
 

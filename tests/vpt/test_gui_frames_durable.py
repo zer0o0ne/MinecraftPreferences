@@ -1,7 +1,7 @@
 """Durability of the outputs of `main run` in specs/vpt-gui-frames.md (Library mapping:
-specs/shards.md): `make_dirs` of indices/ and frames/ in every run, `write_file` of each
-index and of run.json, `write_shard` of each plan shard, `publish` of each frame. `os.fsync`
-is recorded with the entries under out_dir at each call, as in specs/shards.md Tests."""
+specs/shards.md): first-use directory chains, `write_file` of each index and run.json,
+`write_shard` of each plan shard, `publish` of each frame. `os.fsync` is recorded with
+the entries under out_dir at each call, as in specs/shards.md Tests."""
 
 import os
 import sys
@@ -66,11 +66,10 @@ def test_fresh_run_syncs_every_output(site, monkeypatch):
     assert all(published(log, out / "frames" / f"{r['id']}.yuv") for r in rows)
 
 
-def test_rerun_makes_its_directories_durable_again(site, monkeypatch):
-    """make_dirs of indices/ and frames/ in every run, also with nothing to do."""
+def test_rerun_skips_unchanged_indices_and_frames_chains(site, monkeypatch):
+    """A rerun still calls make_dirs, but does not repeat unchanged ancestor chains."""
     assert main(["run", site.config()]) == 0
     out = site.out.resolve()
     log = record_syncs(monkeypatch, out)
     assert main(["run", site.config()]) == 0
-    made = ancestors(out / "indices") | ancestors(out / "frames")
-    assert all(synced(log, a) for a in made)
+    assert not any(path in {out / "indices", out / "frames"} for path, _ in log)

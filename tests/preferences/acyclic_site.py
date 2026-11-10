@@ -19,6 +19,7 @@ from mcpref.preferences.acyclic import main
 
 from . import acyclic_oracle as oracle
 from .acyclic_world import DYADIC, HAND, POOL, name, votes_run, write_votes
+from .config_files import DIAGNOSTICS
 
 PREFIX = "mcpref.preferences.acyclic: "
 CONFIG = {  # AcyclicConfig in field order
@@ -71,6 +72,9 @@ class Site:
     def write(self, run: dict | None) -> None:
         """The config and V_l with `run` as its run.json (None: absent)."""
         self.write_config()
+        diagnostics = self.repo / self.config["diagnostics"]
+        diagnostics.parent.mkdir(parents=True, exist_ok=True)
+        diagnostics.write_text(yaml.safe_dump(DIAGNOSTICS, sort_keys=False))
         write_votes(self.votes, self.world, run)
 
     def run(self, patch: Callable | None = None, argv: list | None = None) -> Run:

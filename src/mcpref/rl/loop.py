@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 from mcpref import REPO
 from mcpref.clips.collect import load_config as load_perception_data_config
+from mcpref.diagnostics.runtime import DiagnosticRun, diagnostic_bar
 from mcpref.mcts.config import load_config as load_mcts_config
 from mcpref.perception.config import load_config as load_perception_config
 from mcpref.ppo.config import load_config as load_ppo_config
@@ -19,6 +20,13 @@ from mcpref.pretrain.update import adamw, update
 from mcpref.rl.checkpoints import STATEFUL, restore, write_checkpoint
 from mcpref.rl.config import RLCycleConfig
 from mcpref.rl.loss import ROLES, step_gradients
+from mcpref.rl.producer import (
+    accept,
+    capture_gradients,
+    empty_observations,
+    register,
+    stage,
+)
 from mcpref.sampling.config import load_config as load_sampling_config
 from mcpref.shards.store import complete_shards, shard_path
 from mcpref.training.schedule import remaining
@@ -100,12 +108,22 @@ def train(
     directory = index_dir.parent / "checkpoints"
     optimizer, position, j = started(cfg, modules, groups, directory, initial_optimizer)
     stateful = {name: modules[name] for name in STATEFUL}
-    if position["step"] == total:
-        print("rl cycle: already done", file=sys.stderr)
-        write_model(index_dir.parent / "model.pt", stateful)
-        return
     sampling = load_sampling_config(REPO / cfg.sampling)
     pretrain = load_pretrain_config(REPO / sampling.pretrain)
+    diagnostics = DiagnosticRun.load(REPO / pretrain.diagnostics)
+    cycle = int(index_dir.parent.name)
+    event_start = sum(
+        json.loads(
+            (index_dir.parent.parent / f"{previous:06d}/index/run.json").read_text()
+        )["steps"]
+        for previous in range(cycle)
+    )
+    register(diagnostics, cfg, cycle, event_start, position["step"])
+    if position["step"] == total:
+        print("rl cycle: already done", file=sys.stderr)
+        accept(diagnostics, cfg, cycle, event_start, total)
+        write_model(index_dir.parent / "model.pt", stateful)
+        return
     perception = load_perception_config(REPO / pretrain.perception)
     states = load_perception_data_config(REPO / sampling.perception_data).states
     ppo = load_ppo_config(REPO / cfg.ppo)
@@ -128,6 +146,9 @@ def train(
             t += 1
             items = [shard_items[i] for i in positions]
             optimizer.zero_grad(set_to_none=True)
+            observations = empty_observations() | {
+                "action_count": len(modules["pi"].names)
+            }
             entry = step_gradients(
                 items,
                 modules,
@@ -147,8 +168,24 @@ def train(
                 w_metra=cfg.w_metra,
                 w_P=cfg.w_P,
                 micro_batch=cfg.micro_batch,
+                observations=observations,
             )
+            gradients = capture_gradients(groups)
             lr = update(cfg, optimizer, groups, t, total)
+            stage(
+                diagnostics,
+                cfg,
+                cycle,
+                event_start,
+                t,
+                j,
+                observations,
+                gradients,
+                groups,
+                optimizer,
+                lr,
+                entry,
+            )
             losses.append({"step": t} | entry | {"lr": lr})
             if t % cfg.checkpoint_steps == 0 or t == total:
                 write_checkpoint(
@@ -160,8 +197,12 @@ def train(
                     torch.device(cfg.device),
                     losses,
                 )
+                accept(diagnostics, cfg, cycle, event_start, t)
                 prune(directory, j, cfg.keep_checkpoints)
                 j, losses = j + 1, []
             bar.set_postfix({key: entry[key] for key in (*ROLES, "loss")})
+            bar.update()
+    with diagnostic_bar("diagnostics rl", cycle + 1, cycle, "cycle") as bar:
+        if bar is not None:
             bar.update()
     write_model(index_dir.parent / "model.pt", stateful)

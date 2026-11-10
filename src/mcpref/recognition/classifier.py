@@ -24,6 +24,7 @@ from mcpref.recognition.stored import (
 )
 from mcpref.runs.files import finished_run, sha256
 from mcpref.shards.store import shard_path
+from mcpref.vpt.yuv import yuv420p_to_rgb_at
 
 VARIANT = "d"
 Gathered = tuple[np.ndarray, np.ndarray]
@@ -61,11 +62,16 @@ class Model:
     pairs: dict[str, slice]
 
 
-def counts(x: np.ndarray, model: Model, tau: int) -> list[int]:
-    """(1): c of every pair, by one gather of the masks' pixels of x."""
-    gathered = x.reshape(-1, 3)[model.flat].astype(np.int16)
+def gathered_counts(gathered: np.ndarray, model: Model, tau: int) -> list[int]:
+    """(1): c of every pair from RGB values already gathered at model.flat."""
+    gathered = gathered.astype(np.int16)
     within = np.abs(gathered - model.t_i).max(axis=-1) <= tau
     return np.add.reduceat(within, model.starts, dtype=np.int64).tolist()
+
+
+def counts(x: np.ndarray, model: Model, tau: int) -> list[int]:
+    """(1): c of every pair, by one gather of the masks' pixels of x."""
+    return gathered_counts(x.reshape(-1, 3)[model.flat], model, tau)
 
 
 def class_scores(c: list[int], model: Model) -> dict[str, Fraction]:
@@ -84,6 +90,33 @@ def classify(
     """(1), (2): gui-masks (5) on the scores of each frame, independently of its batch."""
     return [
         predict(class_scores(counts(x, model, tau), model), order, theta, mu)
+        for x in frames
+    ]
+
+
+def classify_yuv(
+    frames: list[bytes],
+    model: Model,
+    order: list[str],
+    tau: int,
+    theta: Fraction,
+    mu: Fraction,
+    width: int,
+    height: int,
+) -> list[str]:
+    """(1), (2): the same classes from YUV samples gathered only at model.flat."""
+    return [
+        predict(
+            class_scores(
+                gathered_counts(
+                    yuv420p_to_rgb_at(x, width, height, model.flat), model, tau
+                ),
+                model,
+            ),
+            order,
+            theta,
+            mu,
+        )
         for x in frames
     ]
 
@@ -179,5 +212,15 @@ def load_classifier(
     tau, theta, mu = chosen[VARIANT][cfg.criterion]
     gamma = partial(
         classify, model=model, order=list(classes), tau=tau, theta=theta, mu=mu
+    )
+    gamma.classify_yuv = partial(
+        classify_yuv,
+        model=model,
+        order=list(classes),
+        tau=tau,
+        theta=theta,
+        mu=mu,
+        width=width,
+        height=height,
     )
     return gamma, identifier(tau, theta, mu, h_t, h_k)

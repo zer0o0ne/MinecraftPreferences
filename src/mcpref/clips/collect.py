@@ -172,14 +172,19 @@ def collect(cfg: PerceptionDataConfig, classify: Classify, classifier_id: str) -
     """Interface: (8) run.json checked and written, staging removed, (0) the indices,
     (7) the complete shards read, (1), (6) the plan continued, the counts added."""
     pipe = pipeline(cfg, classify)
-    out, header = pipe.out, run_header(pipe, classifier_id)
-    check_rerun(out / "run.json", header, OUTPUT_FIELDS, "")
-    write_file(out / "run.json", json_bytes(header))
-    remove(out / "staging")
-    with httpx.Client(headers={"x-ms-version": cfg.x_ms_version}) as client:
-        store_indices(client, cfg, out / "indices")
-        pools = initial_pools(cfg, out / "indices")
-        c, reasons = write_shards(pipe, client, resume(out / "shards", cfg.seed, pools))
-    remove(out / "staging")
-    counts = {"episodes": dict(reasons), "clips": c}
-    write_file(out / "run.json", json_bytes(header | counts))
+    try:
+        out, header = pipe.out, run_header(pipe, classifier_id)
+        check_rerun(out / "run.json", header, OUTPUT_FIELDS, "")
+        write_file(out / "run.json", json_bytes(header))
+        remove(out / "staging")
+        with httpx.Client(headers={"x-ms-version": cfg.x_ms_version}) as client:
+            store_indices(client, cfg, out / "indices")
+            pools = initial_pools(cfg, out / "indices")
+            c, reasons = write_shards(
+                pipe, client, resume(out / "shards", cfg.seed, pools)
+            )
+        remove(out / "staging")
+        counts = {"episodes": dict(reasons), "clips": c}
+        write_file(out / "run.json", json_bytes(header | counts))
+    finally:
+        pipe.close()

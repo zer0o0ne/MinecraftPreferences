@@ -82,8 +82,8 @@ def test_all_roles_match_float64_oracle_and_parameter_gradients(tmp_path, monkey
     assert_gradient_close(actual_grads, gradients(reference))
     assert actual["pi"].shift_calls == 2
     assert len([event for event in events if event[0] == "readout"]) == 3
-    assert len([event for event in events if event[0] == "P"]) == 5
-    reward_calls = [event for event in events if event[0] == "P"][:4]
+    assert len([event for event in events if event[0] == "P"]) == 3
+    reward_calls = [event for event in events if event[0] == "P"][:2]
     assert all(event[1] > event[2] for event in reward_calls)
     assert all(role in actual_grads for role in ["phi.scale", "metra.log_lambda"])
     assert any(name.startswith("pi.") for name in actual_grads)
@@ -168,3 +168,40 @@ def test_epoch_mean_is_global_role_normalization_with_unequal_role_counts(monkey
     global_sum, _ = expected([item for batch in batches for item in batch],
                              reference, 1, 2, 2, 1, WEIGHTS)  # fmt: skip
     assert sum(losses) / 2 == pytest.approx(global_sum.detach().item())
+
+
+def test_logged_scalars_transfer_once_after_last_backward(monkeypatch):
+    install(monkeypatch, [])
+    events, backwards = [], []
+    original_backward = torch.Tensor.backward
+    original_cpu = torch.Tensor.cpu
+
+    def backward(self, *args, **kwargs):
+        result = original_backward(self, *args, **kwargs)
+        backwards.append(None)
+        return result
+
+    def cpu(self, *args, **kwargs):
+        events.append(len(backwards))
+        return original_cpu(self, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "backward", backward)
+    monkeypatch.setattr(torch.Tensor, "cpu", cpu)
+    call([fresh(0), fresh(1), pending(2), preference()], modules())
+    assert events == [2]
+
+
+def test_metric_created_once_per_step(monkeypatch):
+    import mcpref.rl.loss as loss_module
+
+    install(monkeypatch, [])
+    real = loss_module.latent_metric
+    calls = []
+
+    def counting(*args):
+        calls.append(args)
+        return real(*args)
+
+    monkeypatch.setattr(loss_module, "latent_metric", counting)
+    call([fresh(0), fresh(1), pending(2), preference()], modules(), micro_batch=1)
+    assert len(calls) == 1

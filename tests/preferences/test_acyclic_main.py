@@ -6,6 +6,7 @@ raising with its resolved path); others propagate; `argparse`; `python -m`."""
 import os
 import subprocess
 import sys
+import tempfile
 
 import pytest
 import yaml
@@ -15,6 +16,7 @@ from progress_bars import assert_aborted
 from mcpref.preferences.acyclic import main
 
 from .acyclic_site import CONFIG, PREFIX, make_site
+from .config_files import linked_configs
 
 
 def last_line(r) -> str:
@@ -85,24 +87,27 @@ def test_python_m(tmp_path):
     """`python -m mcpref.preferences.acyclic <config>` runs main against the repository
     root: V_l absent there -> exit 1 with its message, the path as written."""
     missing = "data/__no_such_acyclic_input__"
-    assert not os.path.exists(os.path.join(os.path.dirname(__file__), "../..", missing))
-    path = tmp_path / "c.yaml"
-    config = {
-        **CONFIG,
-        "votes_dir": missing,
-        "out_dir": "data/__no_such_acyclic_output__",
-    }
-    path.write_text(yaml.safe_dump(config, sort_keys=False))
-    env = {k: v for k, v in os.environ.items() if not k.startswith("TQDM_")}
-    proc = subprocess.run(
-        [sys.executable, "-m", "mcpref.preferences.acyclic", str(path)],
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+    assert not os.path.exists(os.path.join(root, missing))
+    with tempfile.TemporaryDirectory(dir=root) as work:
+        linked = linked_configs(work)
+        config = {
+            **CONFIG, "votes_dir": missing,
+            "out_dir": "data/__no_such_acyclic_output__",
+            "diagnostics": linked["diagnostics"],
+        }
+        path = tmp_path / "c.yaml"
+        path.write_text(yaml.safe_dump(config, sort_keys=False))
+        env = {k: v for k, v in os.environ.items() if not k.startswith("TQDM_")}
+        proc = subprocess.run(
+            [sys.executable, "-m", "mcpref.preferences.acyclic", str(path)],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
     assert proc.returncode == 1 and proc.stdout == "", proc.stderr
     assert (
         proc.stderr.splitlines()[-1]

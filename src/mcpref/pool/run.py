@@ -100,19 +100,24 @@ def collect(
     """Interface: the check of (8') and run.json, staging removed, (0), (H), (P), (W),
     staging removed, then the counts added to run.json."""
     pipe = dataclasses.replace(pipeline(p, classify), out=REPO / cfg.out_dir)
-    out, header = pipe.out, run_header(cfg, pipe, classifier_id)
-    check_rerun(out / "run.json", header, P_FIELDS + OWN_FIELDS, "config.")
-    write_json(out / "run.json", header)
-    remove(out / "staging")
-    with httpx.Client(headers={"x-ms-version": p.x_ms_version}) as client:
-        store_indices(client, p, out / "indices")
-        pools = initial_pools(p, out / "indices")
-        store_sessions(cfg, p, client, out / "sessions", pools)
-    bases = {s: basedir for s, (basedir, _) in pools.items()}
-    sessions = session_pools(list(pools), out / "sessions")
-    totals = write_shards(cfg, pipe, resume(out / "shards", cfg.seed, sessions), bases)
-    remove(out / "staging")
-    write_json(out / "run.json", header | totals.counts())
+    try:
+        out, header = pipe.out, run_header(cfg, pipe, classifier_id)
+        check_rerun(out / "run.json", header, P_FIELDS + OWN_FIELDS, "config.")
+        write_json(out / "run.json", header)
+        remove(out / "staging")
+        with httpx.Client(headers={"x-ms-version": p.x_ms_version}) as client:
+            store_indices(client, p, out / "indices")
+            pools = initial_pools(p, out / "indices")
+            store_sessions(cfg, p, client, out / "sessions", pools)
+        bases = {s: basedir for s, (basedir, _) in pools.items()}
+        sessions = session_pools(list(pools), out / "sessions")
+        totals = write_shards(
+            cfg, pipe, resume(out / "shards", cfg.seed, sessions), bases
+        )
+        remove(out / "staging")
+        write_json(out / "run.json", header | totals.counts())
+    finally:
+        pipe.close()
 
 
 def main(argv: Sequence[str]) -> int:

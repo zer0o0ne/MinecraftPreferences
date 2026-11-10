@@ -147,4 +147,6 @@ def pretrain(
         if completed:
             register(cfg, diagnostics, data.total)
             load_initial(reference_dir(cfg))
+            with diagnostic_progress(cfg, data, diagnostics):
+                pass
         finish(data.total, cfg, diagnostics)

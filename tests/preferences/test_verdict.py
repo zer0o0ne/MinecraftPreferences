@@ -18,7 +18,9 @@ INVALID, NONE = "invalid", "no_answer"
 
 
 def cfg(weights: dict = START, tau=0.5) -> AcyclicConfig:
-    return AcyclicConfig("w/votes", "w/labels", weights, tau)
+    return AcyclicConfig(
+        "w/votes", "w/labels", "w/diagnostics.yaml", weights, tau
+    )
 
 
 # (labels in request order, tau, expected); START weights 1, .8, .6, .4, .2, 0, null
@@ -79,7 +81,7 @@ def test_config_loaded_from_yaml(tmp_path):
     `1`, `0` and refusal_share `3.0e-1` loaded by `load_config`."""
     path = tmp_path / "c.yaml"
     path.write_text(
-        'votes_dir: "v"\nout_dir: "o"\n'
+        'votes_dir: "v"\nout_dir: "o"\ndiagnostics: "d.yaml"\n'
         "weights:\n  X: 1.0e-1\n  Y: 0.9\n  ONE: 1\n  ZERO: 0\n  R: null\n"
         "refusal_share: 3.0e-1\n"
     )
@@ -98,7 +100,7 @@ def test_exact_value_is_the_shortest_repr_of_the_float_read(tmp_path):
     share 3/10 is not above tau."""
     path = tmp_path / "c.yaml"
     path.write_text(
-        'votes_dir: "v"\nout_dir: "o"\n'
+        'votes_dir: "v"\nout_dir: "o"\ndiagnostics: "d.yaml"\n'
         "weights:\n  UP: 0.69999999999999999\n  DOWN: 0.3\n  R: null\n"
         "refusal_share: 0.29999999999999999\n"
     )

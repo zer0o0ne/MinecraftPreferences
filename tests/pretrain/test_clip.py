@@ -2,11 +2,12 @@
 (Notation: Clip at p) on hand-written files."""
 
 import dataclasses
+from threading import Event
 
 import numpy as np
 import pytest
 
-from mcpref.pretrain.clip import Clip, read_clip
+from mcpref.pretrain.clip import Clip, prefetch_clips, read_clip
 
 LINES = (  # lines.jsonl: UTF-8, each line with its "\n"; U+2028 and NEL inside strings
     '{"tick": 0, "s": "été"}\n'
@@ -51,3 +52,42 @@ def test_clip_is_a_frozen_dataclass():
     clip = Clip(np.zeros((1, 6), np.uint8), 2, 2, {}, [])
     with pytest.raises(dataclasses.FrozenInstanceError):
         clip.width = 3
+
+
+def test_prefetch_preserves_order_and_never_reads_beyond_next():
+    reads, started, release = [], Event(), Event()
+
+    def read(path):
+        reads.append(path)
+        if path == "b":
+            started.set()
+            assert release.wait(2)
+        return path
+
+    batches = prefetch_clips(read, [["a"], ["b"], ["c"]])
+    assert next(batches) == ["a"]
+    assert started.wait(2)
+    assert reads == ["a", "b"]
+    release.set()
+    assert next(batches) == ["b"]
+    assert next(batches) == ["c"]
+    with pytest.raises(StopIteration):
+        next(batches)
+    assert reads == ["a", "b", "c"]
+
+
+def test_prefetch_propagates_error_at_normal_consumption_point():
+    reads, failure = [], ValueError("broken next clip")
+
+    def read(path):
+        reads.append(path)
+        if path == "bad":
+            raise failure
+        return path
+
+    batches = prefetch_clips(read, [["a"], ["bad"], ["not-read"]])
+    assert next(batches) == ["a"]
+    with pytest.raises(ValueError) as caught:
+        next(batches)
+    assert caught.value is failure
+    assert reads == ["a", "bad"]

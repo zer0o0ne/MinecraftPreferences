@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from classifier_world import Masks, both, load
 from masks_oracle import predict, score
+from vpt.test_yuv import exact_rgb, frame, upsampled
 
 W, H = 6, 4
 pytestmark = pytest.mark.usefixtures("away")
@@ -94,3 +95,32 @@ def test_frames_in_any_memory_layout(tmp_path, repo):
     views = [*big[:, ::2, ::2], *(np.asfortranarray(x) for x in frames)]
     assert not any(v.flags.c_contiguous for v in views)
     assert g(views) == g(frames) * 2
+
+
+def test_yuv_capability_against_exact_rational_rgb(tmp_path, repo):
+    """The YUV capability equals naive mask scores of exact-rational RGB, in batch order."""
+    rng = np.random.default_rng(19)
+    classes = random_world(rng)
+    masks = Masks(tmp_path, repo, classes, both(2, "0", "0"), W, H).write()
+    raw, frames = [], []
+    for _ in range(20):
+        y, u, v = (
+            rng.integers(0, 256, s)
+            for s in ((H, W), (H // 2, W // 2), (H // 2, W // 2))
+        )
+        raw.append(frame(y, u, v))
+        frames.append(exact_rgb(y, upsampled(u, H, W), upsampled(v, H, W)))
+    want = [
+        predict(
+            {k: score(x, ps, 2) for k, ps in masks.pairs().items()},
+            list(classes),
+            Fraction(0),
+            Fraction(0),
+        )
+        for x in frames
+    ]
+    gamma = load(masks)[0]
+    assert len(set(want)) >= 2, want
+    assert gamma.classify_yuv(raw) == want
+    assert gamma.classify_yuv(raw[::-1]) == want[::-1]
+    assert [gamma.classify_yuv([x])[0] for x in raw] == want

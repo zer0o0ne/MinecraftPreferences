@@ -46,7 +46,10 @@ class Phi(Fake):
         super().__init__()
         self.A, self.c, self.noise = fixed(1, D, F), fixed(2, D), noise
 
-    def forward(self, clips: list) -> torch.Tensor:
+    def prepare(self, clips: list) -> list:
+        return [None] * len(clips)
+
+    def forward(self, clips: list, states: list | None = None) -> torch.Tensor:
         self.note("phi", ids=[c.info["id"] for c in clips])
         x = torch.tensor(np.stack([c.frames[:, :F] for c in clips]), dtype=F64) / 255
         z = x @ self.A.T + self.c
@@ -66,7 +69,9 @@ class PhiLoss(Fake):
         self.lam, self.stateful = nn.Parameter(torch.tensor(0.7, dtype=F64)), stateful
         self.register_buffer("seen", torch.zeros((), dtype=F64))
 
-    def terms(self, Z: torch.Tensor, clips: list) -> tuple[dict, dict]:
+    def terms(
+        self, Z: torch.Tensor, clips: list, states: list | None = None
+    ) -> tuple[dict, dict]:
         self.note("phi_loss", Z=Z.detach().clone(), ids=[c.info["id"] for c in clips])
         Z = self.cut_off(Z)
         w = torch.tensor([c.lines[0]["w"] for c in clips], dtype=F64)
@@ -108,7 +113,7 @@ class PhiLoss(Fake):
 
 
 class Pi(Fake):
-    """A linear policy returning `(logits, shift)` for every state; group pi."""
+    """A linear policy returning logits, shifts and current weights for every state."""
 
     def __init__(self):
         super().__init__()
@@ -121,7 +126,9 @@ class Pi(Fake):
     def forward(self, Z: torch.Tensor, clips: list) -> tuple:
         self.note("pi", Z=Z.detach().clone(), ids=[c.info["id"] for c in clips])
         w = torch.tensor([c.lines[0]["w"] for c in clips], dtype=F64)
-        return Z @ self.Wa + self.ba, Z @ self.V + 0.1 * w[:, None, None]
+        a = torch.tensor([c.info["a"] for c in clips])
+        current = torch.nn.functional.one_hot(a, ACTIONS).to(F64)
+        return Z @ self.Wa + self.ba, Z @ self.V + 0.1 * w[:, None, None], current
 
     def groups(self) -> dict:
         return {"pi": [self.Wa, self.ba, self.V]}
@@ -142,29 +149,37 @@ class PiLoss(Fake):
         super().__init__(cut)
         self.k = fixed(6, 2)
 
-    def diagnostic_targets(self) -> tuple[torch.Tensor, torch.Tensor]:
-        return self._diagnostic
-
-    def terms(self, out: tuple, Z: torch.Tensor, clips: list) -> tuple[dict, dict]:
+    def terms(
+        self, out: tuple, Z: torch.Tensor, clips: list
+    ) -> tuple[dict, dict, dict]:
         self.note("pi_loss", n=len(clips))
-        logits, shift, Z = (self.cut_off(x) for x in (*out, Z))
+        logits, shift, current = out
+        logits, shift, current, Z = (
+            self.cut_off(x) for x in (logits, shift, current, Z)
+        )
         a = torch.tensor([c.info["a"] for c in clips])
         action = -torch.log_softmax(logits, -1).gather(-1, a[..., None])[..., 0].sum(1)
-        shift_term = ((shift[:, :-1] - (Z[:, 1:] - Z[:, :-1])) ** 2).sum((1, 2))
+        factual = Z[:, 1:] - Z[:, :-1]
+        shift_term = ((shift[:, :-1] - factual) ** 2).sum((1, 2))
         total = pi_terms(logits, shift, Z, clips) + 0.0 * self.k.sum()
         valid = torch.ones(len(clips), L - 2, dtype=torch.bool)
         q = torch.nn.functional.one_hot(a[:, : L - 2], ACTIONS).to(F64)
-        self._diagnostic = q, q.clone()
-        return {"action": action, "shift": shift_term, "total": total}, {
-            "action_valid": valid,
-            "shift_valid": valid,
+        observations = {
+            "q": q,
+            "current": current[:, : L - 2],
+            "zero_shift": (factual**2).sum((1, 2)),
         }
+        return (
+            {"action": action, "shift": shift_term, "total": total},
+            {
+                "action_valid": valid,
+                "shift_valid": valid,
+            },
+            observations,
+        )
 
     def forward(self, out: tuple, Z: torch.Tensor, clips: list) -> torch.Tensor:
         return self.terms(out, Z, clips)[0]["total"]
-
-    def zero_shift(self, Z: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:
-        return ((Z[:, 1:] - Z[:, :-1]) ** 2).sum((1, 2))
 
     def groups(self) -> dict:
         return {"idle": [self.k]}

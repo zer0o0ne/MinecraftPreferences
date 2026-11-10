@@ -17,6 +17,7 @@ from mcpref.transformer.layers import (
     mlp,
     rms_norm,
     rope,
+    rope_positions,
     split_heads,
 )
 
@@ -103,6 +104,92 @@ def test_rope_keeps_float32():
     want = [rope_one(x[j].double().tolist(), float(pos[j]), 10000.0) for j in range(3)]
     assert got.dtype == torch.float32
     assert_close(got, torch.tensor(want, dtype=torch.float32), rtol=1e-5, atol=1e-6)
+
+
+def test_rope_positions_are_canonical_per_length_and_device():
+    """PT-4: separate forwards receive the same positions without reading their values."""
+    device = torch.device("cpu")
+    pos = rope_positions(4, device)
+    assert pos is rope_positions(4, device)
+    assert pos is not rope_positions(3, device)
+    assert pos.dtype == torch.int64
+    assert torch.equal(pos, torch.arange(-3, 1))
+
+
+def test_rope_cache_key_includes_dtype_width_and_base(monkeypatch):
+    """PT-4: a repeated position reuses cos/sin; changing another key field recomputes."""
+    calls = 0
+    original = torch.Tensor.cos
+
+    def counted(self):
+        nonlocal calls
+        calls += 1
+        return original(self)
+
+    monkeypatch.setattr(torch.Tensor, "cos", counted)
+    x, pos = randn(2, 3, 4, seed=17), torch.tensor([-1.0, 0.0, 2.0], dtype=F64)
+    rope(x, pos, BASE)
+    rope(x, pos, BASE)
+    assert calls == 1
+    rope(x.float(), pos, BASE)
+    rope(x[..., :2], pos, BASE)
+    rope(x, pos, BASE + 1)
+    assert calls == 4
+
+
+def test_rope_cache_observes_position_mutation():
+    """PT-4: changing a position tensor invalidates its cached trigonometry."""
+    x = randn(2, 3, 4, seed=18)
+    pos = torch.tensor([-2.0, -1.0, 0.0], dtype=F64)
+    rope(x, pos, BASE)
+    pos.add_(1)
+    got = rope(x, pos, BASE)
+    want = [[rope_one(x[a, j].tolist(), float(pos[j]), BASE) for j in range(3)]
+            for a in range(2)]  # fmt: skip
+    assert_close(got, torch.tensor(want, dtype=F64))
+
+
+def test_rope_cache_preserves_gradients_and_rng():
+    """PT-4: cached tables have the same input derivative and consume no random draws."""
+    x = randn(2, 3, 4, seed=19)
+    a, b = x.clone().requires_grad_(), x.clone().requires_grad_()
+    pos = torch.tensor([-2.0, -1.0, 0.0], dtype=F64)
+    torch.manual_seed(23)
+    expected = torch.rand(4)
+    torch.manual_seed(23)
+    got_a, got_b = rope(a, pos, BASE), rope(b, pos, BASE)
+    assert torch.equal(torch.rand(4), expected)
+    grad_a = torch.autograd.grad(got_a.square().mean(), a)[0]
+    grad_b = torch.autograd.grad(got_b.square().mean(), b)[0]
+    assert_close(got_a, got_b)
+    assert_close(grad_a, grad_b)
+
+
+def test_rope_differentiable_positions_bypass_cache():
+    """PT-4: repeated calls with differentiable positions retain independent graphs."""
+    x = randn(2, 3, 4, seed=20)
+    pos = torch.tensor([-2.0, -1.0, 0.0], dtype=F64, requires_grad=True)
+    first, second = rope(x, pos, BASE), rope(x, pos, BASE)
+    grad_first = torch.autograd.grad(first.sum(), pos)[0]
+    grad_second = torch.autograd.grad(second.sum(), pos)[0]
+    assert_close(grad_first, grad_second)
+
+
+@pytest.mark.gpu
+def test_rope_cuda_cache_does_not_synchronize():
+    """PT-4: canonical hits and fresh-tensor fallback make no synchronizing host read."""
+    device = torch.device("cuda")
+    x = torch.randn(2, 3, 4, device=device)
+    fresh = torch.arange(-2, 1, device=device)
+    torch.cuda.set_sync_debug_mode("error")
+    try:
+        got = rope(x, rope_positions(3, device), BASE)
+        cached = rope(x, rope_positions(3, device), BASE)
+        fallback = rope(x, fresh, BASE)
+    finally:
+        torch.cuda.set_sync_debug_mode("default")
+    assert torch.equal(cached, got)
+    assert torch.equal(fallback, got)
 
 
 def test_split_heads_by_hand():

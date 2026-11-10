@@ -29,7 +29,11 @@ def test_real_spark_short_trajectory_and_continuation(tmp_path, repo):
     write_repository(root, steps=1, states=12, alpha=PERCEPTION_STARTING["alpha"])
     write_classifier_masks(root)
     (root / "data").mkdir()
-    os.symlink(repo / "data/pretrain", root / "data/pretrain", target_is_directory=True)
+    os.symlink(
+        repo / "data/pretrain",
+        root / "data/pretrain-scaled-init",
+        target_is_directory=True,
+    )
     os.symlink(repo / "data/minestudio", root / "ms", target_is_directory=True)
     configured = load_config(root / "configs/env-sampling.yaml")
     cfg = dataclasses.replace(

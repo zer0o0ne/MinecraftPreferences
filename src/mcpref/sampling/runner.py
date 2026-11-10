@@ -10,6 +10,12 @@ from tqdm import tqdm
 from mcpref import REPO
 from mcpref.clips.collect import load_config as load_perception_data_config
 from mcpref.clips.config import load_config as load_clips_config
+from mcpref.diagnostics.artifacts import iter_records
+from mcpref.diagnostics.mcts import on_step_record
+from mcpref.diagnostics.milestones import on_episode_end
+from mcpref.diagnostics.observations import EpisodeArtifacts, EpisodeSummary
+from mcpref.diagnostics.runtime import DiagnosticRun, diagnostic_bar
+from mcpref.diagnostics.types import ProducerContext
 from mcpref.env.config import load_config as load_env_config
 from mcpref.env.wrapper import Env
 from mcpref.mcts.config import load_config as load_mcts_config
@@ -26,7 +32,7 @@ from mcpref.sampling.history import encode
 from mcpref.sampling.models import SamplingModules, load_pretrained
 from mcpref.sampling.shards import load_state, read_history
 from mcpref.sampling.steps import step
-from mcpref.shards.store import complete_shards, shard_path, write_shard
+from mcpref.shards.store import complete_shards, name, shard_path, write_shard
 
 
 class Sampler:
@@ -60,6 +66,7 @@ class Sampler:
         self.stream = PhiStream(self.modules.phi, self.states)
         path = getattr(cfg, "_source_path", REPO / "configs/env-sampling.yaml")
         self.run = SamplingRun(cfg, path)
+        self.diagnostics = DiagnosticRun.load(REPO / pretrain.diagnostics)
         self._reset_done = False
 
     def reset(self) -> None:
@@ -74,6 +81,20 @@ class Sampler:
             self._reset_fresh()
         else:
             self._restore(out)
+        channels = self.diagnostics.state["channels"]
+        self.diagnostics.register(
+            "mcts",
+            watermark=channels.get("mcts", {}).get("watermark", self.next_step),
+            next=self.next_step,
+        )
+        self.diagnostics.register(
+            "milestones",
+            watermark=channels.get("milestones", {}).get("watermark", complete),
+            next=complete,
+        )
+        self._inventories = []
+        self.diagnostics.recover("mcts")
+        self.diagnostics.recover("milestones")
 
     def _reset_fresh(self) -> None:
         """(2): reset the environment, stream, decision RNG and global index."""
@@ -125,12 +146,70 @@ class Sampler:
             self.tree.base = self.history
         self._changed = False
 
+    def observe(self, record) -> None:
+        """Stage a completed StepRecord before its source shard is published."""
+        inventory = {}
+        for item in record.after.line.get("inventory", []):
+            inventory[item["type"]] = inventory.get(item["type"], 0) + item["quantity"]
+        self._inventories.append(inventory)
+        cycle, local = divmod(record.index, self.cfg.steps)
+        source = f"{self.cfg.out_dir}/shards/{name(cycle)}/steps/{name(local)}.pt"
+        context = ProducerContext(
+            producer="mcts",
+            split="train",
+            condition="train",
+            model=self.modules.fingerprint,
+            source=self.cfg.out_dir,
+            filters={
+                "alpha": self.alpha.detach().cpu().tolist(),
+                "epsilon": self.mcts.epsilon,
+                "width": self.mcts.width,
+            },
+            steps=(record.index,),
+            cluster_ids=(f"{self.cfg.out_dir}#{cycle:06d}",),
+            artifact_paths=(source,),
+        )
+        observed = on_step_record(record, cfg=self.diagnostics.cfg, context=context)
+        self.diagnostics.stage(
+            "mcts", record.index, observed["id"], record.index + 1, [source], observed
+        )
+
+    def observe_milestones(self, cycle: int) -> None:
+        episode = f"{self.cfg.out_dir}#{cycle:06d}"
+        source = f"{self.cfg.out_dir}/shards/{name(cycle)}/state.pt"
+        previous = [
+            EpisodeSummary(
+                record["joined"]["episode"],
+                record["joined"]["first_times"],
+                record["joined"]["censored_at"],
+            )
+            for record in iter_records(self.diagnostics.out_dir, "milestones")
+        ]
+        artifacts = EpisodeArtifacts(episode, self._inventories, previous)
+        context = ProducerContext(
+            "milestones",
+            "train",
+            "train",
+            self.modules.fingerprint,
+            self.cfg.out_dir,
+            {},
+            (self.next_step - 1,),
+            (episode,),
+            (source,),
+        )
+        record = on_episode_end(artifacts, cfg=self.diagnostics.cfg, context=context)
+        record["joined"]["episode"] = episode
+        self.diagnostics.stage(
+            "milestones", cycle, record["id"], cycle + 1, [source], record
+        )
+
     def sample(self) -> Path:
         """(3)-(8): sample n actions, publish their shard, then update run.json."""
         if not self._reset_done:
             raise RuntimeError("Sampler.reset must be called before sample")
         out = REPO / self.cfg.out_dir
         k = complete_shards(out / "shards")
+        start = self.next_step
         with (
             write_shard(out / "shards", k) as staged,
             tqdm(
@@ -143,5 +222,25 @@ class Sampler:
         ):
             for local in range(self.cfg.steps):
                 step(self, staged, local, bar)
+            self.observe_milestones(k)
         self.run.published(k, self.next_step, self.modules.fingerprint)
+        self.diagnostics.recover("mcts")
+        self.diagnostics.recover("milestones")
+        state = self.diagnostics.state["channels"]["mcts"]
+        self.diagnostics.finish(
+            "mcts", source_complete=True, done=state["next"] >= self.next_step
+        )
+        self.diagnostics.finish(
+            "milestones",
+            source_complete=True,
+            done=self.diagnostics.state["channels"]["milestones"]["next"] >= k + 1,
+        )
+        with diagnostic_bar(
+            "diagnostics mcts", self.next_step - start, 0, "step_record"
+        ) as bar:
+            if bar is not None:
+                bar.update(self.next_step - start)
+        with diagnostic_bar("diagnostics milestones", 1, 0, "episode") as bar:
+            if bar is not None:
+                bar.update()
         return shard_path(out / "shards", k)

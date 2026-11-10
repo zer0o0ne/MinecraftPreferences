@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from action_lines import episode
 
-from mcpref.vpt.actions import mode_frames
+from mcpref.vpt.actions import counts, mode_frames
 
 OFF = (False, False, 0)
 C3 = ["a", "b", "c", "d", "f", "g", "h", "i", "n", "p", "q", "t", "f4"]
@@ -76,6 +76,19 @@ CASES = [  # (tokens, start, Omega)
 @pytest.mark.parametrize("tokens, start, expected", CASES)
 def test_mode_frames(tokens, start, expected):
     assert omega(tokens, start) == expected
+
+
+def test_event_counts_use_one_running_counter_pass():
+    class Event(int):
+        comparisons = 0
+
+        def __le__(self, other):
+            type(self).comparisons += 1
+            return super().__le__(other)
+
+    frames = [Event(t) for t in (2, 4, 4, 9, 20)]
+    assert counts(frames, 12) == [sum(int(f) <= t for f in frames) for t in range(12)]
+    assert Event.comparisons <= 12 + len(frames)
 
 
 @pytest.mark.parametrize("key", C3)

@@ -227,3 +227,21 @@ def test_terms_computes_frames_and_metas_once(tmp_path, monkeypatch):
     loss = module(tmp_path)
     loss.terms(latent(), [meta_clip(), cursor_clip()])
     assert len(calls) == len(CHI)
+
+
+def test_metric_created_once_per_loss(tmp_path, monkeypatch):
+    import mcpref.perception.loss as loss_module
+
+    real = loss_module.latent_metric
+    calls = []
+
+    def counting(*args):
+        calls.append(args)
+        return real(*args)
+
+    monkeypatch.setattr(loss_module, "latent_metric", counting)
+    loss = module(tmp_path)
+    assert len(calls) == 1
+    loss.terms(latent(), [meta_clip(), cursor_clip()])
+    loss.terms(latent(), [meta_clip(), cursor_clip()])
+    assert len(calls) == 1

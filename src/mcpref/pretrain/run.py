@@ -38,14 +38,14 @@ def check_lengths(
     paired: bool,
     index_dir: str,
 ) -> None:
-    """(13): L >= 3, L_pi = L, with pairs L_P <= L, in this order."""
+    """(13): L >= 3, L_pi <= L, with pairs L_P <= L, in this order."""
     if states < 3:
         raise RuntimeError(
             f"{index_dir} has clips of {states} states, the policy needs at least 3"
         )
-    if policy.history != states:
+    if policy.history > states:
         raise RuntimeError(
-            f"the policy history {policy.history} differs from the clip length "
+            f"the policy history {policy.history} exceeds the clip length "
             f"{states} of {index_dir}"
         )
     if paired and preference.history > states:
@@ -55,6 +55,22 @@ def check_lengths(
         )
 
 
+def _scale_linear(
+    layer: torch.nn.Linear, alphas: tuple[float, ...], latent_init_scale: float
+) -> None:
+    """Scale latent output rows by latent_init_scale / alpha."""
+    with torch.no_grad():
+        weight = layer.weight
+        alpha = torch.tensor(alphas, dtype=weight.dtype, device=weight.device)
+        factor = torch.div(latent_init_scale, alpha, rounding_mode=None, out=None)
+        torch.mul(weight, factor[:, None], out=weight)
+        if layer.bias is not None:
+            bias = layer.bias
+            alpha = torch.tensor(alphas, dtype=bias.dtype, device=bias.device)
+            factor = torch.div(latent_init_scale, alpha, rounding_mode=None, out=None)
+            torch.mul(bias, factor, out=bias)
+
+
 def build_modules(
     perception: PerceptionConfig,
     masks: Masks,
@@ -62,13 +78,18 @@ def build_modules(
     preference: PreferenceConfig,
     paired: bool,
     device: str,
+    latent_init_scale: float,
 ) -> dict[str, torch.nn.Module]:
     """(13): phi, phi_loss, pi, pi_loss (with pairs P, P_loss), in module order, each
     moved to `device`."""
     D, target = len(perception.alpha), torch.device(device)
-    modules = {"phi": build_phi(perception).to(target)}
+    phi = build_phi(perception)
+    pi = Policy(policy, D, masks.names)
+    _scale_linear(phi.head[-1], perception.alpha, latent_init_scale)
+    _scale_linear(pi.dynamics.w2, perception.alpha, latent_init_scale)
+    modules = {"phi": phi.to(target)}
     modules["phi_loss"] = PhiLoss(perception).to(target)
-    modules["pi"] = Policy(policy, D, masks.names).to(target)
+    modules["pi"] = pi.to(target)
     metric = latent_metric(perception)
     modules["pi_loss"] = PolicyLoss(policy, masks, metric).to(target)
     if paired:
@@ -88,7 +109,9 @@ def run(path: Path) -> None:
     index = index_run(cfg)
     paired = index["counts"]["train"]["pairs"] >= 1
     check_lengths(index["states"], policy, preference, paired, cfg.index_dir)
-    modules = build_modules(perception, masks, policy, preference, paired, cfg.device)
+    modules = build_modules(
+        perception, masks, policy, preference, paired, cfg.device, cfg.latent_init_scale
+    )
     pretrain(cfg, path, modules)
 
 

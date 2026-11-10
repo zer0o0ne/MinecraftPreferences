@@ -173,6 +173,21 @@ def test_gui_actions_record():
         res.cut = fs()
 
 
+def test_precomputed_spans_and_needed_frames_are_reused(monkeypatch):
+    lines, classes = scene()
+    gui_spans = spans(lines)
+    frames = needed_frames(lines, gui_spans=gui_spans)
+    expected = run(lines, classes)
+
+    def rescan(_):
+        raise AssertionError("GUI spans were scanned again")
+
+    monkeypatch.setattr("mcpref.gui.actions.spans", rescan)
+    assert needed_frames(lines, gui_spans=gui_spans) == frames
+    found = gui_actions(lines, classes, SCREENS, MS, gui_spans=gui_spans, frames=frames)
+    assert found == expected
+
+
 def test_no_output(capfd):
     lines, classes = scene()
     run(lines, classes)

@@ -406,15 +406,14 @@ def test_training_results_bitwise_identical_without_selected_instrumentation(tmp
 
 
 def test_staged_checkpoint_and_stale_work_are_not_accepted_on_resume(tmp_path):
-    import mcpref.pretrain.loop as loop_module
-    from mcpref.pretrain import checkpoints
+    from mcpref.pretrain import steps
 
     from .index_run import Interrupted
 
     whole = Loop(tmp_path / "whole", keep_checkpoints=20).write()
     whole.run()
     cut = Loop(tmp_path / "cut", keep_checkpoints=20).write()
-    target = loop_module if hasattr(loop_module, "write_checkpoint") else checkpoints
+    target = steps
 
     def interrupt(*args, **kwargs):
         raise Interrupted("staged checkpoint")

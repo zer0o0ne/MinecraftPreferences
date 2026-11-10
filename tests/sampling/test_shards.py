@@ -3,6 +3,7 @@
 import dataclasses
 
 import numpy as np
+import pytest
 import torch
 from mcts.helpers import latent_history, node
 from transformers import DynamicCache
@@ -15,6 +16,7 @@ from mcpref.sampling.shards import (
     load_state,
     load_step,
     read_history,
+    record_cache,
     write_state,
     write_step,
 )
@@ -209,3 +211,43 @@ def test_raw_history_boundaries_and_cross_shard_reader(tmp_path):
         assert got.restart == restart
         assert [item.line["id"] for item in got.states] == states
         assert got.actions == actions
+
+
+def test_record_cache_is_shared_bounded_and_cleared_on_every_exit(
+    tmp_path, monkeypatch
+):
+    out = tmp_path / "out"
+    for k in range(3):
+        shard = out / f"shards/{k:06d}"
+        shard.mkdir(parents=True)
+        for j in range(2):
+            write_step(shard, j, record(2 * k + j))
+    write_state(out / "shards/000000", sampler_state(FakePhi()))
+    loads, real_load = [], torch.load
+
+    def load(*args, **kwargs):
+        loads.append(args[0])
+        return real_load(*args, **kwargs)
+
+    monkeypatch.setattr("mcpref.sampling.shards.torch.load", load)
+    with record_cache(out, capacity=2):
+        first = load_step(out, 1)
+        assert load_step(out, 1) is first
+        assert len(loads) == 2
+        history = read_history(out, 2, 3)
+        assert history.restart == 0
+        assert [item.line["id"] for item in history.states] == [0, 1, 2]
+        assert history.actions == [None, 0, 1]
+        assert len(loads) == 3
+        second = load_step(out, 2)
+        assert len(loads) == 4
+        load_step(out, 0)
+        assert load_step(out, 2) is second
+        assert len(loads) == 5
+    assert load_step(out, 2) is not second
+    assert len(loads) == 7
+    with pytest.raises(RuntimeError, match="stop"), record_cache(out, capacity=1):
+        load_step(out, 0)
+        raise RuntimeError("stop")
+    load_step(out, 0)
+    assert len(loads) == 11

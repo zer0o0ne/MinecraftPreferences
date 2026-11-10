@@ -66,22 +66,39 @@ def load_config(path: Path) -> tuple[VLMConfig, ServerConfig]:
     return VLMConfig(**raw["client"]), ServerConfig(**raw["server"])
 
 
-def content_part(part: str | np.ndarray) -> dict:
+ImageCache = dict[int, tuple[np.ndarray, dict]]
+
+
+def content_part(part: str | np.ndarray, cache: ImageCache | None = None) -> dict:
     """(2): a text part, or an image part as a base64 PNG data URL."""
     if isinstance(part, str):
         return {"type": "text", "text": part}
+    cached = cache.get(id(part)) if cache is not None else None
+    if cached is not None and cached[0] is part:
+        return cached[1]
     png = io.BytesIO()
     Image.fromarray(part).save(png, format="PNG")
     b64 = base64.b64encode(png.getvalue()).decode("ascii")
-    return {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+    url = f"data:image/png;base64,{b64}"
+    result = {"type": "image_url", "image_url": {"url": url}}
+    if cache is not None:
+        cache[id(part)] = part, result
+    return result
 
 
-def request_body(prompt: Sequence[str | np.ndarray], seed: int, cfg: VLMConfig) -> dict:
+def request_body(
+    prompt: Sequence[str | np.ndarray],
+    seed: int,
+    cfg: VLMConfig,
+    cache: ImageCache | None = None,
+) -> dict:
     """(1), (3): one user message with the parts of q in order; n, seed, Table 1
     except min_pixels, max_pixels (set by the server, Server step 4)."""
     return {
         "model": cfg.model,
-        "messages": [{"role": "user", "content": [content_part(p) for p in prompt]}],
+        "messages": [
+            {"role": "user", "content": [content_part(p, cache) for p in prompt]}
+        ],
         "n": 1,
         "seed": seed,
         "temperature": cfg.temperature,
@@ -124,10 +141,11 @@ async def ask_one(
     prompt: Sequence[str | np.ndarray],
     seed: int,
     cfg: VLMConfig,
+    cache: ImageCache,
 ) -> str | None:
     """(4)-(6) for one prompt: in one slot, at most R resends after delta each."""
     async with slots:
-        body = request_body(prompt, seed, cfg)
+        body = request_body(prompt, seed, cfg, cache)
         try:
             outcome = await attempt(client, body, cfg)
             for _ in range(cfg.max_resends):
@@ -148,14 +166,14 @@ async def ask_all(
     cfg: VLMConfig,
 ) -> list[str | None]:
     """(5), (6): at most K in flight; a raised failure cancels all requests in flight."""
-    slots = asyncio.Semaphore(cfg.max_in_flight)
+    slots, cache = asyncio.Semaphore(cfg.max_in_flight), {}
     async with httpx.AsyncClient(
         timeout=None,
         limits=httpx.Limits(max_connections=cfg.max_in_flight),
         trust_env=False,
     ) as client:
         tasks = [
-            asyncio.create_task(ask_one(client, slots, prompt, seed, cfg))
+            asyncio.create_task(ask_one(client, slots, prompt, seed, cfg, cache))
             for prompt, seed in zip(prompts, seeds)
         ]
         try:

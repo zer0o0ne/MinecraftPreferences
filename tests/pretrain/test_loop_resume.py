@@ -150,9 +150,9 @@ def test_rerun_deletes_what_a_crash_left(tmp_path):
     def watch(mp):
         real_forward, real_fsync = Phi.forward, os.fsync
 
-        def forward(self, clips):
+        def forward(self, clips, states=None):
             seen.append([p.exists() for p in pts[:3]])
-            return real_forward(self, clips)
+            return real_forward(self, clips, states)
 
         def fsync(fd):
             synced.append((os.readlink(f"/proc/self/fd/{fd}"), pts[0].exists()))

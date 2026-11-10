@@ -103,6 +103,30 @@ def test_one_user_message_with_parts_in_order(http, fields):
             np.testing.assert_array_equal(decode(sent), part)
 
 
+def test_reused_images_are_encoded_once_per_ask_many(http, fields, monkeypatch):
+    frame, equal = image(17, 23, 1), image(17, 23, 1)
+    calls, original = [], Image.fromarray
+
+    def counted(part):
+        calls.append(part)
+        return original(part)
+
+    monkeypatch.setattr("mcpref.vlm.client.Image.fromarray", counted)
+    server = http(echo)
+    prompts = [["first", frame, frame], ["second", frame, equal]]
+    assert ask(fields, server, prompts, max_in_flight=1) == ["first", "second"]
+    assert len(calls) == 2 and calls[0] is frame and calls[1] is equal
+    urls = [
+        part["image_url"]["url"]
+        for req in server.requests
+        for part in req.body["messages"][0]["content"]
+        if part["type"] == "image_url"
+    ]
+    assert len(urls) == 4 and len(set(urls)) == 1
+    assert ask(fields, server, [["again", frame]]) == ["again"]
+    assert len(calls) == 3 and calls[-1] is frame
+
+
 def test_result_i_answers_prompt_i_with_seed_i(http, fields):
     texts, seeds = ["p0", "p1", "p2", "p3"], [5, 0, 2**63 - 1, 5]
 

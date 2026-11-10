@@ -5,7 +5,7 @@ from torch import Tensor
 
 from mcpref.preferences.config import PreferenceConfig
 from mcpref.preferences.layers import LayerS, LayerX
-from mcpref.transformer.layers import decay_groups, rms_norm
+from mcpref.transformer.layers import decay_groups, rms_norm, rope_positions
 
 KINDS = {"S": LayerS, "X": LayerX}
 """Notation Lambda: the layer class of each kind."""
@@ -34,7 +34,7 @@ class Preference(torch.nn.Module):
     def tokens(self, Y: Tensor) -> tuple[Tensor, Tensor]:
         """(1): H^0 of the n = min(L_P, l) last rows of Y, their positions j - (n - 1)."""
         n = min(self.history, Y.shape[1])
-        return self.embed(Y[:, -n:]), torch.arange(1 - n, 1, device=Y.device)
+        return self.embed(Y[:, -n:]), rope_positions(n, Y.device)
 
     def forward(self, Z_a: Tensor, Z_b: Tensor) -> tuple[Tensor, Tensor]:
         """(7), (8): s = (r_a - r_b) w_succ, t = (r_a + r_b) w_inc + b_inc, shape (m,)."""

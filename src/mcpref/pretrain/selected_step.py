@@ -66,6 +66,7 @@ def selected_step(
             m=data.m,
             k_tot=data.k_tot,
             r_tot=data.r_tot,
+            w_phi=cfg.w_phi,
             w_pi=cfg.w_pi,
             w_P=cfg.w_P,
             micro_batch=cfg.micro_batch,

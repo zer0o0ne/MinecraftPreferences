@@ -32,6 +32,19 @@ def evaluating(P: Preference) -> Iterator[None]:
         P.train(training)
 
 
+def memoized(encode: Encoder) -> Encoder:
+    """Memoize evaluation latents by reference for one fixed-model invocation."""
+    cache = {}
+
+    def cached(refs: Sequence[StateRef]) -> Sequence[torch.Tensor]:
+        missing = list(dict.fromkeys(ref for ref in refs if ref not in cache))
+        if missing:
+            cache.update(zip(missing, encode(missing), strict=True))
+        return [cache[ref] for ref in refs]
+
+    return cached
+
+
 def predict(
     refs: Sequence[StateRef], encode: Encoder, P: Preference
 ) -> tuple[float, float]:

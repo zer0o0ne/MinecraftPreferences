@@ -52,3 +52,25 @@ def test_gradient(tmp_path):
     d = torch.sqrt(((alpha * delta[0]) ** 2).sum())
     assert_close(delta.grad[0], (alpha**2 * delta[0] / d).detach())
     assert torch.equal(delta.grad[1], torch.zeros(4, dtype=F64))
+
+
+def test_alpha_cached_by_dtype_and_closure(tmp_path, monkeypatch):
+    cfg = config(tmp_path)
+    real = torch.tensor
+    allocations = []
+
+    def counting(data, *args, **kwargs):
+        if data == cfg.alpha:
+            allocations.append(kwargs["dtype"])
+        return real(data, *args, **kwargs)
+
+    monkeypatch.setattr(torch, "tensor", counting)
+    metric = latent_metric(cfg)
+    delta = torch.tensor([[1.0, 1.0, 2.0, 0.0]], dtype=F64)
+    expected = torch.tensor([math.sqrt(6.0)], dtype=F64)
+    assert_close(metric(delta), expected)
+    assert_close(metric(delta), expected)
+    assert_close(metric(delta.float()), expected.float())
+    assert allocations == [F64, torch.float32]
+    assert_close(latent_metric(cfg)(delta), expected)
+    assert allocations == [F64, torch.float32, F64]

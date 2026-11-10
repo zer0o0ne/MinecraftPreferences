@@ -15,7 +15,13 @@ from mcpref.rl_pairs.alternatives import beam, nearest, polarity, temporal
 from mcpref.rl_pairs.config import RLPreferencePairsConfig
 from mcpref.rl_pairs.files import write_json_shard
 from mcpref.rl_pairs.history import History
-from mcpref.rl_pairs.scores import choose_seeds, evaluating, predict, seed_scores
+from mcpref.rl_pairs.scores import (
+    choose_seeds,
+    evaluating,
+    memoized,
+    predict,
+    seed_scores,
+)
 from mcpref.rl_pairs.types import (
     CurrentComparison,
     Encoder,
@@ -54,6 +60,7 @@ def write_work(
     alternatives: list[StateRef],
     comparisons: list[CurrentComparison],
     rng: np.random.Generator,
+    observed: dict,
 ) -> None:
     """Publish a seed's alternatives, raw results and post-seed RNG state."""
     result = {
@@ -61,6 +68,7 @@ def write_work(
         "alternatives": [ref_dict(ref) for ref in alternatives],
         "comparisons": [comparison_dict(c) for c in comparisons],
         "rng": rng.bit_generator.state,
+        "diagnostics": observed,
     }
     write_json_shard(work_dir, ordinal, "result.json", result)
 
@@ -101,6 +109,7 @@ def discover(
     alpha: torch.Tensor,
     cfg: RLPreferencePairsConfig,
     rng: np.random.Generator,
+    observed: dict | None = None,
 ) -> list[StateRef]:
     """The seed's ordered temporal, nearest and beam alternatives."""
     seed = states[index]
@@ -108,7 +117,16 @@ def discover(
     alternatives = [states[t] for t in chosen]
     close = nearest(seed, history, alpha, cfg.nearest_per_state)
     alternatives.extend(close)
-    alternatives.extend(beam(seed, close, history, cfg))
+    expanded = beam(seed, close, history, cfg)
+    alternatives.extend(expanded)
+    if observed is not None:
+        observed.update(
+            temporal=len(chosen),
+            nearest=len(close),
+            beam=len(expanded),
+            empty_candidates=int(not alternatives),
+            repeated=0,
+        )
     return alternatives
 
 
@@ -119,12 +137,15 @@ def compare(
     history: History,
     encode: Encoder,
     P: Preference,
+    observed: dict | None = None,
 ) -> list[CurrentComparison]:
     """Compare each newly discovered unordered pair and stage its symmetric means."""
     comparisons = []
     for alternative in alternatives:
         if pair_key(seed, alternative) in seen:
             continue
+        if observed is not None:
+            observed["repeated"] += int(history.older_comparison(seed, alternative))
         p, inc = predict([seed, alternative], encode, P)
         c = CurrentComparison(seed, alternative, p, inc)
         seen.add(pair_key(c.a, c.b))
@@ -160,6 +181,7 @@ def select(
     work_dir: Path,
 ) -> Path:
     """Eqs. (1)-(7), with all seeds inserted before any alternative selection."""
+    encode = memoized(encode)
     scores_dir = work_dir.parent / "scores"
     seed_scores(states, encode, P, scores_dir)
     seeds = choose_seeds(scores_dir, cfg.sample_states, rng)
@@ -169,11 +191,16 @@ def select(
         with sampling_bar(len(seeds), completed) as bar:
             for ordinal in range(completed, len(seeds)):
                 seed = states[seeds[ordinal]]
+                observed = {}
                 alternatives = discover(
-                    states, seeds, seeds[ordinal], history, alpha, cfg, rng
+                    states, seeds, seeds[ordinal], history, alpha, cfg, rng, observed
                 )
-                comparisons = compare(seed, alternatives, seen, history, encode, P)
-                write_work(work_dir, ordinal, seed, alternatives, comparisons, rng)
+                comparisons = compare(
+                    seed, alternatives, seen, history, encode, P, observed
+                )
+                write_work(
+                    work_dir, ordinal, seed, alternatives, comparisons, rng, observed
+                )
                 if bar is not None:
                     bar.update(1)
     return work_dir

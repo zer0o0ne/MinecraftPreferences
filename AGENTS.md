@@ -2,68 +2,53 @@
 
 Minecraft agent training pipeline (MineStudio, VPT dataset). Stages and data flow: `specs/00-overview.md`.
 
-## Task size
-- Before starting a task, judge whether you can complete all of it at full quality, meeting every requirement of the task and of this file.
-- If not, decline it explicitly; never do it partially or at reduced quality. Propose instead subtasks that together are roughly equivalent to it, each of which you can complete at full quality, and name where they differ from the original.
-- If this becomes clear only mid-task, stop: report what is done and propose subtasks for the rest.
-- Judge harshly: splitting a task you could have completed whole is better than taking one you then fail to complete at full quality.
+## Delivery
+- The main session owns the working result and may edit `src/`, `tests/`, `configs/` and `scripts/`. Talk to the user in Russian; write files in English.
+- Deliver in small working increments. Do not decline or split a task merely because a rigid process makes it large; ask only when priorities or scope genuinely require a user decision.
+- Reproduce an observed bug before fixing it. Implement and verify in the same loop; never hand off unrun code as completed work.
+- Use subagents only for independent parallel work, investigation that benefits from isolation, or high-risk review. The main session integrates and verifies their work.
+- Ask the user only about genuine product, math, architecture or irreversible choices. Decide routine implementation details directly.
+- Follow `.claude/skills/deliver-change/SKILL.md` for changes to source, tests, configs and scripts.
 
-## Orchestrator (main session only)
-- The main session coordinates agents; it never writes `src/` or `tests/` itself. Talk to the user in Russian; write files in English.
-- The Task size rules include the linked protocol. Propose subtasks to the user and start only once the user accepts them.
-- Every piece of logic the user requests is a block and follows `.claude/skills/run-block/SKILL.md`; specification clarification follows `.claude/skills/clarify-spec/SKILL.md`.
-- Agent roles: `.claude/agents/analyst.md`, `.claude/agents/spec-auditor.md`, `.claude/agents/prototyper.md`, `.claude/agents/refactorer.md`, `.claude/agents/tester.md`. Their preloaded skills are part of the procedure; do not duplicate those rules here.
-- Edit permissions and the commit boundary: `CLAUDE.md`, section “What you may change”.
+## Contracts and specs
+- An approved `specs/<block>.md` defines intended external behaviour, math, interfaces and artifacts. Code must match it.
+- A bug fix that preserves the approved contract requires no spec change or approval cycle.
+- New product, math or architecture decisions, and changes to an approved contract, require a concise spec approved by the user before those decisions are implemented.
+- Keep specs proportional: behaviour, formulas, interfaces, artifacts and acceptance criteria. Do not duplicate routine control flow, internal module decomposition or every implementation branch in a spec.
+- When a genuine ambiguity affects results, report it and ask one focused question. Do not silently choose between materially different mathematical behaviours.
+- Update documentation affected by a change. Do not rewrite unrelated specs or add approval history and process scaffolding.
 
-## Source of truth
-- A block is defined by `specs/<block>.md` with `Status: approved`: math, interface, library mapping, out-of-scope.
-- Code implements exactly the approved spec: every equation and interface item has code; every piece of code traces to the spec.
-- Ambiguity, contradiction or a missing detail → stop and report it. Never pick one of several plausible readings, never approximate, never smooth over a corner case.
-- Specs change only with the user's approval.
-- Keep documentation current with every approved decision and implementation. In the same change, update the owning spec, `specs/00-overview.md`, `specs/00-questions.md`, and every cross-reference affected by stage ownership, block boundaries, interfaces, data flow, artifacts or status. Search for stale references to superseded blocks and remove contradictions between old and new rules. A block is not done while the documents disagree.
-
-## Exactness
-Correct = the expectation of every computed quantity equals the spec.
-- Free: dtype, mixed precision, device; mathematically identical rewrites (e.g. `logsumexp`).
-- Only if the spec says so: eps, clamps, clipping, normalization, stop-grad, reductions, sampling schemes, math-affecting library defaults.
-
-## Libraries
-Allowed (MineStudio, transformers, RL frameworks, igraph, …) if:
-- every call that computes part of the math was vetted by reading its source and is listed in the spec's library mapping;
-- every math-relevant argument is passed explicitly; versions are pinned.
+## Exactness and dependencies
+- The expectation of every computed quantity must equal the contract. Pay particular attention to indices, reductions, masks, stop-gradients, sampling, numerical constants, library defaults and update order.
+- Mathematically identical rewrites, dtype, mixed precision and device choices are free unless the contract fixes them.
+- Pin new dependencies. Read the relevant source of new or math-affecting library calls and pass math-relevant arguments explicitly. Routine I/O and standard container operations do not require exhaustive source audits.
 
 ## Code
-Minimal code that expresses the spec.
-- No parameter, option, flag, branch, class or config field the spec does not require. No handling of inputs outside the spec's domain.
-- No duplicated logic: search `src/` before writing; reuse or extract.
-- Complex logic is a composition of short functions, ideally one per equation or term.
-- Soft limits (hold in ≥95% of cases): file ≤ 200 lines, function ≤ 30 lines, ≤ 10 modules per directory.
-- Names follow the spec's notation and terms.
-- Docstrings: one or two lines linking code to math, e.g. `"""Eq. (5) of specs/ppo.md: METRA skill loss."""`. Tensor shapes only where the spec fixes them. No comments that restate code.
+- Write minimal code for the requested behaviour: no unused parameters, options, flags, branches, classes or config fields. Search for and reuse existing logic.
+- Use short functions with clear names. Soft limits: file ≤ 200 lines, function ≤ 30 lines, ≤ 10 modules per directory; do not create pointless abstractions just to satisfy them.
+- Docstrings are short and link to a spec equation when useful. Do not restate code in comments.
 - Code is device-agnostic: the device comes from the caller.
-- Data: every dataset a block builds or reads (the per-item results of a loop over work items, see Progress, intermediate ones included, e.g. a sampling plan) lives on disk in shards, never only in memory. A builder writes each shard as soon as it is complete, atomically (temporary name, then rename), together with the state needed to continue (e.g. an RNG state); a rerun keeps the complete shards, continues after the last one and gives the same result as an uninterrupted run. A reader loads shards from disk, one at a time; stages pass datasets as paths, never as in-memory objects. Memory holds only the shards in work and the state needed to continue, never a whole dataset. Data recomputed from stored data and seeds within a couple of seconds on real data is state, not a dataset: a rerun recomputes it. Training is by mini-batches, the mini-batch of each iteration within one shard; a training loop writes a checkpoint (weights, optimizer and RNG states, position in the data) as a shard every N steps (a config field), and a rerun continues from the last one. Exception to the same result: the VLM's answers (`specs/vlm-client.md`) depend on the batch composition, so a rerun repeats the requests and seeds, not the answers. A spec names each dataset and checkpoint of its block (skill `spec-format`).
-- Progress: a loop over work items (frames, episodes, files, requests, classes, …; not a wait for a condition) that can run longer than a couple of seconds on real data shows a `tqdm` progress bar on stderr, with its total when known. Nested loops get one bar, on the outermost loop, whose total sums the work items of the inner loops (items of different kinds count as steps); a parallel loop gets one bar for all its workers, advanced as items finish. A loop with nothing to do draws no bar and prints one line on stderr instead: `<desc>: already done` when an earlier run did the work, else `<desc>: nothing to do`. Bars replace per-item progress lines, write nothing to stdout or output files and change no result; an error message is the last line of stderr, below the bars. A spec names each bar of its block (skill `spec-format`).
+- Datasets live on disk in shards, written atomically as soon as complete with the state needed to resume. Readers load one shard at a time and stages pass paths, not whole in-memory datasets. Training checkpoints include weights, optimizer, RNG states and data position; reruns continue from the last complete checkpoint.
+- Long loops over work items show a `tqdm` bar on stderr with a known total when available. Empty loops print one concise stderr line. Progress output does not change results.
 
 ## Layout
 ```
-specs/                                 block specs; 00-overview.md is the pipeline map
+specs/                                 block contracts; 00-overview.md is the pipeline map
 src/mcpref/<subpackage>/<module>.py    never deeper
 tests/<subpackage>/test_<module>.py    mirrors src/
 tests/scripts/test_<script>.py         mirrors scripts/
-configs/<block>.yaml                   every exact number of a block; loaded into the block's frozen dataclass
-scripts/<action>.sh                    every action the user runs on the Spark; bash, thin wrappers over `python -m mcpref.…` (exception: `setup_env.sh` bootstraps uv and Python in bash and reads `configs/spark-env.yaml` itself)
-data/                                  gitignored: datasets, checkpoints, logs, all run outputs
+configs/<block>.yaml                   exact numeric configuration, loaded into frozen dataclasses
+scripts/<action>.sh                    thin bash wrappers over python -m mcpref.…
+data/                                  gitignored datasets, checkpoints, logs and run outputs
 ```
-Code holds no numeric defaults; secrets come from environment variables, never from configs.
-Code shared by several stages lives in a subpackage named after what it is (e.g. `rl/`), never `utils`/`common`/`helpers`.
+Code holds no numeric defaults; secrets come from environment variables. Shared code lives in a subpackage named after its purpose, never `utils`/`common`/`helpers`.
 
-## Tests
-- This machine is the Spark: a GPU is available (apart from the memory already used by other processes), so tests may run on GPU. GPU-only tests are marked `@pytest.mark.gpu` and run here; the tier budgets below still apply.
-- Tests check the spec, not the implementation: oracles never reuse `src/` logic.
-- Two tiers. Fast (default `uv run pytest`): each test ≤ 5 s (fails at 10 s), the whole tier ≤ 10 min. Slow (`@pytest.mark.slow`, `uv run pytest -m slow`): statistical checks, long scenarios; each test ≤ 5 min (fails at 10 min), the whole tier ≤ 1 h.
-- Tests are independent (no shared files, no order) and run in parallel (`pytest-xdist`). They do not depend on committed configs: every field material to a scenario is set explicitly in a test-owned config or fixture.
-- A test over its budget is a defect: make it cheaper (smaller samples within the oracle's tolerance, vectorised code, tiny models) or, if it is inherently long, mark it slow; slow block code goes to refactoring.
-- Test code follows the Code rules.
+## Verification
+- The implementer runs the code. Add a regression test for every reproduced defect; tests check the contract with independent oracles rather than copying production logic.
+- Run Ruff on touched files, relevant tests for the change and touched interfaces, then the original failing scenario. For long training, exercise the failing transition with real artifacts rather than rerunning the whole training.
+- Run the full fast suite (`uv run pytest`) before completion. Run relevant slow/GPU tests when they cover the change; run the full slow suite on user request.
+- Tests are independent, safe under `pytest-xdist`, and use test-owned config values material to the scenario. Fast tests target ≤ 5 s each and the fast tier ≤ 10 min; inherently long tests are marked `slow`.
+- Do not mark work complete while tests covering the change are red or the acceptance scenario is unverified. Report unrelated pre-existing failures without fixing them unless asked.
 
 ## Commands
 `uv sync` · `uv run pytest` · `uv run ruff format` · `uv run ruff check --fix`

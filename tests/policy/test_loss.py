@@ -187,13 +187,14 @@ def test_terms_components_validity_and_forward(masks):
     clips = [HAND]
     lam, sh, Z = outputs(1, 8, len(masks.names), 21)
     loss = module(masks)
-    terms, valid = loss.terms((lam, sh), Z, clips)
+    terms, valid, observations = loss.terms((lam, sh), Z, clips)
     q, chi = oracle.targets(HAND, masks.names)
     logp = torch.log_softmax(lam[0], -1)
     action = -sum(float((torch.tensor(q[s]) * logp[s]).sum()) for s in range(6)) / 6
     err = sh[0, 0] - (Z[0, 1] - Z[0, 0])
     shift = W * float(((ALPHA * err) ** 2).sum()) / 6
     assert set(terms) == {"action", "shift", "total"}
+    assert set(observations) == {"q", "current", "zero_shift"}
     assert terms["action"].item() == pytest.approx(action, rel=1e-12)
     assert terms["shift"].item() == pytest.approx(shift, rel=1e-12)
     assert_close(terms["total"], terms["action"] + terms["shift"])
@@ -219,3 +220,41 @@ def test_terms_computes_targets_once(masks, monkeypatch):
     lam, sh, Z = outputs(1, 8, len(masks.names), 22)
     loss.terms((lam, sh), Z, [HAND])
     assert len(calls) == 1
+
+
+def test_weights_shared_and_observations_are_per_call(masks, monkeypatch):
+    import mcpref.policy.loss as loss_module
+    import mcpref.policy.network as network_module
+
+    real = network_module.weights
+    calls = []
+
+    def counting(*args):
+        calls.append(args[0])
+        return real(*args)
+
+    monkeypatch.setattr(network_module, "weights", counting)
+    monkeypatch.setattr(loss_module, "weights", counting, raising=False)
+    net = Policy(cfg_of(history=8, action_dropout=0.0), D, masks.names).double().eval()
+    loss = module(masks)
+    clips = [HAND, random_clips(23, 1, 8)[0]]
+    Z = torch.randn(2, 8, D, generator=torch.Generator().manual_seed(24), dtype=F64)
+    returned = []
+    for index, clip in enumerate(clips):
+        out = net(Z[index : index + 1], [clip])
+        _, valid, observations = loss.terms(out, Z[index : index + 1], [clip])
+        q, chi = oracle.targets(clip, masks.names)
+        current = oracle.input_weights(clip, masks.names)[:-2]
+        assert observations["current"].data_ptr() == out[2].data_ptr()
+        assert_close(observations["q"], torch.tensor(q[None], dtype=F64))
+        assert_close(observations["current"], torch.tensor(current[None], dtype=F64))
+        factual = Z[index : index + 1, 1:-1] - Z[index : index + 1, :-2]
+        zero = W * oracle.alpha_metric(ALPHA)(factual).square()
+        zero = torch.where(torch.tensor(chi), zero, 0.0).sum(dim=1) / 6
+        assert_close(observations["zero_shift"], zero)
+        assert valid["shift_valid"].tolist() == [chi.tolist()]
+        returned.append(observations)
+    assert calls == clips
+    q0, _ = oracle.targets(HAND, masks.names)
+    assert_close(returned[0]["q"], torch.tensor(q0[None], dtype=F64))
+    assert not returned[0]["q"].equal(returned[1]["q"])

@@ -71,10 +71,13 @@ def needs_class(line: Mapping) -> bool:
     return bool(pressed(line) or new_digits(line))
 
 
-def needed_frames(lines: Sequence[Mapping]) -> list[int]:
+def needed_frames(
+    lines: Sequence[Mapping], *, gui_spans: Sequence[tuple[int, int]] | None = None
+) -> list[int]:
     """Interface (1): first frames of the spans and their lines with a press or digit."""
+    span_list = spans(lines) if gui_spans is None else gui_spans
     frames = set()
-    for k, j in spans(lines):
+    for k, j in span_list:
         frames.add(first_frame(k, j))
         frames.update(t for t in range(k, j + 1) if needs_class(lines[t]))
     return sorted(frames)
@@ -85,12 +88,17 @@ def gui_actions(
     classes: Mapping[int, str],
     screens: Mapping[str, ScreenClass],
     double_click_ms: int,
+    *,
+    gui_spans: Sequence[tuple[int, int]] | None = None,
+    frames: Sequence[int] | None = None,
 ) -> GuiActions:
     """Interface: (2) cut spans; (3)-(7) on the kept ones, in line order (9); the
     catalogue class of c_t, none for other, pause and death (no element)."""
-    c = {t: classes[t] for t in needed_frames(lines)}
+    span_list = spans(lines) if gui_spans is None else gui_spans
+    needed = needed_frames(lines, gui_spans=span_list) if frames is None else frames
+    c = {t: classes[t] for t in needed}
     cut, segs, foreign = set(), [], set()
-    for k, j in spans(lines):
+    for k, j in span_list:
         if c[first_frame(k, j)] in NO_SCREEN:
             cut.update(range(k, j + 1))
             continue

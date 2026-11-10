@@ -162,8 +162,8 @@ def test_parents_synced_before_present_files_trusted(site, monkeypatch, missing)
 
 @pytest.mark.parametrize("missing", [list(T), ["font/ascii.png", "gui/widgets.png"]])
 def test_missing_files_written_by_write_file(site, monkeypatch, missing):
-    """specs/shards.md (4) per missing path p, in sorted order, after the download: make of
-    its parent (parent and all ancestors synced), <p>.part synced, renamed, parent synced."""
+    """Each missing path is published after the download; its parent's first-use chain
+    was already synced before the download and is not repeated by write_file."""
     present(site, missing)
     server = site.serve(JAR)
     log = record_syncs(monkeypatch, site.out, server)
@@ -175,7 +175,7 @@ def test_missing_files_written_by_write_file(site, monkeypatch, missing):
     start = 0
     for p, i in zip(missing, parts, strict=True):
         made, part, parent = after[start:i], after[i], after[i + 1]
-        assert {s.path for s in made} == ancestors((site.out / p).parent), p
+        assert made == [], p
         assert not any({p, f"{p}.part"} & s.entries for s in made), p
         assert f"{p}.part" in part.entries and p not in part.entries
         assert parent.path == (site.out / p).parent

@@ -127,6 +127,28 @@ def test_make_dirs_of_relative_p_syncs_its_ancestors_up_to_root(base, monkeypatc
     assert {s.path for s in log} == ancestors(base / "a" / "b")
 
 
+def test_make_dirs_skips_only_an_unchanged_directory_chain(base, monkeypatch):
+    p = base / "a" / "b"
+    make_dirs(p)
+    log = record_syncs(monkeypatch)
+    make_dirs(p)
+    assert log == []
+    child = p / "child"
+    make_dirs(child)
+    assert {s.path for s in log} == ancestors(child)
+
+
+def test_make_dirs_failed_sync_is_not_cached(base, monkeypatch):
+    p = base / "a" / "b"
+    fail_syncs(monkeypatch, lambda path: path == base / "a")
+    with pytest.raises(OSError):
+        make_dirs(p)
+    monkeypatch.undo()
+    log = record_syncs(monkeypatch)
+    make_dirs(p)
+    assert {s.path for s in log} == ancestors(p)
+
+
 def call_publish(base):
     (base / "f.part").write_bytes(b"f")
     publish(base / "f.part", base / "f")

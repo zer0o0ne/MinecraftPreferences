@@ -6,7 +6,7 @@ import subprocess
 import sys
 import tempfile
 import threading
-from collections.abc import Container
+from collections.abc import Collection
 from functools import partial
 from pathlib import Path
 from typing import BinaryIO
@@ -93,25 +93,45 @@ def decode(cfg: GuiFramesConfig, video: Path) -> dict[int, bytes]:
     return frames
 
 
-def episode_command(cfg: Access, video: Path) -> list[str]:
-    """(2) of specs/perception-data.md: every decoded frame of `video` once, raw yuv420p,
-    to stdout."""
-    return (
-        [cfg.ffmpeg, "-nostdin", "-loglevel", "error", "-i", str(video)]
-        + ["-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "yuv420p"]
-        + ["pipe:1"]
-    )
+def episode_command(
+    cfg: Access, video: Path, keep: Collection[int] | None = None
+) -> list[str]:
+    """(2), (5) of specs/perception-data.md: every decoded frame, or only `keep`,
+    as raw yuv420p to stdout."""
+    cmd = [cfg.ffmpeg, "-nostdin", "-loglevel", "error", "-i", str(video)]
+    if keep is not None:
+        expression = "+".join(f"eq(n\\,{i})" for i in sorted(keep))
+        cmd += ["-vf", f"select={expression}"]
+    return cmd + [
+        "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "yuv420p", "pipe:1",
+    ]  # fmt: skip
+
+
+def _read_frame(stream: BinaryIO, buf: bytearray) -> int:
+    view, n = memoryview(buf), 0
+    while n < len(buf):
+        count = stream.readinto(view[n:])
+        if not count:
+            break
+        n += count
+    return n
 
 
 def decode_episode(
-    cfg: Access, video: Path, n: int, keep: Container[int], timeout: float
+    cfg: Access,
+    video: Path,
+    n: int,
+    keep: Collection[int],
+    timeout: float,
+    select: bool = False,
 ) -> dict[int, bytes] | None:
-    """(2) of specs/perception-data.md: one whole decode, the frames i in `keep`; None
-    unless it exits with code 0 and exactly n frames; TimeoutError when its timer killed
-    ffmpeg after `timeout` s."""
+    """(2), (5) of specs/perception-data.md: the frames i in `keep`; None unless exit 0
+    and exactly n decoded frames, or len(keep) selected frames when `select`; TimeoutError
+    when its timer killed ffmpeg after `timeout` s."""
     size, frames, i, fired = frame_bytes(cfg), {}, 0, threading.Event()
+    selected, buf = sorted(keep) if select else None, bytearray(size)
     with tempfile.TemporaryFile() as stderr:
-        cmd = episode_command(cfg, video)
+        cmd = episode_command(cfg, video, keep if select else None)
         with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=stderr) as proc:
 
             def kill() -> None:
@@ -121,9 +141,12 @@ def decode_episode(
             timer = threading.Timer(timeout, kill)
             timer.start()
             try:
-                while len(buf := proc.stdout.read(size)) == size:
-                    if i in keep:
-                        frames[i] = buf
+                while (count := _read_frame(proc.stdout, buf)) == size:
+                    if selected is not None:
+                        if i < len(selected):
+                            frames[selected[i]] = bytes(buf)
+                    elif i in keep:
+                        frames[i] = bytes(buf)
                     i += 1
                 proc.wait()
             finally:
@@ -131,4 +154,5 @@ def decode_episode(
         show(stderr)
     if fired.is_set() and proc.returncode == -signal.SIGKILL:
         raise TimeoutError(f"decode of {video} not ended within {timeout} s")
-    return frames if proc.returncode == 0 and i == n and not buf else None
+    expected = len(selected) if selected is not None else n
+    return frames if proc.returncode == 0 and i == expected and not count else None

@@ -2,11 +2,11 @@
 <ffmpeg arguments>. Run with `python -I -S`: nothing imported from the tests.
 
 Decodes the fake video named by `-i` (a line `FAKEMP4 <stem>`, then raw yuv420p frames of
-ctl["frame_size"] bytes) to stdout as ctl["behaviours"][stem][attempt] says (default "ok"):
-"ok" every frame; "short" without the last frame; "long" with the last frame twice;
-"partial" with the last half frame missing; "exit1" every frame and exit code 1; "slow"
-every frame after ctl["sleep"] s. First writes ctl["stderr"][stem][attempt] (hex) to
-stderr, if any. Logs the start (with argv and pid) and the end of each run."""
+ctl["frame_size"] bytes) to stdout, with `-vf select=eq(n\\,i)+...` selecting those frames,
+as ctl["behaviours"][stem][attempt] says (default "ok"): "ok" every output frame; "short"
+without the last; "long" with the last twice; "partial" with the last half frame missing;
+"exit1" every frame and exit code 1; "slow" every frame after ctl["sleep"] s. First writes
+ctl["stderr"][stem][attempt] (hex) to stderr, if any. Logs each run's start, argv, pid, end."""
 
 import json
 import os
@@ -30,7 +30,11 @@ def attempt(path: str, key: str) -> int:
     return sum(r["event"] == "start" and r["key"] == key for r in records)
 
 
-def decoded(frames: bytes, size: int, behaviour: str) -> bytes:
+def decoded(frames: bytes, size: int, behaviour: str, args: list) -> bytes:
+    if "-vf" in args:
+        expression = args[args.index("-vf") + 1]
+        keep = [int(x.split(")")[0]) for x in expression.split("eq(n\\,")[1:]]
+        frames = b"".join(frames[i * size : (i + 1) * size] for i in keep)
     return {
         "short": frames[:-size],
         "long": frames + frames[-size:],
@@ -52,7 +56,7 @@ def main(ctl_path: str, log_path: str, *argv: str) -> int:
         sys.stderr.buffer.flush()
     if behaviour == "slow":
         time.sleep(ctl["sleep"])
-    sys.stdout.buffer.write(decoded(frames, ctl["frame_size"], behaviour))
+    sys.stdout.buffer.write(decoded(frames, ctl["frame_size"], behaviour, args))
     sys.stdout.buffer.flush()
     code = int(behaviour == "exit1")
     log(log_path, {"event": "end", "key": key, "t": time.time(), "code": code})

@@ -4,6 +4,8 @@ import json
 import math
 import sys
 from collections.abc import Iterator, Sequence
+from heapq import heapify, heappop, heappush
+from itertools import islice
 from pathlib import Path
 
 from tqdm import tqdm
@@ -47,6 +49,8 @@ class History:
         self._removed: set[StateRef] = set()
         self._compared: set[StateRef] = set()
         self._aged = False
+        self._base_index: dict[StateRef, tuple[int, int]] | None = None
+        self._base_cache: tuple[int, list[Vertex]] | None = None
 
     @classmethod
     def load(
@@ -70,24 +74,41 @@ class History:
         """The loaded complete generation, absent for an empty History."""
         return self.root / f"{self.generation:06d}"
 
+    def _base_shard(self, k: int) -> list[Vertex]:
+        if self._base_cache is not None and self._base_cache[0] == k:
+            return self._base_cache[1]
+        entries = read_json_shard(self.base / "shards", k, "vertices.json")
+        vertices = [read_vertex(entry) for entry in entries]
+        self._base_cache = (k, vertices)
+        return vertices
+
     def _base_vertices(self) -> Iterator[Vertex]:
         if self.generation < 0:
             return
-        shards = self.base / "shards"
-        for k in range(complete_shards(shards)):
-            entries = read_json_shard(shards, k, "vertices.json")
-            for entry in entries:
-                yield read_vertex(entry)
+        for k in range(complete_shards(self.base / "shards")):
+            yield from self._base_shard(k)
+
+    def _base_vertex(self, ref: StateRef) -> Vertex | None:
+        if self.generation < 0:
+            return None
+        if self._base_index is None:
+            index = {}
+            for k in range(complete_shards(self.base / "shards")):
+                for offset, vertex in enumerate(self._base_shard(k)):
+                    index[vertex.ref] = (k, offset)
+            self._base_index = index
+        position = self._base_index.get(ref)
+        if position is None:
+            return None
+        shard, offset = position
+        return self._base_shard(shard)[offset]
 
     def _raw(self, ref: StateRef) -> Vertex | None:
         if ref in self._updates:
             return self._updates[ref]
         if ref in self._new:
             return self._new[ref]
-        for vertex in self._base_vertices():
-            if vertex.ref == ref:
-                return vertex
-        return None
+        return self._base_vertex(ref)
 
     def _effective(self, v: Vertex) -> Vertex:
         unused = v.unused
@@ -115,11 +136,22 @@ class History:
         vertex = self._raw(ref)
         return None if vertex is None else self._effective(vertex)
 
+    def older_comparison(self, a: StateRef, b: StateRef) -> bool:
+        """Whether the loaded generation already contains this unordered comparison."""
+        vertex = self._base_vertex(a)
+        return vertex is not None and any(c.ref == b for c in vertex.comparisons)
+
     def outside(self, episode: str) -> Iterator[Vertex]:
         """Iterate vertices outside an episode while reading one shard at a time."""
         for vertex in self._vertices():
             if vertex.ref.episode != episode:
                 yield vertex
+
+    def outside_shards(self, episode: str) -> Iterator[list[Vertex]]:
+        """Iterate the staged outside view in shard-bounded groups."""
+        vertices = self.outside(episode)
+        while batch := list(islice(vertices, self.history_per_shard)):
+            yield batch
 
     def stage_seed(self, ref: StateRef, key: Sequence[float]) -> None:
         """Stage Eq. (2)'s empty seed vertex, preserving an existing insertion."""
@@ -149,18 +181,55 @@ class History:
         """Stage Eq. (7)'s reset/aging for the end of this sampling cycle."""
         self._aged = True
 
-    def _evict(self) -> StateRef:
-        """Remove the next vertex by Eq. (10)'s score and stable tie breaks."""
-        best: Vertex | None = None
-        best_key = None
+    @staticmethod
+    def _cleanup_entry(
+        ref: StateRef, usage: dict[StateRef, tuple[int, int]], version: int
+    ) -> tuple[float, int, StateRef, int]:
+        unused, n = usage[ref]
+        return (math.sqrt(n / (unused + 1)), -unused, ref, version)
+
+    def _cleanup_state(
+        self,
+    ) -> tuple[
+        list[tuple[float, int, StateRef, int]],
+        dict[StateRef, tuple[int, int]],
+        dict[StateRef, int],
+        dict[StateRef, dict[StateRef, int]],
+    ]:
+        usage, versions, reverse, heap = {}, {}, {}, []
         for v in self._vertices():
-            key = (math.sqrt(v.n / (v.unused + 1)), -v.unused, v.ref)
-            if best_key is None or key < best_key:
-                best, best_key = v, key
-        if best is None:
+            usage[v.ref] = (v.unused, v.n)
+            versions[v.ref] = 0
+            heap.append(self._cleanup_entry(v.ref, usage, 0))
+            for c in v.comparisons:
+                reverse.setdefault(c.ref, {})[v.ref] = c.n
+        heapify(heap)
+        return heap, usage, versions, reverse
+
+    def _evict(
+        self,
+        heap: list[tuple[float, int, StateRef, int]],
+        usage: dict[StateRef, tuple[int, int]],
+        versions: dict[StateRef, int],
+        reverse: dict[StateRef, dict[StateRef, int]],
+    ) -> StateRef:
+        """Remove the next vertex by Eq. (10)'s score and stable tie breaks."""
+        while heap:
+            _, _, ref, version = heappop(heap)
+            if ref not in self._removed and versions[ref] == version:
+                break
+        else:
             raise RuntimeError("History cleanup has no vertex to remove")
-        self._removed.add(best.ref)
-        return best.ref
+        self._removed.add(ref)
+        for neighbor, removed_n in reverse.get(ref, {}).items():
+            if neighbor in self._removed:
+                continue
+            unused, n = usage[neighbor]
+            usage[neighbor] = (unused, n - removed_n)
+            versions[neighbor] += 1
+            entry = self._cleanup_entry(neighbor, usage, versions[neighbor])
+            heappush(heap, entry)
+        return ref
 
     def cleanup(self, capacity: int, progress_path: Path | None = None) -> None:
         """Eq. (10): deterministic removals, checkpointed after each removal."""
@@ -177,11 +246,12 @@ class History:
         if initial == total:
             print("rl pair cleanup: already done", file=sys.stderr)
             return
+        heap, usage, versions, reverse = self._cleanup_state()
         with tqdm(
             total=total, initial=initial, desc="rl pair cleanup", unit="vertex"
         ) as bar:
             for _ in range(total - initial):
-                restored.append(self._evict())
+                restored.append(self._evict(heap, usage, versions, reverse))
                 if progress_path is not None:
                     write_json(
                         progress_path,

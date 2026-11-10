@@ -97,7 +97,7 @@ def test_unchanged_rerun_passes(tmp_path):
     loop = Loop(tmp_path).write()
     loop.run()
     o = loop.run()
-    assert o.error is None and screen(o.err)[-1] == "pretrain: already done"
+    assert o.error is None and screen(o.err)[-1] == "diagnostics pretrain: already done"
 
 
 def test_action_mask_config_read_by_its_loader(tmp_path):

@@ -1,9 +1,12 @@
 """Eqs. (2)-(3): batch-1 RL losses and globally normalised micro-batch backward."""
 
+from collections.abc import Callable
+
 import torch
 from torch import Tensor
 
 from mcpref import REPO
+from mcpref.diagnostics.observations import PpoObservations, ShiftObservations
 from mcpref.perception.config import PerceptionConfig
 from mcpref.perception.loss import latent_metric
 from mcpref.ppo.config import PpoConfig
@@ -33,10 +36,11 @@ def micro_loss(
     ppo: PpoConfig,
     discount: float,
     min_p: float,
-) -> tuple[dict[str, list[Tensor]], dict[str, list[float]]]:
+    metric: Callable[[Tensor], Tensor],
+    observations: dict | None = None,
+) -> tuple[dict[str, list[Tensor]], dict[str, list[Tensor]]]:
     """Compute each item's supplied roles with one shared fresh policy readout."""
     phi, pi, P = modules["phi"], modules["pi"], modules["P"]
-    metric = latent_metric(perception)
     terms = {role: [] for role in ROLES}
     logged = {role: [] for role in ROLES}
     action_count = len(pi.names)
@@ -51,7 +55,7 @@ def micro_loss(
             b = encode(StateRef(**item["b"]))
             value = modules["P_loss"](P(a.Y, b.Y), [item["labels"]])[0]
             terms["P"].append(value)
-            logged["P"].append(float(value.detach()))
+            logged["P"].append(value.detach())
             continue
         origin = encode(state_ref(sampling, t))
         record = load_step(REPO / sampling.out_dir, t)
@@ -81,7 +85,26 @@ def micro_loss(
             )
             value = ppo_loss(logits, actions, behavior, advantage, ppo.clip)[0]
             terms["ppo"].append(value)
-            logged["ppo"].append(float(value.detach()))
+            logged["ppo"].append(value.detach())
+            if observations is not None:
+                probability = torch.softmax(logits, dim=-1, dtype=None)
+                ratio = probability[0, record.action] / behavior[0]
+                observations["ppo"].append(
+                    PpoObservations(
+                        ratio.detach().reshape(1),
+                        advantage.detach().reshape(1),
+                        record.probabilities.reshape(1, -1).to(
+                            device=logits.device, dtype=logits.dtype
+                        ),
+                        probability.detach(),
+                        actions,
+                        ppo.clip,
+                        (kind,),
+                        torch.tensor([True], device=logits.device),
+                    )
+                )
+                observations["ppo_clusters"].append(state_ref(sampling, t).episode)
+                observations["logits"].append(logits.detach())
         if kind == "pending":
             continue
         actions = torch.tensor([record.action], dtype=torch.int64, device=R.device)
@@ -91,8 +114,28 @@ def micro_loss(
         metra = modules["metra"](actual, predicted, alpha)[0]
         terms["shift"].append(shift)
         terms["metra"].append(metra)
-        logged["shift"].append(float(shift.detach()))
-        logged["metra"].append(float(metra.detach()))
+        logged["shift"].append(shift.detach())
+        logged["metra"].append(metra.detach())
+        if observations is not None:
+            distance = metric(actual).detach()
+            observations["shift"].append(
+                ShiftObservations(
+                    predicted.detach(),
+                    actual.detach(),
+                    alpha,
+                    distance,
+                    torch.clamp(1 - distance**2, max=modules["metra"].cfg.dual_slack),
+                    modules["metra"].log_lambda.exp().detach().reshape(1),
+                    modules["metra"].cfg.dual_slack,
+                    (
+                        torch.linalg.vector_norm(
+                            predicted.detach() * alpha, ord=2, dim=-1
+                        )
+                        == 0
+                    ),
+                )
+            )
+            observations["shift_clusters"].append(state_ref(sampling, t).episode)
     return terms, logged
 
 
@@ -116,10 +159,12 @@ def step_gradients(
     w_metra: float,
     w_P: float,
     micro_batch: int,
+    observations: dict | None = None,
 ) -> dict:
     """Accumulate Eq. (3) into existing gradients, one backward per micro-batch."""
+    metric = latent_metric(perception)
     logged = {role: [] for role in ROLES}
-    total_value = 0.0
+    totals = []
     for start in range(0, len(items), micro_batch):
         terms, values = micro_loss(
             items[start : start + micro_batch],
@@ -131,6 +176,8 @@ def step_gradients(
             ppo,
             discount,
             min_p,
+            metric,
+            observations,
         )
         total = None
         if n_a and terms["ppo"]:
@@ -148,11 +195,20 @@ def step_gradients(
         if total is None:
             raise RuntimeError("a non-empty micro-batch supplies no loss")
         total.backward()
-        total_value += float(total.detach())
+        totals.append(total.detach())
         for role in ROLES:
             logged[role].extend(values[role])
-    result = {
-        role: sum(values) / len(values) if values else None
-        for role, values in logged.items()
-    }
+    scalars = (
+        torch.stack([*totals, *(value for role in ROLES for value in logged[role])])
+        .cpu()
+        .tolist()
+    )
+    total_value = 0.0
+    for value in scalars[: len(totals)]:
+        total_value += value
+    result, offset = {}, len(totals)
+    for role in ROLES:
+        values = scalars[offset : offset + len(logged[role])]
+        offset += len(logged[role])
+        result[role] = sum(values) / len(values) if values else None
     return result | {"loss": total_value}

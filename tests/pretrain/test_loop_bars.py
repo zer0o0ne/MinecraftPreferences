@@ -45,15 +45,25 @@ def test_bars_of_a_run(tmp_path, world, shards, T, n):
     assert calls == [shown(e) for e in entries]
     assert {"P" in c for c in calls} == ({True, False} if world.pairs else {False})
     events = screen(r.err)
-    inputs, counts = events[:2]
-    bar = events[-1]
-    assert inputs == Bar("pretrain inputs", shards, shards, "shard")
+    from progress_bars import states
+
+    assert states(r.err, "pretrain inputs")[-1] == Bar(
+        "pretrain inputs", shards, shards, "shard"
+    )
     total = len(world.train) + len(world.validation)
-    expected = Bar("pretrain reference counts", total, total, "shard") if world.n_r else "pretrain reference: nothing to do"  # fmt: skip
-    assert counts == expected
     if world.n_r:
-        assert events[2] == Bar("pretrain reference select", total, total, "shard")
-        assert events[3] == Bar("pretrain reference initial", 2, 2, "pair")
+        assert states(r.err, "pretrain reference counts")[-1] == Bar(
+            "pretrain reference counts", total, total, "shard"
+        )
+        assert states(r.err, "pretrain reference select")[-1] == Bar(
+            "pretrain reference select", total, total, "shard"
+        )
+        assert states(r.err, "pretrain reference initial")[-1] == Bar(
+            "pretrain reference initial", 2, 2, "pair"
+        )
+    else:
+        assert "pretrain reference: nothing to do" in events
+    bar = states(r.err, "pretrain")[-1]
     assert (bar.desc, bar.n, bar.total, bar.unit) == ("pretrain", T, T, "step")
     postfix = dict(x.split("=", 1) for x in bar.postfix.split(", "))
     assert postfix == {

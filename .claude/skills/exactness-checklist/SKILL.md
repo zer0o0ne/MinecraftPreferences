@@ -4,7 +4,7 @@ description: Checklist of silent deviations between math and code (indices, redu
 ---
 # Exactness checklist
 
-For each item the spec gives exactly one answer, and the code matches it.
+For each relevant item, the code matches the contract or a deliberate implementation choice; use this as a risk checklist, not a mandatory list of spec sections.
 
 - **Indices** — inclusive/exclusive ranges; t vs t+1 alignment; first and last step; terminal vs truncated episodes; bootstrapping at the boundary.
 - **Reductions** — sum vs mean; over which axes; per token / sequence / batch; masked and padded elements excluded from numerator and denominator.

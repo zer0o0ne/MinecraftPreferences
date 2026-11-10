@@ -8,7 +8,7 @@ import torch
 from torch import Tensor
 
 from mcpref.mcts.config import MctsConfig
-from mcpref.mcts.tree import Node, Tree, history, quantize
+from mcpref.mcts.tree import LatentHistory, Node, Tree, model_history, quantize
 from mcpref.policy.network import Policy
 from mcpref.preferences.network import Preference
 
@@ -21,13 +21,19 @@ class Decision:
     probabilities: np.ndarray
 
 
-def leaf_value(tree: Tree, node: Node, P: Preference, min_p: float) -> float:
+def leaf_value(
+    tree: Tree,
+    node: Node,
+    P: Preference,
+    min_p: float,
+    H: LatentHistory | None,
+) -> float:
     """(2): the cached preference value against the parent; the root is worth zero."""
     if node is tree.root:
         return 0.0
     if node.value is None:
-        current = history(tree, node)
-        s, t = P(current.Y, current.Y[:, :-1])
+        assert H is not None
+        s, t = P(H.Y, H.Y[:, :-1])
         value = (torch.sigmoid(t) + min_p) * (2 * torch.sigmoid(s) - 1)
         node.value = value.item()
     return node.value
@@ -40,11 +46,14 @@ def expand(
     pi: Policy,
     alpha: Tensor,
     cfg: MctsConfig,
+    H: LatentHistory,
 ) -> None:
     """(3): expand the highest-probability allowed actions in probability/index order."""
-    H = history(tree, node)
     R = pi.readout(H.Y, H.C)
     probabilities = torch.softmax(pi.logits(R[:, -1]), dim=-1, dtype=None)[0].tolist()
+    node.policy = probabilities
+    if node is tree.root:
+        tree.root_policy = probabilities
     allowed = np.flatnonzero(mask) if node is tree.root else np.arange(len(mask))
     actions = sorted(allowed, key=lambda a: (-probabilities[a], int(a)))
     actions = actions[: cfg.width]
@@ -98,9 +107,14 @@ def simulate(
     """(5): select, evaluate and optionally expand one leaf, then back up its value."""
     path = select(tree, mask, cfg.c_puct)
     leaf = path[-1] if path else tree.root
-    value = leaf_value(tree, leaf, P, cfg.min_p)
-    if len(path) < cfg.depth:
-        expand(tree, leaf, mask, pi, alpha, cfg)
+    expanding = len(path) < cfg.depth
+    H = None
+    if expanding or (leaf is not tree.root and leaf.value is None):
+        H = model_history(tree, leaf, pi.history, P.history)
+    value = leaf_value(tree, leaf, P, cfg.min_p, H)
+    if expanding:
+        assert H is not None
+        expand(tree, leaf, mask, pi, alpha, cfg, H)
     for j, node in enumerate(path):
         weight = cfg.discount ** (len(path) - j) * value
         node.n += 1

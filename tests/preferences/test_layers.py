@@ -7,6 +7,7 @@ import pytest
 import torch
 from torch.testing import assert_close
 
+import mcpref.transformer.layers as transformer
 from mcpref.preferences.layers import LayerS, LayerX
 from mcpref.transformer.layers import Layer
 
@@ -98,3 +99,75 @@ def test_not_causal():
         assert not torch.allclose(
             layer(A, B, pa, pb)[0][:, 0], layer(A2, B2, pa, pb)[0][:, 0]
         )
+
+
+def composition(cls, layer, A, B, pa, pb):
+    """The independent per-direction composition of (5) or (6)."""
+    W, cfg = weights(layer), cfg_of()
+    if cls is LayerS:
+        return layer_s(W, A, pa, cfg), layer_s(W, B, pb, cfg)
+    return layer_x(W, A, B, pa, pb, cfg)
+
+
+def assert_gradients(layer, got, want, A, B):
+    """Compare input and parameter gradients without accumulating into the oracle."""
+    leaves = (A, B, *layer.parameters())
+    got_grads = torch.autograd.grad(sum(x.square().mean() for x in got), leaves)
+    want_grads = torch.autograd.grad(sum(x.square().mean() for x in want), leaves)
+    for got_grad, want_grad in zip(got_grads, want_grads):
+        assert_close(got_grad, want_grad)
+
+
+@pytest.mark.parametrize("cls", [LayerS, LayerX])
+@pytest.mark.parametrize("n_a, n_b", [(3, 3), (2, 5)])
+def test_gradients_against_composition(cls, n_a, n_b):
+    """(5), (6): batching preserves input and shared-parameter derivatives."""
+    layer = make(cls)
+    A, B, pa, pb = inputs(n_a, n_b, 14)
+    A.requires_grad_(), B.requires_grad_()
+    got = layer(A, B, pa, pb)
+    want = composition(cls, layer, A, B, pa, pb)
+    assert_gradients(layer, got, want, A, B)
+
+
+@pytest.mark.parametrize("cls", [LayerS, LayerX])
+@pytest.mark.parametrize("n_a, n_b", [(3, 3), (2, 5)])
+def test_direction_batching(cls, n_a, n_b, monkeypatch):
+    """Equal lengths make one attention call on 2m pairs; unequal lengths make two."""
+    calls, batches = 0, []
+    original = transformer.F.scaled_dot_product_attention
+
+    def counted(Q, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        batches.append(Q.shape[0])
+        return original(Q, *args, **kwargs)
+
+    monkeypatch.setattr(transformer.F, "scaled_dot_product_attention", counted)
+    layer = make(cls)
+    layer(*inputs(n_a, n_b, 15))
+    assert calls == (1 if n_a == n_b else 2)
+    assert batches == ([4] if n_a == n_b else [2, 2])
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("cls", [LayerS, LayerX])
+def test_cuda_against_composition(cls):
+    """Float32 CUDA outputs and gradients differ from the oracle only by roundoff."""
+    A, B, pa, pb = inputs(3, 3, 16)
+    reference = make(cls).float()
+    A_ref, B_ref = A.float().requires_grad_(), B.float().requires_grad_()
+    want = composition(cls, reference, A_ref, B_ref, pa, pb)
+    layer = make(cls).to(device="cuda", dtype=torch.float32)
+    A, B = A.cuda().float().requires_grad_(), B.cuda().float().requires_grad_()
+    got = layer(A, B, pa.cuda(), pb.cuda())
+    for got_x, want_x in zip(got, want):
+        assert_close(got_x.cpu(), want_x)
+    leaves = (A, B, *layer.parameters())
+    reference_leaves = (A_ref, B_ref, *reference.parameters())
+    got_grads = torch.autograd.grad(sum(x.square().mean() for x in got), leaves)
+    want_grads = torch.autograd.grad(
+        sum(x.square().mean() for x in want), reference_leaves
+    )
+    for got_grad, want_grad in zip(got_grads, want_grads):
+        assert_close(got_grad.cpu(), want_grad)

@@ -39,10 +39,10 @@ def test_exact_two_cycle_roles_order_publish_and_stream_rebuild(
         events.append(("pairs-end", cycle))
         return result
 
-    def published(cfg, cycle, encode):
+    def published(cfg, cycle, encode, **kwargs):
         assert (root / f"data/rl_cycle/{cycle:06d}/model.pt").exists()
         events.append(("publish", cycle))
-        return real_publish(cfg, cycle, encode)
+        return real_publish(cfg, cycle, encode, **kwargs)
 
     monkeypatch.setattr(cycle_module, "sample_pairs", sampled)
     monkeypatch.setattr(cycle_module, "publish_memory", published)
@@ -128,17 +128,43 @@ def test_exact_two_cycle_roles_order_publish_and_stream_rebuild(
 
 def test_zero_preference_count_keeps_preference_groups(tmp_path, repo, monkeypatch):
     root, path = prepare(tmp_path, repo)
+    initial_path = root / "data/pretrain-scaled-init/model.pt"
+    initial = torch.load(initial_path, map_location="cpu", weights_only=True)
+    initial["phi"]["head.0.weight"].fill_(3.25)
+    initial["phi"]["head.0.bias"].fill_(-1.75)
+    torch.save(initial, initial_path)
     config = root / "configs/rl-preference-pairs.yaml"
     import yaml
 
     value = yaml.safe_load(config.read_text()) | {"sample_states": 0}
     config.write_text(yaml.safe_dump(value, sort_keys=False))
+    pretrain = yaml.safe_load((root / "configs/pretrain.yaml").read_text())
     events, batches = [], []
     install(monkeypatch, events, batches)
+    build_calls = []
+    fake_builder = cycle_module.build_modules
+
+    def builder(*args, **kwargs):
+        build_calls.append((args, kwargs))
+        return fake_builder(*args, **kwargs)
+
+    monkeypatch.setattr(cycle_module, "build_modules", builder)
     out = run(root, path, Env(events))
     assert read(out / "index/run.json")["counts"]["preference"] == 0
+    assert len(build_calls) == 1
+    args, kwargs = build_calls[0]
+    forwarded = kwargs.get("latent_init_scale", args[-1])
+    assert forwarded == pretrain["latent_init_scale"]
     final = torch.load(out / "model.pt", map_location="cpu", weights_only=True)
     assert set(final) == {"phi", "pi", "P", "metra"}
+    torch.testing.assert_close(
+        final["phi"]["head.0.weight"],
+        torch.full_like(final["phi"]["head.0.weight"], 3.25),
+    )
+    torch.testing.assert_close(
+        final["phi"]["head.0.bias"],
+        torch.full_like(final["phi"]["head.0.bias"], -1.75),
+    )
 
 
 def test_zero_ppo_count_writes_full_shift_metra_tail(tmp_path, repo, monkeypatch):

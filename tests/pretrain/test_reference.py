@@ -293,15 +293,17 @@ def test_initial_artifacts_and_four_conditions_after_update(
     capsys.readouterr()
     mods = fakes(noise=False, stateful=False)
     with repo_root(loop.repo):
-        initial, metrics = evaluate_initial(cfg, mods, selection, fitted, run)
+        initial, metrics, pairs = evaluate_initial(cfg, mods, selection, fitted, run)
     assert screen(capsys.readouterr().err) == [
         Bar("pretrain reference initial", 128, 128, "pair")
     ]
     assert mods["phi"].calls == mods["P"].calls == 128
-    write_initial(loop.out / "reference", selection, fitted, initial, metrics)
+    write_initial(loop.out / "reference", selection, fitted, initial, metrics, pairs)
     reference = load_initial(loop.out / "reference")
     assert reference.selection == selection and reference.baselines == fitted
     assert reference.initial_metrics == metrics
+    assert reference.initial_pairs == tuple(pairs)
+    assert (loop.out / "reference/000000/pairs.json").is_file()
     assert reference.Z0.shape == (128, 2, 3, 2) and reference.Z0.device.type == "cpu"
     assert reference.Z0.dtype == torch.float64 and not reference.Z0.requires_grad
     oracle = fakes(noise=False, stateful=False)
@@ -312,6 +314,23 @@ def test_initial_artifacts_and_four_conditions_after_update(
         ]
     )
     torch.testing.assert_close(reference.Z0, expected_z)
+
+    def pair_loss(out, labels):
+        s, t = (float(value.detach()) for value in out)
+        value = 2 * bce(t, labels["inc"])
+        if not labels["inc"]:
+            value += 2 * bce(s, labels["p"])
+        return value
+
+    for j, (item, pair) in enumerate(zip(selection["items"], pairs, strict=True)):
+        baseline = pair_loss(
+            oracle["P"](expected_z[j, 0:1], expected_z[j, 1:2]), item["labels"]
+        )
+        assert (pair.micro_batch, pair.pair_in_micro) == (j, 0)
+        assert (pair.a, pair.b, pair.labels) == (item["a"], item["b"], item["labels"])
+        assert pair.baseline == pytest.approx(baseline)
+        assert pair.only_phi_post == pair.joint_post == pair.baseline
+        assert pair.delta_only_phi == pair.delta_joint == 0
     assert set(reference.P0) == {"u", "beta", "v"}
     for key, value in oracle["P"].state_dict().items():
         assert reference.P0[key].device.type == "cpu" and reference.P0[key].equal(value)
@@ -354,7 +373,7 @@ def test_initial_artifacts_and_four_conditions_after_update(
     before = {key: value.clone() for key, value in mods["P"].state_dict().items()}
     phi_calls, p_calls = mods["phi"].calls, mods["P"].calls
     with repo_root(loop.repo):
-        got = evaluate_reference(cfg, mods, reference, run, 500)
+        got, later_pairs = evaluate_reference(cfg, mods, reference, run, 500)
     assert nested_equal(snapshot(mods, optimizer), state_before)
     assert mods["phi"].calls - phi_calls == 128 and mods["P"].calls - p_calls == 256
     assert all(
@@ -374,6 +393,17 @@ def test_initial_artifacts_and_four_conditions_after_update(
             frozen, selection["items"], phi=oracle_mods["phi"]
         ),
     }
+    assert later_pairs is not None
+    for j, (item, pair) in enumerate(zip(selection["items"], later_pairs, strict=True)):
+        z = oracle_mods["phi"]([clip(item["a"]), clip(item["b"])])
+        joint_post = pair_loss(oracle_mods["P"](z[0:1], z[1:2]), item["labels"])
+        only_phi_post = pair_loss(frozen(z[0:1], z[1:2]), item["labels"])
+        assert (pair.micro_batch, pair.pair_in_micro) == (j, 0)
+        assert pair.baseline == pairs[j].baseline
+        assert pair.joint_post == pytest.approx(joint_post)
+        assert pair.only_phi_post == pytest.approx(only_phi_post)
+        assert pair.delta_joint == pytest.approx(joint_post - pair.baseline)
+        assert pair.delta_only_phi == pytest.approx(only_phi_post - pair.baseline)
     for condition, values in expected.items():
         assert_condition(got["conditions"][condition], values, fitted)
     assert got["conditions"]["initial"] == metrics["conditions"]["initial"]

@@ -196,4 +196,29 @@ def asked_files(site: Site, relpaths, since: int = 0) -> list[tuple]:
     """The requests received (from request `since` on) for the files of `relpaths`."""
     stems = {site.path(r, "") for r in relpaths}
     keys = site.asked()[since:]
-    return [k for k in keys if re.sub(r"(-options\.json|\.jsonl|\.mp4)$", "", k[1]) in stems]  # fmt: skip
+    return [
+        k for k in keys if re.sub(r"(-options\.json|\.jsonl|\.mp4)$", "", k[1]) in stems
+    ]
+
+
+def track_range_executors(monkeypatch):
+    """Track the shared range executor created by `pipeline` and its runner shutdown."""
+    from mcpref.clips import plan
+
+    create = plan.range_executor
+    created, closed = [], []
+
+    def tracked(cfg):
+        executor = create(cfg)
+        shutdown = executor.shutdown
+
+        def close(*args, **kwargs):
+            closed.append(True)
+            return shutdown(*args, **kwargs)
+
+        monkeypatch.setattr(executor, "shutdown", close)
+        created.append(executor)
+        return executor
+
+    monkeypatch.setattr(plan, "range_executor", tracked)
+    return created, closed  # fmt: skip

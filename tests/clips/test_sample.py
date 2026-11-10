@@ -6,6 +6,7 @@ from vpt.action_lines import episode, repeat
 
 from mcpref.clips.evidence import evidence
 from mcpref.clips.sample import Clip, sample
+from mcpref.clips.validity import cache_intervals
 from mcpref.vpt.actions import Segment as S
 
 from .clip_oracle import clip_truth, draws_truth, starts_truth, truth
@@ -120,6 +121,18 @@ def test_no_starts_no_draw():
     assert g.bit_generator.state == rng(9).bit_generator.state
 
 
+def test_accepted_clip_reuses_cached_actions(monkeypatch):
+    ev, tr = hold(6)
+    cache = cache_intervals(ev, tr.kappa, 1)
+
+    def recompute(*_):
+        raise AssertionError("an accepted clip recomputed its interval")
+
+    monkeypatch.setattr("mcpref.clips.sample.interval", recompute)
+    clips = sample(ev, tr.kappa, [0], 1, 2, 1, rng(0), Log(), cache=cache)
+    assert [c.actions for c in clips] == [[cache.actions[0]]]
+
+
 def test_starts_and_kappa_are_read_only_sequences():
     ev, tr = hold(13)
     starts = [0, 4, 8]
@@ -177,7 +190,8 @@ def check_against_naive(episode_of, delta, states, m, reject, seed):
     ev, tr = evidence(lines, g, start, ACTIONS), truth(lines, g, start, ACTIONS)
     starts = starts_truth(tr, delta, states)
     got, ref, gen, h = Log(reject), Log(reject), rng(seed), rng(seed)
-    clips = sample(ev, tr.kappa, starts, delta, states, m, gen, got)
+    cache = cache_intervals(ev, tr.kappa, delta)
+    clips = sample(ev, tr.kappa, starts, delta, states, m, gen, got, cache=cache)
     taken = draws_truth(tr, starts, delta, states, m, h, ref)
     assert clips == [Clip(**clip_truth(tr, p, delta, states)) for p in taken]
     assert got.calls == ref.calls

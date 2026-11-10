@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from mcpref.clips.evidence import Evidence
-from mcpref.clips.validity import interval
+from mcpref.clips.validity import IntervalCache, interval
 from mcpref.gui.actions import opens_container
 
 
@@ -32,9 +32,20 @@ def gui_flag(lines: Sequence[Mapping], t: int) -> bool:
     return lines[t]["isGuiOpen"] and not opens_container(lines, t)
 
 
-def clip(ev: Evidence, kappa: Sequence[int], p: int, delta: int, states: int) -> Clip:
+def clip(
+    ev: Evidence,
+    kappa: Sequence[int],
+    p: int,
+    delta: int,
+    states: int,
+    *,
+    cache: IntervalCache | None = None,
+) -> Clip:
     """(5): per interval p + i Delta its actions and n; per state gui_t and pitch."""
-    acts = [interval(ev, kappa, p + i * delta, delta)[0] for i in range(states - 1)]
+    if cache is None:
+        acts = [interval(ev, kappa, p + i * delta, delta)[0] for i in range(states - 1)]
+    else:
+        acts = [cache.actions[p + i * delta] for i in range(states - 1)]
     ts = state_lines(kappa, p, delta, states)
     gui = [gui_flag(ev.lines, t) for t in ts]
     pitch = [float(ev.lines[t]["pitch"]) for t in ts]
@@ -60,6 +71,8 @@ def sample(
     m: int,
     g: np.random.Generator,
     accept: Callable[[list[int]], bool],
+    *,
+    cache: IntervalCache | None = None,
 ) -> list[Clip]:
     """Interface (4): uniform draws from W = V; a clip accepted is taken and the starts
     overlapping it leave W, a clip rejected leaves alone; clips in the order taken."""
@@ -68,7 +81,7 @@ def sample(
         j = uniform(g, len(w))
         p = w[j]
         if accept(state_lines(kappa, p, delta, states)):
-            taken.append(clip(ev, kappa, p, delta, states))
+            taken.append(clip(ev, kappa, p, delta, states, cache=cache))
             w = [q for q in w if not overlaps(kappa, p, q, span)]
         else:
             del w[j]

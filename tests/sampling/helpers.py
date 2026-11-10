@@ -193,7 +193,7 @@ class Site:
         self.path.write_text(yaml.safe_dump(self.mapping, sort_keys=False))
         self.cfg = load_config(self.path)
         self.out = self.root / "out"
-        pretrain = self.root / "data/pretrain"
+        pretrain = self.root / "data/pretrain-scaled-init"
         pretrain.mkdir(parents=True)
         (pretrain / "run.json").write_text(json.dumps({"complete": True}))
         torch.save({"phi": {}, "pi": {}, "P": {}}, pretrain / "model.pt")

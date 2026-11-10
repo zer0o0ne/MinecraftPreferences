@@ -13,12 +13,20 @@ import mcpref
 import mcpref.clips.collect
 from mcpref.pretrain.config import PretrainConfig, load_config
 
-PATHS = ["index_dir", "out_dir", "perception", "action_mask", "policy", "preference"]
+PATHS = [
+    "index_dir",
+    "out_dir",
+    "perception",
+    "action_mask",
+    "policy",
+    "preference",
+    "diagnostics",
+]
 NAMES = [*PATHS, "seed", "epochs", "batch", "micro_batch", "diagnostic_window",
          "reference_steps", "reference_pairs", "calibration_bins", "saturation_threshold",
-         "inc_classification_threshold", "quantiles", "action_copy_eps", "checkpoint_steps",
-         "keep_checkpoints", "warmup_steps", "w_pi", "w_P", "grad_clip", "adam_eps",
-         "lr_floor", "betas", "groups", "device"]  # fmt: skip
+         "inc_classification_threshold", "quantiles", "action_copy_eps", "latent_init_scale",
+         "checkpoint_steps", "keep_checkpoints", "warmup_steps", "w_phi", "w_pi", "w_P", "grad_clip",
+         "adam_eps", "lr_floor", "betas", "groups", "device"]  # fmt: skip
 VALID = {  # YAML lines of a valid config
     "index_dir": "./x/index",
     "out_dir": "o/p/",
@@ -26,6 +34,7 @@ VALID = {  # YAML lines of a valid config
     "action_mask": "./c/action-mask.yaml",
     "policy": "c/sub/policy.yaml",
     "preference": "preference.yaml",
+    "diagnostics": "c/diagnostics.yaml",
     "seed": "4294967295",
     "epochs": "1",
     "batch": "3",
@@ -38,9 +47,11 @@ VALID = {  # YAML lines of a valid config
     "inc_classification_threshold": "0.5",
     "quantiles": "[0.05, 0.5, 0.95]",
     "action_copy_eps": "0.1",
+    "latent_init_scale": "1.0",
     "checkpoint_steps": "1",
     "keep_checkpoints": "1",
     "warmup_steps": "0",
+    "w_phi": "3",
     "w_pi": "2",
     "w_P": "0.5",
     "grad_clip": "1.0e+9",
@@ -67,8 +78,9 @@ def test_reads_every_field(tmp_path):
     cfg = load(tmp_path)
     fields = [f.name for f in dataclasses.fields(PretrainConfig)]
     assert set(fields) == set(NAMES) and fields.index("out_dir") + 1 == fields.index("perception")  # fmt: skip
-    assert fields[fields.index("perception") :][:4] == PATHS[2:]
+    assert fields[fields.index("perception") :][:5] == PATHS[2:]
     assert (cfg.index_dir, cfg.out_dir) == ("./x/index", "o/p/")
+    assert cfg.diagnostics == "c/diagnostics.yaml"
     assert (cfg.perception, cfg.action_mask, cfg.policy, cfg.preference) == (
         "c/perception.yaml", "./c/action-mask.yaml", "c/sub/policy.yaml", "preference.yaml"
     )  # fmt: skip
@@ -78,9 +90,10 @@ def test_reads_every_field(tmp_path):
     assert ints == (2**32 - 1, 1, 3, 2, 1, 1, 1, 10, 1, 1, 0)
     assert all(type(v) is int for v in ints)
     assert (cfg.saturation_threshold, cfg.inc_classification_threshold, cfg.action_copy_eps) == (0.01, 0.5, 0.1)  # fmt: skip
+    assert cfg.latent_init_scale == 1.0 and type(cfg.latent_init_scale) is float
     assert cfg.quantiles == (0.05, 0.5, 0.95) and type(cfg.quantiles) is tuple
-    assert (cfg.w_pi, cfg.w_P, cfg.grad_clip, cfg.adam_eps, cfg.lr_floor) == (
-        2, 0.5, 1e9, 1e-8, 0
+    assert (cfg.w_phi, cfg.w_pi, cfg.w_P, cfg.grad_clip, cfg.adam_eps, cfg.lr_floor) == (
+        3, 2, 0.5, 1e9, 1e-8, 0
     )  # fmt: skip
     assert cfg.betas == (0.0, 0.999) and type(cfg.betas) is tuple
     assert all(type(b) is float for b in cfg.betas)
@@ -99,6 +112,8 @@ ACCEPTED = {  # boundaries inside the domain: field, YAML, value
     "lr_floor 1": ("lr_floor", "1", 1),
     "lr_floor 0.5": ("lr_floor", "0.5", 0.5),
     "grad_clip inf": ("grad_clip", ".inf", math.inf),
+    "w_phi zero": ("w_phi", "0", 0.0),
+    "w_phi tiny": ("w_phi", "1.0e-300", 1e-300),
     "w_pi tiny": ("w_pi", "1.0e-300", 1e-300),
     "groups empty": ("groups", "{}", {}),
     "copy eps 0": ("action_copy_eps", "0", 0.0),
@@ -170,9 +185,20 @@ BAD = {
     "warmup_steps a boolean": {"warmup_steps": "false"},
     "warmup_steps a float": {"warmup_steps": "3.0"},
     **{f"{k} 0": {k: "0"} for k in ("w_pi", "w_P", "grad_clip", "adam_eps")},
-    **{f"{k} negative": {k: "-0.5"} for k in ("w_pi", "w_P", "grad_clip", "adam_eps")},
-    **{f"{k} a string": {k: '"1"'} for k in ("w_pi", "w_P", "grad_clip", "adam_eps")},
-    **{f"{k} a boolean": {k: "true"} for k in ("w_pi", "w_P", "grad_clip", "adam_eps")},
+    "w_phi nan": {"w_phi": ".nan"},
+    **{
+        f"{k} negative": {k: "-0.5"}
+        for k in ("w_phi", "w_pi", "w_P", "grad_clip", "adam_eps")
+    },
+    **{
+        f"{k} a string": {k: '"1"'}
+        for k in ("w_phi", "w_pi", "w_P", "grad_clip", "adam_eps")
+    },
+    **{
+        f"{k} a boolean": {k: "true"}
+        for k in ("w_phi", "w_pi", "w_P", "grad_clip", "adam_eps")
+    },
+    "w_phi missing": {"w_phi": None},
     "grad_clip nan": {"grad_clip": ".nan"},
     "adam_eps 1e-8 (a string to PyYAML)": {"adam_eps": "1e-8"},
     "lr_floor above 1": {"lr_floor": "1.0001"},
@@ -207,6 +233,7 @@ BAD = {
             "inc_classification_threshold",
             "quantiles",
             "action_copy_eps",
+            "latent_init_scale",
         )
     },
     **{
@@ -242,6 +269,12 @@ BAD = {
     "inc threshold 1": {"inc_classification_threshold": "1"},
     "copy eps negative": {"action_copy_eps": "-0.1"},
     "copy eps above 1": {"action_copy_eps": "1.1"},
+    "latent init 0": {"latent_init_scale": "0"},
+    "latent init negative": {"latent_init_scale": "-0.5"},
+    "latent init inf": {"latent_init_scale": ".inf"},
+    "latent init nan": {"latent_init_scale": ".nan"},
+    "latent init a boolean": {"latent_init_scale": "true"},
+    "latent init a string": {"latent_init_scale": '"1"'},
     "quantiles empty": {"quantiles": "[]"},
     "quantiles duplicate": {"quantiles": "[0.5, 0.5]"},
     "quantiles unsorted": {"quantiles": "[0.9, 0.5]"},
@@ -275,15 +308,16 @@ STARTING_GROUPS = {  # specs/perception.md, specs/policy.md, specs/preference.md
 def test_starting_values_from_test_owned_config(tmp_path):
     """The complete starting mapping, including every optimizer group, as input."""
     starting = {
-        "index_dir": "data/train_index", "out_dir": "data/pretrain",
+        "index_dir": "data/train_index", "out_dir": "data/pretrain-scaled-init",
         "perception": "configs/perception.yaml", "action_mask": "configs/action-mask.yaml",
-        "policy": "configs/policy.yaml", "preference": "configs/preference.yaml", "seed": 0,
+        "policy": "configs/policy.yaml", "preference": "configs/preference.yaml",
+        "diagnostics": "configs/diagnostics.yaml", "seed": 0,
         "epochs": 1, "batch": 32, "micro_batch": 1,
         "diagnostic_window": 100, "reference_steps": 500, "reference_pairs": 64,
         "calibration_bins": 10, "saturation_threshold": 0.01,
         "inc_classification_threshold": 0.5, "quantiles": [0.05, 0.5, 0.95],
-        "action_copy_eps": 0.1, "checkpoint_steps": 100,
-        "keep_checkpoints": 2, "warmup_steps": 100, "w_pi": 1.0, "w_P": 1.0,
+        "action_copy_eps": 0.1, "latent_init_scale": 1.0, "checkpoint_steps": 100,
+        "keep_checkpoints": 2, "warmup_steps": 100, "w_phi": 1.0, "w_pi": 1.0, "w_P": 1.0,
         "grad_clip": 1.0, "adam_eps": 1.0e-8, "lr_floor": 0.1, "betas": [0.9, 0.999],
         "groups": STARTING_GROUPS, "device": "cuda",
     }  # fmt: skip

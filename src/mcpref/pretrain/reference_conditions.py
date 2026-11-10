@@ -119,10 +119,11 @@ def evaluate_conditions(
             )
             for part in PARTS
         }
-        for condition in (*CONDITIONS, "initial")
+        for condition in CONDITIONS
     }
-    if not initial:
-        observations["initial"] = dict.fromkeys(PARTS)
+    observations["initial"] = (
+        copy.deepcopy(observations["joint"]) if initial else dict.fromkeys(PARTS)
+    )
     return conditions_by_name, latents, pair_records, observations
 
 

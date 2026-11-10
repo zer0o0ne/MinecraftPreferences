@@ -165,6 +165,7 @@ def test_fresh_process_real_env_recovery_exact_with_unfinished_hold(
     )
     expected_trace = copy.deepcopy(real_world.fake.actions[trace_start:])
     shutil.rmtree(site.out / "shards/000001")
+    shutil.rmtree(site.root / "data/diagnostics")
     (site.out / "run.json").write_bytes(run_bytes)
 
     context = multiprocessing.get_context("fork")

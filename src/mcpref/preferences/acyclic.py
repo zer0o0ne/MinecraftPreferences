@@ -1,4 +1,4 @@
-"""Config, Behaviour and `main` of specs/acyclic.md, including stage-33a handoff."""
+"""Config, Behaviour and `main` of specs/acyclic.md, including block 33 handoff."""
 
 import argparse
 import json

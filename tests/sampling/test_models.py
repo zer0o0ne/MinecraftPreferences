@@ -4,6 +4,7 @@ import dataclasses
 import hashlib
 
 import torch
+import yaml
 from transformers import DynamicCache
 
 from mcpref.sampling.models import (
@@ -30,7 +31,10 @@ def test_pretrained_loading_eval_fingerprint_and_explicit_cpu_load(site, monkeyp
     source = modules("source")
     for module in (source.phi, source.pi, source.P):
         module.weight.data.fill_(3.25)
-    model = site.root / "data/pretrain/model.pt"
+    source.phi.head[-1].weight.data.fill_(3.25)
+    source.phi.head[-1].bias.data.fill_(-1.75)
+    pretrain = yaml.safe_load((site.root / site.cfg.pretrain).read_text())
+    model = site.root / pretrain["out_dir"] / "model.pt"
     torch.save(
         {name: getattr(source, name).state_dict() for name in ("phi", "pi", "P")},
         model,
@@ -58,14 +62,26 @@ def test_pretrained_loading_eval_fingerprint_and_explicit_cpu_load(site, monkeyp
     monkeypatch.setattr("mcpref.sampling.models.finished_run", finished_run)
     monkeypatch.setattr("mcpref.sampling.models.torch.load", load)
     got = load_pretrained(site.cfg)
-    assert complete == [(site.root / "data/pretrain", "data/pretrain", "complete")]
-    assert calls[0][1] == {"paired": True, "device": "cpu"}
+    assert complete == [
+        (site.root / pretrain["out_dir"], pretrain["out_dir"], "complete")
+    ]
+    assert calls[0][1] == {
+        "paired": True,
+        "device": "cpu",
+        "latent_init_scale": pretrain["latent_init_scale"],
+    }
     assert loads == [{"map_location": "cpu", "weights_only": True}]
     assert got.fingerprint == hashlib.sha256(model.read_bytes()).hexdigest()
     for name in ("phi", "pi", "P"):
         module = getattr(got, name)
         assert not module.training
         torch.testing.assert_close(module.weight, torch.full_like(module.weight, 3.25))
+    torch.testing.assert_close(
+        got.phi.head[-1].weight, torch.full_like(got.phi.head[-1].weight, 3.25)
+    )
+    torch.testing.assert_close(
+        got.phi.head[-1].bias, torch.full_like(got.phi.head[-1].bias, -1.75)
+    )
 
 
 def test_supplied_modules_eval_and_length_checks(site):

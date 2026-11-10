@@ -1,7 +1,10 @@
 """Primitive trajectory records, continuation state and raw history of the spec."""
 
 import copy
-from dataclasses import dataclass
+from collections import OrderedDict
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import torch
@@ -42,6 +45,15 @@ class StepRecord:
     preference_start: dict[str, float]
     tree: dict
 
+    @property
+    def policy_probabilities(self) -> Tensor:
+        """Full root policy captured by the existing expansion, without a new forward."""
+        if self.tree.get("policy") is None:
+            raise RuntimeError(
+                "root policy probabilities are unavailable in a legacy record"
+            )
+        return torch.tensor(self.tree["policy"], dtype=torch.float64, device="cpu")
+
 
 @dataclass
 class SamplerState:
@@ -64,6 +76,30 @@ class RawHistory:
     states: list[EnvState]
     actions: list[int | None]
     restart: int
+
+
+@dataclass
+class _RecordCache:
+    out_dir: Path
+    capacity: int
+    steps: int | None = None
+    records: OrderedDict[int, StepRecord] = field(default_factory=OrderedDict)
+
+
+_active: _RecordCache | None = None
+
+
+@contextmanager
+def record_cache(out_dir: Path, capacity: int) -> Iterator[None]:
+    """Share a bounded immutable-record LRU for one RL cycle."""
+    global _active
+    if _active is not None:
+        raise RuntimeError("a trajectory record cache is already active")
+    _active = _RecordCache(out_dir, capacity)
+    try:
+        yield
+    finally:
+        _active = None
 
 
 def _record_mapping(record: StepRecord) -> dict:
@@ -146,13 +182,29 @@ def load_state(
 
 
 def _steps_per_shard(out_dir: Path) -> int:
-    return _load(shard_path(out_dir / "shards", 0) / "state.pt")["next_step"]
+    if _active is None or _active.out_dir != out_dir:
+        return _load(shard_path(out_dir / "shards", 0) / "state.pt")["next_step"]
+    if _active.steps is None:
+        _active.steps = _load(shard_path(out_dir / "shards", 0) / "state.pt")[
+            "next_step"
+        ]
+    return _active.steps
 
 
 def _read_step(out_dir: Path, index: int, steps: int) -> StepRecord:
+    active = _active if _active is not None and _active.out_dir == out_dir else None
+    if active is not None and index in active.records:
+        record = active.records[index]
+        active.records.move_to_end(index)
+        return record
     shard, local = divmod(index, steps)
     value = _load(shard_path(out_dir / "shards", shard) / "steps" / f"{name(local)}.pt")
-    return _decode_record(value)
+    record = _decode_record(value)
+    if active is not None:
+        active.records[index] = record
+        if len(active.records) > active.capacity:
+            active.records.popitem(last=False)
+    return record
 
 
 def load_step(out_dir: Path, index: int) -> StepRecord:

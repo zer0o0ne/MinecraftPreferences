@@ -117,9 +117,19 @@ def shift(net: nn.Module, cfg: PolicyConfig, R: torch.Tensor, a: torch.Tensor):
 
 
 def forward(net, cfg, names, Z, clips, b=None) -> tuple:
-    """(7): C by (1) (rows dropped where b), a-> by (7)."""
+    """(7): C by (1) (rows dropped where b), per-state histories, a-> by (7)."""
     C = torch.tensor(np.stack([input_weights(c, names) for c in clips]), dtype=Z.dtype)
-    R = readout(net, cfg, Z, C if b is None else dropped(C, b))
+    C = C if b is None else dropped(C, b)
+    if cfg.history == Z.shape[1]:
+        R = readout(net, cfg, Z, C)
+    else:
+        R = torch.stack(
+            [
+                readout(net, cfg, Z[:, : s + 1], C[:, : s + 1])[:, -1]
+                for s in range(Z.shape[1])
+            ],
+            dim=1,
+        )
     a = torch.tensor([next_actions(c, names) for c in clips])
     return logits(net, R), shift(net, cfg, R, a)
 

@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 PART = ".part"
+_SYNCED: dict[Path, tuple[int, int]] = {}
 
 
 def name(k: int) -> str:
@@ -46,11 +47,16 @@ def sync(p: Path) -> None:
 
 
 def make_dirs(p: Path) -> None:
-    """make(p): missing directories down to p created; p and every ancestor up to / synced."""
+    """make(p): create missing directories and sync each unchanged chain once per process."""
     p.mkdir(parents=True, exist_ok=True)
-    absolute = p.absolute()
+    absolute, stat = p.absolute(), p.stat()
+    identity = stat.st_dev, stat.st_ino
+    if _SYNCED.get(absolute) == identity:
+        return
+    _SYNCED.pop(absolute, None)
     for q in (absolute, *absolute.parents):
         sync(q)
+    _SYNCED[absolute] = identity
 
 
 def check(D: Path, k: int) -> None:

@@ -22,7 +22,6 @@ from mcpref.diagnostics.types import MetricRecord
 from mcpref.runs.files import write_json
 from mcpref.shards.store import name, sync
 
-CHANNELS = ("vote", "label", "graph", "pretrain-step", "pretrain-reference")
 Join = Callable[[MetricRecord, Sequence[str]], MetricRecord]
 
 
@@ -46,14 +45,15 @@ class DiagnosticRun:
         self.cfg = cfg
         self.out_dir = REPO / cfg.out_dir
         self.state = state
+        self._ids = {}
 
     @classmethod
     def load(cls, path: Path) -> "DiagnosticRun":
         cfg = load_config(path)
         return cls(cfg, load_state(path, cfg))
 
-    def save(self) -> None:
-        save_state(self.out_dir, self.state)
+    def save(self, *, index: bool = True) -> None:
+        save_state(self.out_dir, self.state, index=index)
 
     def identity(self, channel: str) -> str:
         paths = [
@@ -61,7 +61,14 @@ class DiagnosticRun:
             for event in self.state["channels"][channel]["events"]
             for source in event["source"]
         ]
-        return input_identity(paths) if paths else ""
+        if not paths:
+            return ""
+        try:
+            return input_identity(paths)
+        except FileNotFoundError as error:
+            raise RuntimeError(
+                f"{channel} diagnostics source input is missing"
+            ) from error
 
     def register(self, channel: str, *, watermark: int, next: int) -> None:
         channels = self.state["channels"]
@@ -124,10 +131,17 @@ class DiagnosticRun:
         )
 
     def accepted(self, kind: str, event_id: str) -> MetricRecord | None:
-        for record in iter_records(self.out_dir, kind):
-            if record["id"] == event_id:
-                return record
-        return None
+        if kind not in self._ids:
+            self._ids[kind] = {
+                record["id"] for record in iter_records(self.out_dir, kind)
+            }
+        if event_id not in self._ids[kind]:
+            return None
+        return next(
+            record
+            for record in iter_records(self.out_dir, kind)
+            if record["id"] == event_id
+        )
 
     def remove(self, paths: Sequence[Path]) -> None:
         for path in paths:
@@ -135,7 +149,15 @@ class DiagnosticRun:
         if paths:
             sync(paths[0].parent)
 
-    def accept(self, channel: str, event_id: str, *, join: Join | None = None) -> bool:
+    def accept(
+        self,
+        channel: str,
+        event_id: str,
+        *,
+        join: Join | None = None,
+        save: bool = True,
+        remove: bool = True,
+    ) -> bool:
         entries = self.entries(channel, event_id)
         if not entries:
             return False
@@ -159,6 +181,7 @@ class DiagnosticRun:
                 continue
             index = complete_records(self.out_dir, pending["kind"])
             write_record(self.out_dir, pending["kind"], index, pending)
+            self._ids[pending["kind"]].add(pending["id"])
             new_records += 1
         if not already:
             state["events"].append({"id": event_id, "source": sources})
@@ -167,8 +190,10 @@ class DiagnosticRun:
         state["complete"] = False
         self.state["complete"] = False
         self.state["sha256"]["inputs"][channel] = self.identity(channel)
-        self.save()
-        self.remove([path for path, _ in entries])
+        if save:
+            self.save()
+        if remove:
+            self.remove([path for path, _ in entries])
         return not already
 
     def recover(self, channel: str, *, join: Join | None = None) -> None:
@@ -179,8 +204,7 @@ class DiagnosticRun:
         state = self.state["channels"][channel]
         state["complete"] = source_complete and done and not self.has_entries(channel)
         channels = self.state["channels"]
-        self.state["complete"] = all(
-            channel in channels and channels[channel]["complete"]
-            for channel in CHANNELS
+        self.state["complete"] = bool(channels) and all(
+            channel["complete"] for channel in channels.values()
         )
         self.save()

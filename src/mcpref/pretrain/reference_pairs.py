@@ -36,11 +36,15 @@ def observe_joint(
     """Evaluate current phi/pi once and retain bounded detached joint observations."""
     phi_terms, phi_diagnostics = modules["phi_loss"].terms(Z, clips)
     pi_out = modules["pi"](Z, clips)
-    pi_terms, valid = modules["pi_loss"].terms(pi_out, Z, clips)
-    q, current = modules["pi_loss"].diagnostic_targets()
-    zero_shift = modules["pi_loss"].zero_shift(Z, valid["shift_valid"])
+    pi_terms, valid, diagnostics = modules["pi_loss"].terms(pi_out, Z, clips)
     policy, state_rows = policy_observation(
-        (pi_out[0].detach(), q, current, valid, zero_shift.detach()),
+        (
+            pi_out[0].detach(),
+            diagnostics["q"],
+            diagnostics["current"],
+            valid,
+            diagnostics["zero_shift"],
+        ),
         cfg.calibration_bins,
         cfg.action_copy_eps,
     )

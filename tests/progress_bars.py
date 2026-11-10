@@ -55,6 +55,14 @@ def states(err: str, desc: str | None = None) -> list[Bar]:
     return [b for b in bars if b and desc in (None, b.desc)]
 
 
+def assert_bars(err: str, expected: list[Bar]) -> None:
+    """Each multi-bar run starts at zero and closes at its expected final state."""
+    for bar in expected:
+        sequence = states(err, bar.desc)
+        assert sequence[0] == Bar(bar.desc, 0, bar.total, bar.unit)
+        assert sequence[-1] == bar
+
+
 def screen(err: str) -> list[Bar | str]:
     """The lines a terminal shows for `err` (each line's text after its last '\\r', its
     padding ignored), as a Bar where it is one; `err` ends with a full line."""
@@ -83,7 +91,7 @@ def assert_progress(err: str) -> None:
     for line, shown in zip(err.split("\n"), screen(err)):
         parts = [parse(s) for s in line.split("\r") if s.strip(" ")]
         if isinstance(shown, Bar):
-            assert all(b and b.desc == shown.desc for b in parts), repr(line)
+            assert all(b is not None for b in parts), repr(line)
 
 
 def assert_aborted(code: int, err: str) -> list[Bar | str]:

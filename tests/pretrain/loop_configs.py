@@ -23,6 +23,19 @@ def write_module_configs(repo: Path) -> None:
     text = f'screens: "{SCREENS}"\npitch_limit: 90\n'
     (repo / MODULE_CONFIGS["action_mask"]).write_text(text)
     (repo / SCREENS).write_text("# screens\n")
+    (repo / DIAGNOSTICS).write_text(
+        yaml.safe_dump(
+            {
+                "out_dir": "w/diagnostics",
+                "seed": 0,
+                "bootstrap_samples": 2,
+                "ci_level": 0.95,
+                "min_cluster_count": 2,
+                "quantiles": [0.05, 0.5, 0.95],
+            },
+            sort_keys=False,
+        )
+    )
 
 
 def action_mask_catalogue() -> dict:
@@ -62,6 +75,7 @@ CONFIG = {
     "index_dir": "w/index",
     "out_dir": "w/pretrain",
     **MODULE_CONFIGS,
+    "diagnostics": DIAGNOSTICS,
     "seed": 5,
     "epochs": 2,
     "batch": 2,
@@ -74,9 +88,11 @@ CONFIG = {
     "inc_classification_threshold": 0.5,
     "quantiles": [0.05, 0.5, 0.95],
     "action_copy_eps": 0.1,
+    "latent_init_scale": 1.0,
     "checkpoint_steps": 3,
     "keep_checkpoints": 2,
     "warmup_steps": 3,
+    "w_phi": 0.4,
     "w_pi": 0.7,
     "w_P": 1.9,
     "grad_clip": 1.0,

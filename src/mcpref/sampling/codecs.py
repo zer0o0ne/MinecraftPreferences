@@ -81,6 +81,7 @@ def _encode_node(node: Node) -> dict:
         "n": node.n,
         "mean": node.mean,
         "value": node.value,
+        "policy": node.policy,
     }
 
 
@@ -95,16 +96,22 @@ def _decode_node(value: dict, device: torch.device, parent: Node | None) -> Node
         n=value["n"],
         mean=value["mean"],
         value=value["value"],
+        policy=value.get("policy"),
     )
     node.children = [_decode_node(child, device, node) for child in value["children"]]
     return node
 
 
 def _encode_tree(tree: Tree) -> dict:
-    return {"root": _encode_node(tree.root), "base": _encode_history(tree.base)}
+    return {
+        "root": _encode_node(tree.root),
+        "base": _encode_history(tree.base),
+        "policy": tree.root_policy,
+    }
 
 
 def _decode_tree(value: dict, device: torch.device) -> Tree:
     tree = Tree(_decode_history(value["base"], device))
     tree.root = _decode_node(value["root"], device, None)
+    tree.root_policy = value.get("policy")
     return tree

@@ -25,7 +25,6 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: Notation, $B$, and (7) (`Qwen/Qwen3.5-2B`, an MLP head, $D$ = the length of `alpha`).
   **→ [U]** (2026-10-22) $P$: `specs/preference.md` (1)–(8).
   **→ [U]** (2026-10-22) $\pi$: `specs/policy.md` (1)–(7).
-  **→ [U]** (2026-11-07) latent-output initialization uses pretrain `latent_init_scale: 1.0`: the last $\phi$ weight and bias and $\pi$'s `dynamics.w2.weight` are multiplied by `1 / alpha` per coordinate once in `build_modules`; all other weights and the metric are unchanged (`specs/policy.md` (13)).
 - **G-7** Optimisers, learning rates, batch sizes per training stage; fixed in each block spec, or one config file with values from you?
   **→ [U]** every exact number goes into a config, never asked; where and how: G-11.
 - **G-8** Checkpointed across cycles for resuming: nets, optimiser states, METRA $\lambda$, $\mathcal{M}$, $\mathcal{T}$, env state?
@@ -93,7 +92,6 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
   **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: (11) (the pushing term $-d_\alpha$ kept).
 - **PER-6** Output layer: unbounded linear or bounded (tanh)?
   **→ [U]** (2026-10-21/22) resolved in `specs/perception.md`: (7).
-  **→ [U]** (2026-11-07) the output remains unbounded; only at initialization, the final $\phi$ weight and bias and $\pi$'s `dynamics.w2.weight` are scaled by `latent_init_scale / alpha` per latent coordinate (`specs/policy.md` (13)).
 - **PER-7** $\phi$ per frame ($z_t = \phi(o_t)$; "history" = sequence of per-frame $z$) or on a window $\phi(o_{t-k_\phi+1..t})$?
   **→ [U]** on a window (G-2).
   **→ [U]** (2026-10-20) the window is the stream since its last restart, at most $L$ states (G-2).
@@ -159,6 +157,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **MCTS-9** History of an imagined node for $\pi$ and $P$ = real history + imagined path?
   **→ [U]** (2026-10-22, partial) $\pi$'s input also holds the actions executed in the history (`specs/policy.md` (1), (2)); at RL its history is at most the last $L_\pi = L$ latents, two longer than the longest trained one, accepted. Open for block 8: the history of an imagined node and its $C$.
   **→ [U]** (2026-11-03) the working latents of the real + imagined path, with one-hot executed actions in $C$; exact latents are not network inputs: `specs/mcts.md` (1), (3).
+  **→ [U]** (2026-11-10) pretraining and RL use the last $L_\pi \le L$ latents for each policy position; $L_\pi$ limits only the policy/preference input, not $\phi$'s clip stream: `specs/policy.md` (7), (13).
 
 ## RLS — Sampling (R1)
 - **RLS-1** Environment: `MinecraftSim` is synchronous (the world advances only on `step()`, one tick per step), so the pause is free. Settings: seed, spawn biome, initial inventory, observation size. Death does not end the episode (respawn behaviour unconfirmed); on a time-limit or another `done`, reset (a new world, breaking the single timeline) or never end?
@@ -306,5 +305,5 @@ Facts (MineStudio @ 278aa85 and its engine jar `mcprec-6.13.jar` from `CraftJarv
   **→ [U]** GX-1…GX-7 all agreed (2026-10-10); every Spark action is a bash script (`setup_env.sh`, `download_data.sh`, `serve_vlm.sh`). Specs: `spark-env.md`, `vlm-client.md`, `vpt-gui-frames.md` (approved), `gui-screens.md` (draft).
 
 ## DIAG — Online diagnostics
-- **DIAG-1** How does stage 33a preserve existing runs while adding producer-owned records: reference backfill or legacy layout, packed output shards or one record per shard, independent driver or producer outbox, and global or per-channel resume?
+- **DIAG-1** How does block 33 preserve existing runs while adding producer-owned records: reference backfill or legacy layout, packed output shards or one record per shard, independent driver or producer outbox, and global or per-channel resume?
   **→ [U]** (2026-11-07) shard 0 selects a whole-run legacy metrics-only or new pairs-bearing reference layout; no backfill. Records have arbitrary `id` plus contiguous `index`, one per output shard. Producer outboxes join exact source step/window/condition/split artifacts; per-channel identities and first-instrumented watermarks govern resume. Production wiring, aligned graph categories including dropped, per-population clusters, the `diagnostics` package and actual full SVG registry paths are approved; vote weights come from explicit `VlmLabelsConfig.acyclic=configs/acyclic.yaml`; exact accepted-source suites live in top-level `joined`, separate from strict typed metrics (`specs/rl-diagnostics.md`, `specs/pretrain-diagnostics.md`, `specs/acyclic.md`, `specs/vlm-labels.md`).

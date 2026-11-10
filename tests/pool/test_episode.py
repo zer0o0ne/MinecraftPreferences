@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from clips.collect_gamma import Classifier
+from clips.collect_site import track_range_executors
 
 from .pool_site import assert_outputs
 from .pool_world import chain, replace
@@ -75,6 +76,17 @@ def test_video_of_episode_j_of_draw_k_in_staging(make_site):
         k, j = where[d["key"]]
         video = Path(d["argv"][d["argv"].index("-i") + 1])
         assert video.resolve() == (site.out / "staging" / str(k) / f"{j}.mp4").resolve()
+
+
+@pytest.mark.parametrize("abort", [False, True])
+def test_pool_runner_reuses_and_closes_one_range_executor(site, monkeypatch, abort):
+    created, closed = track_range_executors(monkeypatch)
+    if abort:
+        site.aborted(p={"ffmpeg": str(site.tmp / "no-ffmpeg")})
+    else:
+        site.run()
+    assert len(created) == 1
+    assert closed == [True]
 
 
 def wait(condition, seconds: float = 4.0) -> bool:

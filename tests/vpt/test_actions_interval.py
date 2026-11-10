@@ -3,7 +3,7 @@
 import pytest
 from action_lines import episode, repeat
 
-from mcpref.vpt.actions import Segment, interval_actions, segments
+from mcpref.vpt.actions import Segment, interval_actions, intervals_actions, segments
 
 S = Segment
 RIGHT, LEFT, UP, DOWN = "turn_right", "turn_left", "turn_up", "turn_down"
@@ -42,6 +42,16 @@ def test_cut_lines_are_not_in_the_interval():
     assert interval_actions(segs, lines, 4, 8, range(4, 8), 10.0) == []
 
 
+def test_batch_actions_ignore_segments_wholly_inside_a_cut_span():
+    segs = [S("attack", 4, 5), S("back", 1, 3)]
+    lines, kappa = flat(10), [0, 1, 2, 7, 8, 9]
+    expected = [[], ["back"], ["back"], [], []]
+    direct = [interval_actions(segs, lines, kappa[p], kappa[p + 1], {3, 4, 5, 6}, 10.0)
+              for p in range(5)]  # fmt: skip
+    assert direct == expected
+    assert intervals_actions(segs, lines, kappa, 1, 10.0) == expected
+
+
 def test_actions_in_the_order_of_segs_then_yaw_then_pitch():
     segs = [S("use", 6, 6), S("forward", 4, 5), S("hotbar_3", 5, 5), S("attack", 4, 5),
             S("attack", 6, 7)]  # fmt: skip
@@ -77,6 +87,8 @@ YAW = [
 def test_yaw_turns(yaw, turns):
     lines = flat(len(yaw), yaw=yaw)
     assert interval_actions([], lines, 0, len(yaw) - 1, (), 10.0) == turns
+    kappa = list(range(len(yaw)))
+    assert intervals_actions([], lines, kappa, len(yaw) - 1, 10.0) == [turns]
 
 
 PITCH = [

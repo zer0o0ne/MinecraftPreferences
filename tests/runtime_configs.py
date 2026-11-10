@@ -103,16 +103,26 @@ def write_repository(
         "overlay": "configs/f3-overlay.yaml", "classifier_config": "configs/gui-classifier.yaml",
         "states": states, "out_dir": "data/perception",
     }  # fmt: skip
+    docs["diagnostics"] = {
+        "out_dir": "data/diagnostics",
+        "seed": 0,
+        "bootstrap_samples": 20,
+        "ci_level": 0.95,
+        "min_cluster_count": 2,
+        "quantiles": [0.05, 0.5, 0.95],
+    }
     docs["pretrain"] = {
-        "index_dir": "data/train_index", "out_dir": "data/pretrain",
+        "index_dir": "data/train_index", "out_dir": "data/pretrain-scaled-init",
         "perception": paths["perception"], "action_mask": paths["action-mask"],
-        "policy": paths["policy"], "preference": paths["preference"], "seed": 0,
+        "policy": paths["policy"], "preference": paths["preference"],
+        "diagnostics": "configs/diagnostics.yaml", "seed": 0,
         "epochs": 1, "batch": 32, "micro_batch": 1, "diagnostic_window": 100,
         "reference_steps": 500, "reference_pairs": 64, "calibration_bins": 10,
         "saturation_threshold": 0.01, "inc_classification_threshold": 0.5,
         "quantiles": [0.05, 0.5, 0.95], "action_copy_eps": 0.1,
+        "latent_init_scale": 1.0,
         "checkpoint_steps": 100, "keep_checkpoints": 2, "warmup_steps": 100,
-        "w_pi": 1.0, "w_P": 1.0, "grad_clip": 1.0, "adam_eps": 1e-8,
+        "w_phi": 1.0, "w_pi": 1.0, "w_P": 1.0, "grad_clip": 1.0, "adam_eps": 1e-8,
         "lr_floor": 0.1, "betas": [0.9, 0.999], "groups": STARTING_GROUPS, "device": "cpu",
     }  # fmt: skip
     docs["env-sampling"] = {

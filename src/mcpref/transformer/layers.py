@@ -2,20 +2,64 @@
 not), the SwiGLU MLP and the pre-norm layer shared by P and pi."""
 
 import math
+import weakref
 
 import torch
 from torch import Tensor
 from torch.nn import functional as F
 
+_RopeKey = tuple[int, torch.device, torch.dtype, int, float]
+_RopeEntry = tuple[weakref.ReferenceType[Tensor], int, Tensor, Tensor]
+_POSITIONS: dict[tuple[int, torch.device], Tensor] = {}
+_ROPE_CACHE: dict[_RopeKey, _RopeEntry] = {}
 
-def rope(x: Tensor, positions: Tensor, base: float) -> Tensor:
-    """(2): the pairs (i, i + d_h/2) of the last axis of x (..., n, d_h) rotated by
-    positions_j * theta_i, theta_i = base^(-2i/d_h), in the dtype of x."""
+
+def rope_positions(n: int, device: torch.device) -> Tensor:
+    """Interface: the shared positions 1 - n, ..., 0 on `device`."""
+    key = (n, device)
+    positions = _POSITIONS.get(key)
+    if positions is None:
+        positions = torch.arange(1 - n, 1, device=device)
+        _POSITIONS[key] = positions
+    return positions
+
+
+def _trigonometry(x: Tensor, positions: Tensor, base: float) -> tuple[Tensor, Tensor]:
     d_h = x.shape[-1]
     i = torch.arange(d_h // 2, dtype=x.dtype, device=x.device)
     theta = base ** (-2 * i / d_h)
     angle = positions.to(x.dtype)[:, None] * theta
-    cos, sin = angle.cos(), angle.sin()
+    return angle.cos(), angle.sin()
+
+
+def _cached_trigonometry(
+    x: Tensor, positions: Tensor, base: float
+) -> tuple[Tensor, Tensor]:
+    if positions.requires_grad:
+        return _trigonometry(x, positions, base)
+    key = (id(positions), x.device, x.dtype, x.shape[-1], base)
+    version = positions._version
+    entry = _ROPE_CACHE.get(key)
+    if entry is not None:
+        reference, cached_version, cos, sin = entry
+        if reference() is positions and cached_version == version:
+            return cos, sin
+    cos, sin = _trigonometry(x, positions, base)
+
+    def discard(reference: weakref.ReferenceType[Tensor], key: _RopeKey = key) -> None:
+        entry = _ROPE_CACHE.get(key)
+        if entry is not None and entry[0] is reference:
+            del _ROPE_CACHE[key]
+
+    _ROPE_CACHE[key] = (weakref.ref(positions, discard), version, cos, sin)
+    return cos, sin
+
+
+def rope(x: Tensor, positions: Tensor, base: float) -> Tensor:
+    """(2): the pairs (i, i + d_h/2) of the last axis of x (..., n, d_h) rotated by
+    positions_j * theta_i, theta_i = base^(-2i/d_h), in the dtype of x."""
+    cos, sin = _cached_trigonometry(x, positions, base)
+    d_h = x.shape[-1]
     x1, x2 = x[..., : d_h // 2], x[..., d_h // 2 :]
     return torch.cat([x1 * cos - x2 * sin, x2 * cos + x1 * sin], dim=-1)
 

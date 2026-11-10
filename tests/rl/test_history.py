@@ -70,6 +70,20 @@ def test_restart_segments_meta_origins_latents_and_preceding_actions(tmp_path):
     assert phi.scale.grad is not None and phi.scale.grad != 0
 
 
+def test_retained_tail_is_bitwise_exact_with_restart_and_no_action(tmp_path):
+    raw = dataclasses.replace(raw_history(), actions=[0, None, 1, 2, None], restart=1)
+    phi = RawPhi()
+    result = encode_raw(phi, perception_config(tmp_path), raw, 4, 3)
+    assert [len(call[0]) for call in phi.calls] == [3, 2]
+    ids = torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float64)
+    expected_y = torch.stack((ids, ids + 0.5), dim=-1) * phi.scale
+    expected_c = torch.zeros(1, 4, 4, dtype=torch.float64)
+    expected_c[0, 0, 3] = expected_c[0, 1, 1] = 1.0
+    expected_c[0, 2, 2] = expected_c[0, 3, 3] = 1.0
+    assert torch.equal(result.Y, expected_y.unsqueeze(0))
+    assert torch.equal(result.C, expected_c)
+
+
 def test_encode_ref_validates_episode_and_reads_repository_raw_history(
     tmp_path, monkeypatch
 ):

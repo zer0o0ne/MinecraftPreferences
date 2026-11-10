@@ -1,4 +1,4 @@
-"""Stage-33a vote, label and graph producer handoffs."""
+"""Block 33 vote, label and graph producer handoffs."""
 
 import json
 from collections import Counter

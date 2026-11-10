@@ -2,6 +2,7 @@
 
 import itertools
 import math
+from bisect import bisect_left, bisect_right
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -103,6 +104,30 @@ def interval_actions(
     return hit + turns(lines, a, b, turn_deg)
 
 
+def intervals_actions(
+    segs: Sequence[Segment],
+    lines: Sequence[Mapping],
+    kappa: Sequence[int],
+    delta: int,
+    turn_deg: float,
+) -> list[list[str]]:
+    """(8) for every consecutive grid interval, preserving segment and yaw order."""
+    n = len(kappa) - delta
+    hits = [[] for _ in range(n)]
+    for s in segs:
+        first = bisect_left(kappa, s.first)
+        last = bisect_right(kappa, s.last) - 1
+        if first > last:
+            continue
+        lo, hi = max(0, first - delta + 1), min(last, n - 1)
+        for p in range(lo, hi + 1):
+            hits[p].append(s.action)
+    return [
+        hit + turns(lines, kappa[p], kappa[p + delta], turn_deg)
+        for p, hit in enumerate(hits)
+    ]
+
+
 def released(before: Mapping, line: Mapping) -> bool:
     """(9): F3 release, f3 in K_{k-1}, not in K_k, and G_{k-1}."""
     gone = "f3" in keys(before, "keys") and "f3" not in keys(line, "keys")
@@ -124,8 +149,14 @@ def overlay_toggles(lines: Sequence[Mapping]) -> list[int]:
 
 
 def counts(frames: list[int], n: int) -> list[int]:
-    """(9): the number of events at frames <= t, t = 0..n-1."""
-    return [sum(f <= t for f in frames) for t in range(n)]
+    """(9): the number of ascending events at frames <= t, t = 0..n-1."""
+    out, total, i = [], 0, 0
+    for t in range(n):
+        while i < len(frames) and frames[i] <= t:
+            total += 1
+            i += 1
+        out.append(total)
+    return out
 
 
 def mode_frames(lines: Sequence[Mapping], start: tuple[bool, bool, int]) -> np.ndarray:

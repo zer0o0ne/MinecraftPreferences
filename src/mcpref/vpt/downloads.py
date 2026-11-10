@@ -1,16 +1,17 @@
 """(a), (e), (f) of specs/vpt-gui-frames.md: indices, the verify video, ranged fetch;
 also of specs/perception-data.md (access fields `Access`)."""
 
+import os
 import sys
 from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from functools import partial
 from pathlib import Path
 
 import httpx
 from tqdm import tqdm
 
-from mcpref.http.retry import Method, request
+from mcpref.http.retry import Method, request, retried
 from mcpref.shards.store import make_dirs, write_file
 from mcpref.vpt.config import Access, GuiFramesConfig
 
@@ -96,3 +97,86 @@ def fetch(client: httpx.Client, cfg: Access, url: str) -> bytes | None:
     with ThreadPoolExecutor(q) as threads:
         jobs = [threads.submit(part, client, cfg, url, *ab) for ab in parts(L, q)]
     return b"".join(job.result() for job in jobs)
+
+
+def pwrite(fd: int, data: bytes, offset: int) -> int:
+    """Write all of data at offset without moving the shared file position."""
+    view = memoryview(data)
+    while view:
+        n = os.pwrite(fd, view, offset)
+        view, offset = view[n:], offset + n
+    return offset
+
+
+def stream_part(
+    client: httpx.Client, cfg: Access, url: str, fd: int, first: int, last: int
+) -> tuple[httpx.Response, int] | httpx.TransportError:
+    """One complete streaming attempt, including response-body iteration."""
+    try:
+        with client.stream(
+            "GET",
+            url,
+            headers={"Range": f"bytes={first}-{last}"},
+            timeout=httpx.Timeout(cfg.http_timeout),
+            follow_redirects=False,
+        ) as response:
+            n, offset = 0, first
+            for chunk in response.iter_raw(chunk_size=last - first + 1):
+                n += len(chunk)
+                if response.status_code == 206:
+                    offset = pwrite(fd, chunk, offset)
+            return response, n
+    except httpx.TransportError as error:
+        return error
+
+
+def part_to_path(
+    client: httpx.Client, cfg: Access, url: str, fd: int, first: int, last: int
+) -> None:
+    """Write one range, retrying transport errors and HTTP 5xx across whole attempts."""
+    call = partial(stream_part, client, cfg, url, fd, first, last)
+    again = lambda outcome: (
+        isinstance(outcome, httpx.TransportError) or outcome[0].is_server_error
+    )
+    outcome = retried(call, again, cfg.http_retries, cfg.retry_delay)
+    if isinstance(outcome, httpx.TransportError):
+        raise outcome
+    response, n = outcome
+    if response.status_code != 206 or n != last - first + 1:
+        status = response.status_code
+        raise RuntimeError(f"GET {url} bytes={first}-{last}: HTTP {status}, {n} bytes")
+
+
+def range_executor(cfg: Access) -> ThreadPoolExecutor:
+    """The bounded executor shared by a pipeline's video fetches."""
+    return ThreadPoolExecutor(cfg.fetch_streams)
+
+
+def fetch_to_path(
+    client: httpx.Client,
+    cfg: Access,
+    url: str,
+    path: Path,
+    threads: ThreadPoolExecutor,
+) -> bool:
+    """Video-specific (f): stream parts on the caller-owned executor; False for a 404."""
+    L = size(client, cfg, url)
+    if L is None:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staged = path.with_name(path.name + ".part")
+    try:
+        with staged.open("wb") as output:
+            if L:
+                jobs = [
+                    threads.submit(part_to_path, client, cfg, url, output.fileno(), *ab)
+                    for ab in parts(L, cfg.fetch_streams)
+                ]
+                wait(jobs)
+                for job in jobs:
+                    job.result()
+        staged.replace(path)
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
+    return True

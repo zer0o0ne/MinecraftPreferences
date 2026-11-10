@@ -2,6 +2,7 @@
 (6) and the continuation (7)."""
 
 import json
+import os
 import shutil
 import sys
 from collections import Counter
@@ -78,6 +79,20 @@ def line_starts(jsonl: bytes) -> list[int]:
     return [0, *ends.tolist(), len(jsonl)]
 
 
+def _write_frames(path: Path, frames: Sequence[bytes]) -> None:
+    with path.open("wb") as f:
+        parts = [memoryview(frame) for frame in frames]
+        while parts:
+            n = os.writev(f.fileno(), parts)
+            if not n:
+                raise OSError(f"could not write {path}")
+            while parts and n >= len(parts[0]):
+                n -= len(parts[0])
+                parts.pop(0)
+            if n:
+                parts[0] = parts[0][n:]
+
+
 def stage_clips(
     out: Path,
     k: int,
@@ -96,7 +111,7 @@ def stage_clips(
         row = clip_record(subset, relpath, c, classes)
         part = staging(out, k) / f"{row['id']}.part"
         part.mkdir(parents=True)
-        (part / "frames.yuv").write_bytes(b"".join(frames[t] for t in c.states))
+        _write_frames(part / "frames.yuv", [frames[t] for t in c.states])
         (part / "lines.jsonl").write_bytes(
             jsonl[starts[c.states[0]] : starts[c.states[-1] + 1]]
         )
@@ -117,11 +132,13 @@ def write_draw(
     with write_shard(out / "shards", k) as staged:
         for name, value in files.items():
             (staged / name).write_bytes(json_bytes(value))
+        if options:
+            (staged / "options").mkdir()
         for name, data in options.items():
-            (staged / "options").mkdir(exist_ok=True)
             (staged / "options" / f"{name}.json").write_bytes(data)
+        if ids:
+            (staged / "clips").mkdir()
         for i in ids:
-            (staged / "clips").mkdir(exist_ok=True)
             (staging(out, k) / f"{i}.part").rename(staged / "clips" / i)
     remove(staging(out, k))
 

@@ -87,3 +87,27 @@ def test_root_value_field_is_ignored_and_root_is_not_backed_up():
     assert tree.root.value == 123.0
     assert (tree.root.n, tree.root.mean) == (0, 0.0)
     assert all(mode is False for mode in policy.grad_modes)
+
+
+def test_cached_depth_limit_leaf_skips_model_history(monkeypatch):
+    def unexpected_history(*args):
+        raise AssertionError("unexpected model-history construction")
+
+    monkeypatch.setattr("mcpref.mcts.search.model_history", unexpected_history)
+    tree = Tree(latent_history([[0.0]]))
+    child = node([1.0], action=0, prior=1.0, parent=tree.root, value=0.5)
+    tree.root.children = [child]
+
+    decide(
+        tree,
+        np.ones(4, dtype=bool),
+        UnexpectedCalls(),
+        UnexpectedCalls(),
+        torch.ones(1, dtype=torch.float64),
+        config(depth=1),
+        np.random.default_rng(0),
+        float("inf"),
+    )
+
+    assert child.n == 1
+    assert child.mean == 0.45

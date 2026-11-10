@@ -88,6 +88,7 @@ class StepObservations:
     preference: PreferenceRows | None
     policy: PolicyObservations
     phi: PhiObservations
+    raw_policy: tuple = ()
 
 
 def action_suite(
@@ -155,6 +156,7 @@ def policy_suite(
         -sum(
             weight * math.log(weight / total) for weight in q_sum.tolist() if weight > 0
         )
+        / total
         if total
         else None
     )

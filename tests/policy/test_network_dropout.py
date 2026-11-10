@@ -115,7 +115,23 @@ def test_forward_in_training_mode():
     torch.manual_seed(11)
     b = oracle.draw(2, 4, 0.5)
     torch.manual_seed(11)
-    lam, sh = net(Z, CLIPS)
+    lam, sh, _ = net(Z, CLIPS)
     want = oracle.forward(net, HALF, NAMES, Z, CLIPS, b)
     assert_close(lam, want[0])
     assert_close(sh, want[1])
+
+
+def test_forward_without_history_in_training_mode():
+    """L_pi = 1 batches all per-state draws without changing their order or values."""
+    cfg = cfg_of(history=1, action_dropout=0.5)
+    net = Policy(cfg, D, NAMES).double().train()
+    randomize_gains(net)
+    Z = torch.randn(2, 4, D, generator=torch.Generator().manual_seed(12), dtype=F64)
+    torch.manual_seed(13)
+    b = oracle.draw(2 * 4, 1, 0.5).reshape(2, 4)
+    torch.manual_seed(13)
+    lam, sh, _ = net(Z, CLIPS)
+    want = oracle.forward(net, cfg, NAMES, Z, CLIPS, b)
+    assert_close(lam, want[0])
+    assert_close(sh, want[1])
+    assert torch.equal(torch.get_rng_state(), state_after_draw(13, 2 * 4, 1))

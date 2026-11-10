@@ -5,7 +5,7 @@ import pytest
 from vpt.action_lines import bump, episode, repeat
 
 from mcpref.clips.evidence import evidence
-from mcpref.clips.validity import interval, valid_starts
+from mcpref.clips.validity import cache_intervals, interval, valid_starts
 from mcpref.vpt.actions import Segment as S
 
 from .clip_oracle import interval_truth, starts_truth, truth
@@ -125,15 +125,20 @@ def setup(seed: int):
 @pytest.mark.parametrize("seed", range(30))
 def test_valid_starts_match_naive_reference(seed):
     ev, tr, delta, states = setup(seed)
-    assert valid_starts(ev, tr.kappa, delta, states) == starts_truth(tr, delta, states)
+    cache = cache_intervals(ev, tr.kappa, delta)
+    found = valid_starts(ev, tr.kappa, delta, states, cache=cache)
+    assert found == starts_truth(tr, delta, states)
 
 
 @pytest.mark.parametrize("seed", range(30))
 def test_intervals_match_naive_reference(seed):
     ev, tr, delta, _ = setup(seed)
     ps = range(len(tr.kappa) - delta)
+    expected = [interval_truth(tr, p, delta) for p in ps]
     found = [interval(ev, tr.kappa, p, delta) for p in ps]
-    assert found == [interval_truth(tr, p, delta) for p in ps]
+    cache = cache_intervals(ev, tr.kappa, delta)
+    assert found == expected
+    assert list(zip(cache.actions, cache.valid, strict=True)) == expected
 
 
 @pytest.mark.parametrize("seed", [100, 102, 104, 106])

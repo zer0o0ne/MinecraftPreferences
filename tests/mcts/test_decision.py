@@ -67,6 +67,8 @@ def test_all_zero_visit_weights_fall_back_to_uniform_children():
 
 
 class ClockPreference:
+    history = 1000
+
     def __init__(self, clock, elapsed=0.0):
         self.clock, self.elapsed, self.calls = clock, elapsed, 0
 

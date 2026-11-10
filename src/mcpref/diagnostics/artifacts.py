@@ -92,8 +92,8 @@ def iter_records(out_dir: Path, kind: str) -> Iterator[MetricRecord]:
 
 
 def iter_all_records(out_dir: Path) -> Iterator[MetricRecord]:
-    yield from iter_records(out_dir, "targets")
-    yield from iter_records(out_dir, "pretrain")
+    for kind in ("targets", "pretrain", "rl", "mcts", "milestones"):
+        yield from iter_records(out_dir, kind)
 
 
 def input_identity(paths: Sequence[str]) -> str:
@@ -156,3 +156,206 @@ def write_accepted_index(out_dir: Path) -> None:
 
 def write_index(out_dir: Path, records: Sequence[MetricRecord]) -> None:
     stream_index(out_dir, records, previous_plots(out_dir))
+
+
+GROUP_PANELS = {
+    "policy-action-quality": {
+        "ce": [
+            "policy.nll",
+            "policy.uniform_allowed_ce",
+            "policy.prior_ce",
+            "policy.copy_ce",
+        ],
+        "distributions": [
+            "policy.brier",
+            "policy.tv",
+            "policy.entropy",
+            "policy.teacher_entropy",
+        ],
+        "support": [
+            "policy.top1_support",
+            "policy.topk_support",
+            "policy.topk_target_mass",
+        ],
+        "confusion": [
+            "policy.micro_recall",
+            "policy.macro_recall",
+            "policy.macro_precision",
+        ],
+    },
+    "policy-calibration": {"calibration": ["policy.confidence", "policy.ece"]},
+    "policy-masks": {
+        "count": ["mask.count"],
+        "rates": ["mask.empty", "mask.singleton", "mask.executed_violation"],
+        "probability": ["mask.probability", "mask.allowed_entropy"],
+        "teacher": ["policy.singleton_teacher", "policy.zero_teacher"],
+    },
+    "ppo": {
+        "ratio": ["ppo.ratio", "ppo.ratio_max", "ppo.logprob_drift", "ppo.action_tv"],
+        "advantage": ["ppo.advantage", "ppo.advantage_std"],
+        "kl": ["ppo.kl_sample", "ppo.kl_exact"],
+        "ess": ["ppo.ess", "ppo.ess_normalized"],
+        "clip": ["ppo.clip_positive", "ppo.clip_negative"],
+        "counts": ["ppo.eligible", "ppo.fresh", "ppo.pending"],
+    },
+    "policy-mcts": {
+        "agreement": ["mcts.top1_prior_agreement", "mcts.top1_policy_agreement"],
+        "ranks": ["mcts.rank_prior", "mcts.rank_visits"],
+        "divergence": ["mcts.kl_prior_visits", "mcts.js_prior_visits"],
+        "exploration": [
+            "mcts.policy_support_mass",
+            "mcts.visit_entropy",
+            "mcts.top_width_prior_mass",
+        ],
+    },
+    "mcts-outcomes": {
+        "hits": [
+            "mcts.chosen_hit",
+            "mcts.top1_hit",
+            "mcts.topk_hit",
+            "mcts.support_hit",
+        ],
+        "matched-mass": ["mcts.matched_mass", "mcts.matched_hit"],
+        "errors": ["mcts.d_alpha_error", "mcts.zero_shift_error"],
+    },
+    "factual-metra": {
+        "shift": ["shift.error", "shift.error_squared", "shift.zero_baseline"],
+        "metra": ["metra.d", "metra.q", "metra.lambda"],
+        "rates": ["metra.constraint_active", "metra.zero_skill"],
+    },
+    "update-health": {
+        "global": [
+            "update.preclip_norm",
+            "update.clip_coefficient",
+            "update.learning_rate",
+        ],
+        "head": [
+            "update.head_row_norm",
+            "update.head_update_row_norm",
+            "update.logit_norm",
+        ],
+        "rows": [
+            "update.zero_gradient_row",
+            "update.unsupported_action",
+            "update.zero_unsupported_row",
+        ],
+    },
+    "memory-efficiency": {
+        "counts": [
+            "memory.seeds_per_real_state",
+            "memory.temporal_per_real_state",
+            "memory.nearest_per_real_state",
+            "memory.beam_per_real_state",
+            "memory.evictions",
+            "memory.unused",
+        ],
+        "ratios": [
+            "memory.dedup_ratio",
+            "memory.repeated_comparison",
+            "memory.capacity",
+        ],
+        "coverage": [
+            "memory.episode_coverage",
+            "memory.empty_candidates_per_real_state",
+        ],
+    },
+    "losses": {
+        "total": ["loss", "phi", "pi", "P"],
+        "components": ["ppo", "shift", "metra", "P_inc", "P_succ"],
+    },
+}
+for _milestone in (
+    "stone_pickaxe",
+    "iron",
+    "iron_pickaxe",
+    "diamonds",
+    "obsidian",
+    "blaze_rod",
+):
+    GROUP_PANELS.setdefault("milestones", {})[f"coverage-{_milestone}"] = [
+        f"milestones.coverage_{_milestone}"
+    ]
+    GROUP_PANELS.setdefault("milestones", {})[f"time-{_milestone}"] = [
+        f"milestones.time_to_first_{_milestone}"
+    ]
+GROUP_PANELS["milestones"]["first-times"] = [
+    f"joined.first_times.{name}"
+    for name in (
+        "stone_pickaxe",
+        "iron",
+        "iron_pickaxe",
+        "diamonds",
+        "obsidian",
+        "blaze_rod",
+    )
+]
+
+
+def group_registry(
+    group: str, facets: Sequence[tuple[str, str]], extra: Sequence[str] = ()
+) -> list[dict]:
+    entries = [
+        {
+            "group": group,
+            "file": f"{group}__{split}__{condition}__{panel}.svg",
+            "series": series,
+            "x": "step",
+        }
+        for split, condition in facets
+        for panel, series in GROUP_PANELS[group].items()
+    ]
+    for split, condition in facets:
+        prefix = f"{group}__{split}__{condition}"
+        if extra:
+            entries.append(
+                {
+                    "group": group,
+                    "file": f"{prefix}__groups.svg",
+                    "series": list(extra),
+                    "x": "step",
+                }
+            )
+        if group == "policy-calibration":
+            entries.extend(
+                [
+                    {
+                        "group": group,
+                        "file": f"{prefix}__reliability.svg",
+                        "series": ["confidence", "accuracy"],
+                        "x": "bin",
+                    },
+                    {
+                        "group": group,
+                        "file": f"{prefix}__support.svg",
+                        "series": ["n"],
+                        "x": "bin",
+                    },
+                ]
+            )
+        if group == "mcts-outcomes":
+            entries.append(
+                {
+                    "group": group,
+                    "file": f"{prefix}__matched-reliability.svg",
+                    "series": ["hit"],
+                    "x": "matched_mass",
+                }
+            )
+        if group == "milestones":
+            for name in (
+                "stone_pickaxe",
+                "iron",
+                "iron_pickaxe",
+                "diamonds",
+                "obsidian",
+                "blaze_rod",
+            ):
+                entries.append(
+                    {
+                        "group": group,
+                        "file": f"{prefix}__km-{name}.svg",
+                        "series": ["survival"],
+                        "x": f"km:{name}",
+                    }
+                )
+    return entries

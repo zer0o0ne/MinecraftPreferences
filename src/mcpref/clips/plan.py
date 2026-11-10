@@ -22,7 +22,7 @@ from mcpref.gui.screens import load_screens
 from mcpref.recognition.debug_overlay import load_config as load_overlay_config
 from mcpref.recognition.debug_overlay import overlay_font, overlay_masks
 from mcpref.vpt.actions import load_config as load_actions_config
-from mcpref.vpt.downloads import fetch
+from mcpref.vpt.downloads import fetch, range_executor
 from mcpref.vpt.episodes import Examined, Fetch, draw, episode_name, examine, options_ok
 
 if TYPE_CHECKING:
@@ -180,7 +180,16 @@ def pipeline(cfg: "PerceptionDataConfig", classify: Classify) -> Pipeline:
     double_click_ms = load_gui_actions_config(REPO / cfg.gui_actions).double_click_ms
     out, classify = REPO / cfg.out_dir, serialised(classify)
     return Pipeline(
-        cfg, out, clips, actions, screens, double_click_ms, overlay, masks, classify
+        cfg,
+        out,
+        clips,
+        actions,
+        screens,
+        double_click_ms,
+        overlay,
+        masks,
+        classify,
+        range_executor(cfg),
     )
 
 

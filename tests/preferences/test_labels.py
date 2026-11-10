@@ -4,7 +4,7 @@ Interface: Produces, Datasets): one call per shard with its requests, prompts (1
 `counts.json`, `end`; run.json after (I) and after (L); the shown frames."""
 
 import pytest
-from progress_bars import assert_progress, screen, states
+from progress_bars import Bar, assert_bars, screen, states
 
 from .labels_oracle import SHOWN, inputs_bar, label_bar, same_prompts
 from .labels_world import HAND, HAND_ENDS, HAND_LABELS, HAND_TOTAL, Shard, record
@@ -66,8 +66,12 @@ def test_bars(make_site):
     site = make_site()
     r = site.run()
     assert (r.code, r.stdout) == (0, ""), r.err
-    assert_progress(r.err)
-    assert screen(r.err) == [inputs_bar(4), label_bar(5, 5)]
+    expected = [
+        inputs_bar(4),
+        Bar("diagnostics targets", 4, 4, "shard"),
+        label_bar(5, 5),
+    ]
+    assert_bars(r.err, expected)
     assert {b.n for b in states(r.err, "label")} <= {0, 3, 4, 5}
 
 
@@ -90,7 +94,11 @@ def test_pool_without_shards(make_site):
     site = make_site(shards=[])
     r = site.run()
     assert r.code == 0, r.err
-    assert screen(r.err) == ["label inputs: nothing to do", "label: nothing to do"]
+    assert screen(r.err) == [
+        "label inputs: nothing to do",
+        "label: nothing to do",
+        "diagnostics targets: nothing to do",
+    ]
     assert site.fake.calls == []
     assert site.tree() == {"run.json": site.expected_run({})}
 
@@ -102,7 +110,11 @@ def test_pool_without_comparisons(make_site):
     site = make_site(shards=shards)
     r = site.run()
     assert r.code == 0, r.err
-    assert screen(r.err) == [inputs_bar(2), "label: nothing to do"]
+    assert screen(r.err) == [
+        inputs_bar(2),
+        "label: nothing to do",
+        Bar("diagnostics targets", 2, 2, "shard"),
+    ]
     assert site.fake.calls == []
     assert site.tree() == site.expected_tree([{}, {}], {}, [0, 0])
 

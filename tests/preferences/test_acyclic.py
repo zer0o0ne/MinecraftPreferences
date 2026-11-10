@@ -151,12 +151,15 @@ def test_run_json_keeps_the_config_as_written(tmp_path):
     site = make_site(tmp_path)
     site.path.write_text(
         "# a comment\nrefusal_share: 0.50\nout_dir: w/labels\nvotes_dir: w/votes\n"
+        "diagnostics: w/configs/diagnostics.yaml\n"
         "weights: {MUCH_BETTER: 1, BETTER: 0.75, SLIGHTLY_BETTER: 0.625, SLIGHTLY_WORSE:"
         " 0.375, WORSE: 0.25, MUCH_WORSE: 0, INCOMPARABLE: null}\n"
     )
     assert site.run().code == 0
     run = json.loads((site.out / "run.json").read_bytes())
-    assert list(run["config"]) == ["refusal_share", "out_dir", "votes_dir", "weights"]
+    assert list(run["config"]) == [
+        "refusal_share", "out_dir", "votes_dir", "diagnostics", "weights"
+    ]
     assert site.tree() == site.expected_tree()
 
 

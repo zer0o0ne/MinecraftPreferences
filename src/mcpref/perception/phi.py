@@ -137,14 +137,22 @@ class Phi(torch.nn.Module):
         )
         return self.head(h[r])
 
+    def prepare(self, clips: list[Clip]) -> list[tuple[list[np.ndarray], list[str]]]:
+        """(1)-(2): RGB frames and meta strings, once per clip."""
+        return [clip_states(clip, self.cfg, self.sprite) for clip in clips]
+
     def clip_z(self, clip: Clip) -> Tensor:
         """(3)-(7) of one clip: z_s = head(h_{r_s}), shape (L, D)."""
-        frames, metas = clip_states(clip, self.cfg, self.sprite)
-        return self.frames_z(frames, metas)
+        return self.frames_z(*self.prepare([clip])[0])
 
-    def forward(self, clips: list[Clip]) -> Tensor:
+    def forward(
+        self,
+        clips: list[Clip],
+        states: list[tuple[list[np.ndarray], list[str]]] | None = None,
+    ) -> Tensor:
         """(8): Z, in the dtype of the head."""
-        return torch.stack([self.clip_z(clip) for clip in clips])
+        states = self.prepare(clips) if states is None else states
+        return torch.stack([self.frames_z(frames, metas) for frames, metas in states])
 
     def groups(self) -> dict[str, list[torch.nn.Parameter]]:
         """(12): the decayed and other parameters of B.visual, B.language_model and the

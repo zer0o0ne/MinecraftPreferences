@@ -35,10 +35,12 @@ def nearest(
         raise KeyError("the seed must be inserted before nearest alternatives")
     key = torch.tensor(vertex.key, dtype=alpha.dtype, device=alpha.device)
     found: list[tuple[float, StateRef]] = []
-    for other in history.outside(seed.episode):
-        old = torch.tensor(other.key, dtype=key.dtype, device=key.device)
-        distance = torch.linalg.vector_norm(alpha * (key - old), ord=2, dim=-1).item()
-        found.append((distance, other.ref))
+    for vertices in history.outside_shards(seed.episode):
+        old = torch.tensor(
+            [vertex.key for vertex in vertices], dtype=key.dtype, device=key.device
+        )
+        distances = torch.linalg.vector_norm(alpha * (key - old), ord=2, dim=-1)
+        found.extend(zip(distances.tolist(), (vertex.ref for vertex in vertices)))
         found.sort(key=lambda item: (item[0], item[1]))
         del found[count:]
     return [ref for _, ref in found]

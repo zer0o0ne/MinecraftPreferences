@@ -30,6 +30,7 @@ class Node:
     n: int = 0
     mean: float = 0.0
     value: float | None = None
+    policy: list[float] | None = None
 
 
 @dataclass(init=False)
@@ -43,19 +44,19 @@ class Tree:
         z = real.Y[0, -1]
         self.root = Node(z, z, None, None, None, None, value=0.0)
         self.base = real
+        self.root_policy = None
 
 
-def history(tree: Tree, node: Node) -> LatentHistory:
-    """(1): the base history followed by the working states and actions to node."""
+def _path(tree: Tree, node: Node) -> list[Node]:
     path = []
     while node is not tree.root:
         path.append(node)
         assert node.parent is not None
         node = node.parent
-    Y, C = tree.base.Y, tree.base.C
-    if not path:
-        return LatentHistory(Y, C)
-    path.reverse()
+    return path[::-1]
+
+
+def _append(Y: Tensor, C: Tensor, path: list[Node]) -> LatentHistory:
     Z = torch.stack([child.z for child in path], dim=0)[None]
     actions = torch.tensor([child.action for child in path]).to(
         device=C.device, non_blocking=True
@@ -63,7 +64,31 @@ def history(tree: Tree, node: Node) -> LatentHistory:
     rows = torch.arange(len(path), device=C.device)
     appended = C.new_zeros((1, len(path), C.shape[-1]))
     appended[0, rows, actions] = 1
+    if not Y.shape[1]:
+        return LatentHistory(Z, appended)
     return LatentHistory(torch.cat((Y, Z), dim=1), torch.cat((C, appended), dim=1))
+
+
+def history(tree: Tree, node: Node) -> LatentHistory:
+    """(1): the base history followed by the working states and actions to node."""
+    path = _path(tree, node)
+    if not path:
+        return LatentHistory(tree.base.Y, tree.base.C)
+    return _append(tree.base.Y, tree.base.C, path)
+
+
+def model_history(tree: Tree, node: Node, L_pi: int, L_P: int) -> LatentHistory:
+    """(1): only the tail consumed by the policy and preference history windows."""
+    path = _path(tree, node)
+    n = min(max(L_pi, L_P + 1), tree.base.Y.shape[1] + len(path))
+    path_n = min(n, len(path))
+    base_n = n - path_n
+    base_start = tree.base.Y.shape[1] - base_n
+    path = path[-path_n:]
+    Y, C = tree.base.Y[:, base_start:], tree.base.C[:, base_start:]
+    if not path:
+        return LatentHistory(Y, C)
+    return _append(Y, C, path)
 
 
 def quantize(delta: Tensor, alpha: Tensor, epsilon: float) -> Tensor:
@@ -94,7 +119,9 @@ def advance(
             base = LatentHistory(base.Y, C)
         child.parent = None
         tree.root, tree.base = child, base
+        tree.root_policy = child.policy
         return tree
     root = Node(z, z, action, None, None, None, value=0.0)
     tree.root, tree.base = root, real
+    tree.root_policy = None
     return tree

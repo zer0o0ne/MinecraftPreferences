@@ -4,6 +4,7 @@ naive float64 loop, a direct float64 composition with the module's own weights
 (policy_oracle.py), the used rows and their positions, each row's readout equal to a call on
 its prefix, a batch of actions, float32. The dropout of (2): test_network_dropout.py."""
 
+import numpy as np
 import pytest
 import torch
 from torch.testing import assert_close
@@ -158,24 +159,41 @@ CLIPS = [  # L = 4 over the tiny A: n_{s+1} = 1 or not, the last states
 ]  # fmt: skip
 
 
-def test_forward_against_composition():
-    """(7): logits (m, L, |A|) and the shift of a->_s (m, L, D), C by (1), a-> by (7)."""
-    cfg = cfg_of()
+@pytest.mark.parametrize("history", [1, 2, 4], ids=lambda x: f"history {x}")
+def test_forward_against_composition(history):
+    """(7): per-state windows, logits (m, L, |A|), shifts (m, L, D), C and a->."""
+    cfg = cfg_of(history=history)
     net = net_of(cfg)
     Z = torch.randn(3, 4, D, generator=torch.Generator().manual_seed(7), dtype=F64)
-    lam, sh = net(Z, CLIPS)
+    lam, sh, current = net(Z, CLIPS)
     assert lam.shape == (3, 4, A) and sh.shape == (3, 4, D)
     want = oracle.forward(net, cfg, NAMES, Z, CLIPS)
     assert_close(lam, want[0])
     assert_close(sh, want[1])
+    expected = np.stack([oracle.input_weights(clip, NAMES) for clip in CLIPS])
+    assert_close(current, torch.tensor(expected, dtype=F64))
+
+
+@pytest.mark.parametrize("history", [1, 2], ids=lambda x: f"history {x}")
+def test_forward_ignores_latents_before_each_window(history):
+    """Output s is unchanged by latents before max(0, s - L_pi + 1)."""
+    net = net_of(cfg_of(history=history))
+    Z = torch.randn(2, 4, D, generator=torch.Generator().manual_seed(70), dtype=F64)
+    lam, sh, _ = net(Z, CLIPS[:2])
+    for s in range(history, Z.shape[1]):
+        changed = Z.clone()
+        changed[:, : s - history + 1] = 100.0
+        lam2, sh2, _ = net(changed, CLIPS[:2])
+        assert_close(lam2[:, s], lam[:, s])
+        assert_close(sh2[:, s], sh[:, s])
 
 
 def test_forward_clips_independent():
     """Row i depends only on Z_i and clip i."""
     net = net_of()
     Z = torch.randn(3, 4, D, generator=torch.Generator().manual_seed(8), dtype=F64)
-    lam, sh = net(Z, CLIPS)
-    lam1, sh1 = net(Z[[1]], CLIPS[1:2])
+    lam, sh, _ = net(Z, CLIPS)
+    lam1, sh1, _ = net(Z[[1]], CLIPS[1:2])
     assert_close(lam1[0], lam[1])
     assert_close(sh1[0], sh[1])
 
@@ -186,8 +204,8 @@ def test_float32():
     net = Policy(cfg, D, NAMES).eval()
     randomize_gains(net)
     Z = torch.randn(3, 4, D, generator=torch.Generator().manual_seed(9))
-    lam, sh = net(Z, CLIPS)
-    assert lam.dtype == sh.dtype == torch.float32
+    lam, sh, current = net(Z, CLIPS)
+    assert lam.dtype == sh.dtype == current.dtype == torch.float32
     want = oracle.forward(net.double(), cfg, NAMES, Z.double(), CLIPS)
     assert_close(lam.double(), want[0], rtol=1e-4, atol=1e-5)
     assert_close(sh.double(), want[1], rtol=1e-4, atol=1e-5)

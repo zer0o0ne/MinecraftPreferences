@@ -127,7 +127,9 @@ def _pending(
 def _write_previous(sampler: Sampler, staged: Path, local: int, bar: tqdm) -> None:
     """(5), (8): write the preceding delayed record and advance the bar."""
     if sampler.pending is not None:
-        write_step(staged, local - 1, _complete(sampler, sampler.pending))
+        record = _complete(sampler, sampler.pending)
+        sampler.observe(record)
+        write_step(staged, local - 1, record)
         bar.update(1)
 
 
@@ -173,7 +175,9 @@ def _finish(
         sampler.alpha,
         sampler.mcts.epsilon,
     )
-    write_step(staged, local, _complete(sampler, pending))
+    record = _complete(sampler, pending)
+    sampler.observe(record)
+    write_step(staged, local, record)
     bar.update(1)
     _save_state(sampler, staged, after)
     sampler.pending = None
