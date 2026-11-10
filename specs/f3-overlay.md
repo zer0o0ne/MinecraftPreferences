@@ -13,7 +13,7 @@ Stage: data of P1, P2 (blocks perception-data, preference-pool; `specs/00-overvi
 - $Y$ — the luma plane of a raw yuv420p frame: its first $W \cdot H$ bytes as an $H \times W$ array (`uint8`).
 - $\tau$ — the detected text (`prefix`); $P$ — its text pixels $G_0$ by `specs/gui-masks.md` (9) for the label with name $\tau$, rectangle $(2, 2, w_\tau, 8)$ and colour 0xE0E0E0, $w_\tau = \sum_i \text{adv}(\tau_i)$; $R$ — the box rectangle $x \in [1, 2 + w_\tau)$, $y \in [1, 10)$; $\bar P$ — the 3×3 dilation of $P$: $\{p + (d_x, d_y) : p \in P,\ d_x, d_y \in \{-1, 0, 1\}\}$; $Q = R \setminus \bar P$.
 - Two templates $m \in \{\text{n}, \text{d}\}$ (normal, dimmed by a screen): text luma $\lambda_m$, tolerance $\delta_m$, box bound $\beta_m$.
-- Config `configs/f3-overlay.yaml` → `@dataclass(frozen=True) class OverlayConfig`: `screens` (path of `configs/gui-screens.yaml` relative to the repository root, resolved against it; its `textures.out_dir` holds `font/ascii.png`), `prefix` (a non-empty string of characters 0x20–0x7E), `text_luma`, `tolerance`, `box_max` (each a mapping with exactly the keys `normal`, `dimmed`; values YAML integers or floats, not booleans, read with `float()`; `tolerance` ≥ 0), `threshold` ($\theta$, a YAML integer or float, not a boolean, in (0, 1]); violated constraints → `ValueError` at load.
+- Config `configs/gui/recognition/f3-overlay.yaml` → `@dataclass(frozen=True) class OverlayConfig`: `screens` (path of `configs/gui/screens.yaml` relative to the repository root, resolved against it; its `textures.out_dir` holds `font/ascii.png`), `prefix` (a non-empty string of characters 0x20–0x7E), `text_luma`, `tolerance`, `box_max` (each a mapping with exactly the keys `normal`, `dimmed`; values YAML integers or floats, not booleans, read with `float()`; `tolerance` ≥ 0), `threshold` ($\theta$, a YAML integer or float, not a boolean, in (0, 1]); violated constraints → `ValueError` at load.
 - $W$, $H$ — the frame size of the caller's config (`width`, `height`).
 
 ## Math
@@ -22,7 +22,7 @@ Stage: data of P1, P2 (blocks perception-data, preference-pool; `specs/00-overvi
 (3) The overlay is shown iff $S \ge \theta$ ([R5]: $\theta$ separates the measured frames).
 
 ## Interface
-- Module `src/mcpref/recognition/debug_overlay.py`:
+- Module `src/mcpref/gui/recognition/debug_overlay.py`:
   - `OverlayConfig`; `def load_config(path: Path) -> OverlayConfig`.
   - `def overlay_font(cfg: OverlayConfig) -> np.ndarray` — $\Phi$: `load_font(load_textures_config(cfg.screens).out_dir)`; a missing `font/ascii.png` raises `FileNotFoundError` (the caller's script downloads the textures first, as `scripts/download_data.sh` does).
   - `def overlay_masks(font: np.ndarray, prefix: str, width: int, height: int) -> tuple[np.ndarray, np.ndarray]` — $P$, $Q$ (`bool`, $H \times W$); `ValueError` when $|P| = 0$, $|Q| = 0$ or $R$ does not fit in the frame.
@@ -31,16 +31,16 @@ Stage: data of P1, P2 (blocks perception-data, preference-pool; `specs/00-overvi
   - `def overlay_shown(y: np.ndarray, masks: tuple[np.ndarray, np.ndarray], cfg: OverlayConfig) -> bool` — (3).
 - Caller: block perception-data (25; its pipeline is reused by preference-pool): for an episode that does not start a session (`starts_session` of `specs/vpt-actions.md` false), $O_0$ of `mode_frames` = `overlay_shown` on `luma` of frame 0.
 - Domain: the options of `specs/vpt-gui-frames.md` `required_options` (guiScale 2, framebuffer 1280×720, not fullscreen, no Unicode font, no resource packs), enforced by the caller's `required_options`.
-- Consumes: `font/ascii.png` under `textures.out_dir` of `configs/gui-screens.yaml`; frame 0 of the caller. Produces: nothing on disk.
+- Consumes: `font/ascii.png` under `textures.out_dir` of `configs/gui/screens.yaml`; frame 0 of the caller. Produces: nothing on disk.
 - No progress bar (one frame).
 - `specs/00-overview.md`: block 24; package map `recognition` → also P1, P2 data → this spec.
-- Starting config values: `screens` = `configs/gui-screens.yaml`, `prefix` = `Minecraft 1.16.5 (`, `text_luma` = {normal: 208.38, dimmed: 73.7}, `tolerance` = {normal: 24, dimmed: 8}, `box_max` = {normal: 160.1, dimmed: 63.4}, `threshold` = 0.75 ([R5]: any value in [0.65, 0.95] separates the measured frames).
+- Starting config values: `screens` = `configs/gui/screens.yaml`, `prefix` = `Minecraft 1.16.5 (`, `text_luma` = {normal: 208.38, dimmed: 73.7}, `tolerance` = {normal: 24, dimmed: 8}, `box_max` = {normal: 160.1, dimmed: 63.4}, `threshold` = 0.75 ([R5]: any value in [0.65, 0.95] separates the measured frames).
 - Tests: on a hand-made font: $P$ (positions, advance, space), $R$, the dilation and $Q$ at the borders of the frame; (1) on synthetic $Y$ planes at the tolerance and box bounds (inclusive), integer arithmetic (no `uint8` wrap-around); (2), (3) at $S = \theta$; on the real `ascii.png` (skipped with the reason when absent): $w_\tau = 87$, $|P| = 169$, $|Q| = 217$ for the starting prefix; `ValueError` of `overlay_masks`; `luma`; the config loader.
 
 ## Library mapping
 | Item | Call | Version | Explicit args | Source read |
 |---|---|---|---|---|
-| $P$, $w_\tau$ | `mcpref.recognition.drawn_masks.text_pixels`, `glyph`, `advance`, `load_font` | this repo | the label of Notation | `specs/gui-masks.md` (9) |
+| $P$, $w_\tau$ | `mcpref.gui.recognition.masks.drawn_masks.text_pixels`, `glyph`, `advance`, `load_font` | this repo | the label of Notation | `specs/gui-masks.md` (9) |
 | font path | `mcpref.gui.textures.load_textures_config` | this repo | `cfg.screens` | `specs/gui-screens.md` |
 | config | `yaml.safe_load` | PyYAML 6.0.3 | — | as in `specs/gui-screens.md` |
 

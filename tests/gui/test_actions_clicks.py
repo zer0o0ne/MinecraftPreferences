@@ -1,7 +1,8 @@
 """(3) clicks and (4) drags of specs/vpt-gui-actions.md; hand cases, tiny catalogue."""
 
 import pytest
-from gui_action_lines import (
+
+from gui.gui_action_lines import (
     B37,
     MS,
     OUT,
@@ -14,9 +15,8 @@ from gui_action_lines import (
     px,
     world,
 )
-
+from mcpref.datasets.vpt.actions import Segment as S
 from mcpref.gui.actions import GuiActions, gui_actions
-from mcpref.vpt.actions import Segment as S
 
 fs = frozenset
 

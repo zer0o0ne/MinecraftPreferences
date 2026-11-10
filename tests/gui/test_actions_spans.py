@@ -4,8 +4,9 @@ specs/vpt-gui-actions.md; hand cases, tiny catalogue."""
 import dataclasses
 
 import pytest
-from gui_action_lines import MS, S1, S2, S10, SCREENS, box, episode, inv, world
 
+from gui.gui_action_lines import MS, S1, S2, S10, SCREENS, box, episode, inv, world
+from mcpref.datasets.vpt.actions import Segment as S
 from mcpref.gui.actions import (
     GuiActions,
     excluded_states,
@@ -13,7 +14,6 @@ from mcpref.gui.actions import (
     needed_frames,
     spans,
 )
-from mcpref.vpt.actions import Segment as S
 
 fs = frozenset
 

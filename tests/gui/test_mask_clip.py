@@ -3,7 +3,8 @@ specs/perception-data.md, `lines` from its first state's line with cut lines ins
 
 import numpy as np
 import pytest
-from mask_oracle import (
+
+from gui.mask_oracle import (
     LIMIT,
     WORLD,
     allowed,
@@ -12,7 +13,6 @@ from mask_oracle import (
     names,
     world_allowed,
 )
-
 from mcpref.gui.mask import clip_masks
 
 A = names(90)

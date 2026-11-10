@@ -205,13 +205,13 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 ## PPO (R4)
 - **PPO-1** [later] (with RLS-3) Reward from the stored preferences, e.g. $r_t = (1 - p_{inc})(1 - 2p_\succ)$ for $P(z_t, z_{t+1})$ (result preferred to start = positive). Values stored at sampling, or recomputed with the new $\phi$ and $P$?
   **→ [U]** (2026-11-03) $A_t=\mathrm{sg}(\sum_{k=1}^H\gamma^k(p_{inc,t,k}+m_{min})(2p_{\succ,t,k}-1))$ for $P(Y_{t+k},Y_t)$. Recompute with the current $\phi,P$ on every optimizer step; positions without all $H$ consequences wait for the next cycle (`specs/ppo.md` (1), (2)).
-  **→ [U]** (2026-11-05) starting `horizon` = 64: `configs/ppo.yaml` and `specs/ppo.md`, approved.
+  **→ [U]** (2026-11-05) starting `horizon` = 64: `configs/training/rl/ppo.yaml` and `specs/ppo.md`, approved.
 - **PPO-2** Advantage estimator (GAE with $\gamma, \lambda$ / Monte-Carlo returns), normalisation; critic (POL-5).
   **→ [U]** (2026-11-03) the reward itself is the advantage: no critic, returns, GAE, second discounting, learned baseline or advantage normalisation (`specs/ppo.md`).
 - **PPO-3** Clip $\epsilon$, epochs, minibatch size, entropy and KL coefficients; ratio denominator (MCTS-6).
   **→ [U]** (2026-11-03) the denominator is the stored MCTS visit probability; the clipped loss is `specs/ppo.md` (3).
   **→ [U]** (2026-11-05) `clip` = 0.2, no entropy bonus or KL penalty (`specs/ppo.md`, approved); epochs and minibatches follow the joint natural mixed-item schedule of block 13.
-  **→ [U]** (2026-11-06) starting `epochs` = 1, `batch` = 32, `micro_batch` = 1 and `items_per_shard` = 256 (`configs/rl-cycle.yaml`, `specs/rl-cycle.md`, approved).
+  **→ [U]** (2026-11-06) starting `epochs` = 1, `batch` = 32, `micro_batch` = 1 and `items_per_shard` = 256 (`configs/training/rl/cycle.yaml`, `specs/rl-cycle.md`, approved).
 - **PPO-4** Policy inputs encoded with the $\phi$ from R2, i.e. new coordinates for both heads?
   **→ [U]** (2026-11-03) yes, and not just once: every occurrence of an item re-encodes its raw histories with the current $\phi$; gradients of policy and preference losses flow into $\phi$ (`specs/rl-cycle.md`, approved).
   **→ [U]** (2026-11-05) the full raw-history and last-readout wiring is fixed by `specs/ppo.md`, approved; R4 keeps the policy's action dropout active in train mode.
@@ -235,7 +235,7 @@ Facts about MineStudio: source at commit `278aa85` (v1.1.5), checked 2026-10-09.
 - **VLMC-7** Seed per request from the caller (draft), for reproducible sampling up to batch effects.
 - **VLMC-8** Answer-token probabilities and constrained choice: later (the weights of the answers: `specs/acyclic.md`), or now.
 - **VLMC-9** (→ config) $K$ = 16, $R$ = 3, $\delta$ = 10 s.
-  **→ [U]** (2026-11-06) $K$ = 48, $R$ = 3, $\delta$ = 10 s (`configs/vlm.yaml`, `specs/vlm-client.md`, approved).
+  **→ [U]** (2026-11-06) $K$ = 48, $R$ = 3, $\delta$ = 10 s (`configs/integrations/vlm.yaml`, `specs/vlm-client.md`, approved).
 - **VLMC-10** Transport: `httpx` (every field explicit, no hidden retries; draft) or the `openai` SDK (vLLM fields via `extra_body`; its default 10 min timeout and 2 retries overridden).
 - **VLMC-11** Connection: `base_url` and `api_key` as arguments; SSH tunnel to the Spark, port bound to localhost there (draft).
 - **VLMC-12** (→ config) $N_{img}$ and $P_{max}$: proposed 32 images and 8192 tokens (20 frames × 222 tokens + 2K text fit), so `--max-model-len` = `max_tokens` + 8192. Follows `specs/vlm-labels.md` ($2 k_V$ images).
@@ -306,4 +306,4 @@ Facts (MineStudio @ 278aa85 and its engine jar `mcprec-6.13.jar` from `CraftJarv
 
 ## DIAG — Online diagnostics
 - **DIAG-1** How does block 33 preserve existing runs while adding producer-owned records: reference backfill or legacy layout, packed output shards or one record per shard, independent driver or producer outbox, and global or per-channel resume?
-  **→ [U]** (2026-11-07) shard 0 selects a whole-run legacy metrics-only or new pairs-bearing reference layout; no backfill. Records have arbitrary `id` plus contiguous `index`, one per output shard. Producer outboxes join exact source step/window/condition/split artifacts; per-channel identities and first-instrumented watermarks govern resume. Production wiring, aligned graph categories including dropped, per-population clusters, the `diagnostics` package and actual full SVG registry paths are approved; vote weights come from explicit `VlmLabelsConfig.acyclic=configs/acyclic.yaml`; exact accepted-source suites live in top-level `joined`, separate from strict typed metrics (`specs/rl-diagnostics.md`, `specs/pretrain-diagnostics.md`, `specs/acyclic.md`, `specs/vlm-labels.md`).
+  **→ [U]** (2026-11-07) shard 0 selects a whole-run legacy metrics-only or new pairs-bearing reference layout; no backfill. Records have arbitrary `id` plus contiguous `index`, one per output shard. Producer outboxes join exact source step/window/condition/split artifacts; per-channel identities and first-instrumented watermarks govern resume. Production wiring, aligned graph categories including dropped, per-population clusters, the `diagnostics` package and actual full SVG registry paths are approved; vote weights come from explicit `VlmLabelsConfig.acyclic=configs/datasets/preferences/acyclic.yaml`; exact accepted-source suites live in top-level `joined`, separate from strict typed metrics (`specs/rl-diagnostics.md`, `specs/pretrain-diagnostics.md`, `specs/acyclic.md`, `specs/vlm-labels.md`).

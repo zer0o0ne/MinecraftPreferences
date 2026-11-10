@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 trap 'echo "setup_env.sh: step $name failed" >&2' ERR
 
-config=configs/spark-env.yaml
+config=configs/infrastructure/spark-env.yaml
 step() { name=$1; echo "== $name"; }
 fail() { echo "setup_env.sh: $1" >&2; return 1; }
 cfg() { sed -n "s/^$1: //p" "$config" | grep . || fail "missing $1 in $config"; }
@@ -63,7 +63,7 @@ if [[ $(dpkg-query -W -f='${db:Status-Status} ${Version}\n' "${ffmpeg_debs[@]}")
 fi
 
 step vlm
-uv run --locked python -m mcpref.vlm.server prepare configs/vlm.yaml
+uv run --locked python -m mcpref.integrations.vlm.server prepare configs/integrations/vlm.yaml
 
 step engine
-uv run --locked python -m mcpref.engine.prepare configs/engine.yaml
+uv run --locked python -m mcpref.runtime.engine.prepare configs/runtime/engine.yaml

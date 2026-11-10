@@ -7,12 +7,20 @@ import weakref
 
 import numpy as np
 
-from mcpref.diagnostics.artifacts import write_record
+from diagnostics.core.world import (
+    comparison,
+    config,
+    context,
+    fit,
+    label,
+    pair,
+    rows,
+    vote,
+)
+from mcpref.diagnostics.core.artifacts import write_record
 from mcpref.diagnostics.plot import main
-from mcpref.diagnostics.targets import on_graph, on_label_shard, on_vote_shard
-from mcpref.pretrain.diagnostics import on_pretrain_step, on_reference
-
-from .world import comparison, config, context, fit, label, pair, rows, vote
+from mcpref.diagnostics.pretrain.diagnostics import on_pretrain_step, on_reference
+from mcpref.diagnostics.producers.targets import on_graph, on_label_shard, on_vote_shard
 
 TARGET_FILES = {
     "target-provenance__raw-vote-0.svg",

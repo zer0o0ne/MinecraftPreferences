@@ -10,7 +10,8 @@ import threading
 from pathlib import Path
 
 import pytest
-from textures_site import (
+
+from gui.textures_site import (
     DIRS,
     JAR,
     T,
@@ -20,7 +21,6 @@ from textures_site import (
     sha1,
     url,
 )
-
 from mcpref.gui.textures import TexturesConfig, load_textures_config, main
 
 KEYS = ("url", "sha1", "out_dir", "http_timeout", "http_retries", "retry_delay")

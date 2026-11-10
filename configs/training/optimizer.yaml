@@ -1,0 +1,26 @@
+# Shared pretraining/RL optimization. Each leaf removes the other loop's dual group.
+seed: 0
+epochs: 1
+batch: 16
+micro_batch: 1
+checkpoint_steps: 100
+keep_checkpoints: 2
+groups:
+  phi_vision: {lr: 1.0e-5, weight_decay: 0.01}
+  phi_vision_no_decay: {lr: 1.0e-5, weight_decay: 0.0}
+  phi_llm: {lr: 1.0e-5, weight_decay: 0.01}
+  phi_llm_no_decay: {lr: 1.0e-5, weight_decay: 0.0}
+  phi_head: {lr: 1.0e-4, weight_decay: 0.01}
+  phi_head_no_decay: {lr: 1.0e-4, weight_decay: 0.0}
+  phi_dual: {lr: 1.0e-4, weight_decay: 0.0}
+  metra_dual: {lr: 1.0e-4, weight_decay: 0.0}
+  pi: {lr: 3.0e-4, weight_decay: 0.01}
+  pi_no_decay: {lr: 3.0e-4, weight_decay: 0.0}
+  P: {lr: 3.0e-4, weight_decay: 0.01}
+  P_no_decay: {lr: 3.0e-4, weight_decay: 0.0}
+betas: [0.9, 0.999]
+adam_eps: 1.0e-8
+warmup_steps: 100
+lr_floor: 0.1
+grad_clip: 1.0
+device: "cuda"

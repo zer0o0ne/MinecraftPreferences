@@ -8,7 +8,7 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from mcpref.diagnostics.artifacts import (
+from mcpref.diagnostics.core.artifacts import (
     GROUP_PANELS,
     PLOT_REGISTRY,
     group_registry,
@@ -17,7 +17,7 @@ from mcpref.diagnostics.artifacts import (
     pretrain_registry,
     stream_index,
 )
-from mcpref.shards.store import make_dirs, part_path, publish
+from mcpref.infrastructure.shards.store import make_dirs, part_path, publish
 
 COLORS = ("#2563eb", "#dc2626", "#059669", "#7c3aed", "#ea580c", "#0891b2")
 ALIASES = {

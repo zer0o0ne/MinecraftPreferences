@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from mcpref.recognition.classifier import GuiClassifierConfig, load_classifier
+from mcpref.gui.recognition.classifier import GuiClassifierConfig, load_classifier
 
 CRITERIA = ("agreement", "macro_recall")  # gui-masks (6), the order of CRITERIA
 VARIANTS = "abcdef"  # the variants of thresholds.json
@@ -179,7 +179,7 @@ def gamma_id(masks: Masks, criterion: str) -> str:
 
 
 def write_classifier_config(path: Path, masks: Masks, criterion: str) -> Path:
-    """configs/gui-classifier.yaml of `masks`."""
+    """configs/gui/recognition/classifier.yaml of `masks`."""
     doc = {"masks_dir": masks.masks_dir, "criterion": criterion}
     path.write_text(yaml.safe_dump(doc, sort_keys=False))
     return path

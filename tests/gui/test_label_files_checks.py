@@ -6,8 +6,9 @@ of complete_shards on {out_dir}/labels; fake ask_many, fake plan shards and fram
 import shutil
 
 import pytest
-from labels_world import FRAMES, HASHED, calls
 from progress_bars import assert_aborted
+
+from gui.labels_world import FRAMES, HASHED, calls
 
 TURNED_OK = [
     *FRAMES[:3],

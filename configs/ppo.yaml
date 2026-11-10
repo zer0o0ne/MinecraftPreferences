@@ -1,6 +1,0 @@
-# specs/ppo.md: PpoConfig.
-horizon: 64
-clip: 0.2
-skill_eps: 1.0e-8
-dual_init: 30.0
-dual_slack: 1.0e-3

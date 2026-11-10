@@ -7,8 +7,8 @@ import os
 
 import pytest
 import yaml
-from mask_oracle import WORLD, allowed, names
 
+from gui.mask_oracle import WORLD, allowed, names
 from mcpref.gui.mask import ActionMaskConfig, load_config, load_masks, state_mask
 
 VALID = {"screens": "data/elsewhere/screens.yaml", "pitch_limit": 90}
@@ -25,7 +25,7 @@ def dump(tmp_path, doc: dict) -> os.PathLike:
 
 
 def test_starting_values_from_test_owned_config(tmp_path):
-    starting = {"screens": "configs/gui-screens.yaml", "pitch_limit": 90}
+    starting = {"screens": "configs/gui/screens.yaml", "pitch_limit": 90}
     cfg = load_config(dump(tmp_path, starting))
     assert cfg == ActionMaskConfig(**starting)
     assert [f.name for f in dataclasses.fields(cfg)] == ["screens", "pitch_limit"]
@@ -38,7 +38,7 @@ def test_screens_kept_as_written(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "value", [1, None, True, ["configs/gui-screens.yaml"], {"a": "b"}]
+    "value", [1, None, True, ["configs/gui/screens.yaml"], {"a": "b"}]
 )
 def test_screens_must_be_a_string(tmp_path, value):
     with pytest.raises(ValueError):

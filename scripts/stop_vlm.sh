@@ -3,4 +3,4 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PATH="$HOME/.local/bin:$PATH"
-uv run --locked python -m mcpref.vlm.server stop configs/vlm.yaml
+uv run --locked python -m mcpref.integrations.vlm.server stop configs/integrations/vlm.yaml

@@ -6,11 +6,10 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
-from mcpref.diagnostics.artifacts import GROUP_PANELS, write_record
-from mcpref.diagnostics.mcts import on_step_record
-from mcpref.diagnostics.memory import on_memory_event
-from mcpref.diagnostics.milestones import on_episode_end
-from mcpref.diagnostics.observations import (
+from diagnostics.core.world import config, context
+from diagnostics.test_plot import make_records, write_records
+from mcpref.diagnostics.core.artifacts import GROUP_PANELS, write_record
+from mcpref.diagnostics.core.observations import (
     EpisodeArtifacts,
     MemoryEvent,
     PolicyObservations,
@@ -18,17 +17,17 @@ from mcpref.diagnostics.observations import (
     ShiftObservations,
     UpdateObservations,
 )
+from mcpref.diagnostics.core.types import ProducerContext
 from mcpref.diagnostics.plot import main
-from mcpref.diagnostics.policy import (
+from mcpref.diagnostics.producers.mcts import on_step_record
+from mcpref.diagnostics.producers.memory import on_memory_event
+from mcpref.diagnostics.producers.milestones import on_episode_end
+from mcpref.diagnostics.producers.policy import (
     on_policy_observation,
     on_ppo_observation,
     on_shift_observation,
 )
-from mcpref.diagnostics.types import ProducerContext
-from mcpref.diagnostics.update import on_update_observation
-
-from .test_plot import make_records, write_records
-from .world import config, context
+from mcpref.diagnostics.producers.update import on_update_observation
 
 
 def test_full_plot_registry_and_special_source_curves(tmp_path):

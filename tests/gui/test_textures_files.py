@@ -2,8 +2,9 @@
 files of T written by specs/shards.md (4), only the missing ones, members by exact name."""
 
 import pytest
-from store_disk import ancestors, snapshot
-from textures_site import (
+from infrastructure.shards.store_disk import ancestors, snapshot
+
+from gui.textures_site import (
     DIRS,
     JAR,
     OTHER,
@@ -18,7 +19,6 @@ from textures_site import (
     record_syncs,
     url,
 )
-
 from mcpref.gui.textures import main
 
 PRESENT = b"present, not the member's bytes"

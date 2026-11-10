@@ -1,11 +1,11 @@
 """src/mcpref/training/devices.py against specs/pretrain.md (Interface: `cpu_copies`,
-`device`, moved unchanged from `stacking/fit.py` and `stacking/config.py`)."""
+`device`, moved unchanged from `gui/stacking/fit.py` and `gui/stacking/config.py`)."""
 
 import pytest
 import torch
 
-import mcpref.stacking.config
-import mcpref.stacking.fit
+import mcpref.gui.stacking.config
+import mcpref.gui.stacking.fit
 from mcpref.training.devices import cpu_copies, device
 
 
@@ -45,8 +45,8 @@ def test_device_rejects_others(value):
 @pytest.mark.parametrize(
     "module, name, moved",
     [
-        (mcpref.stacking.fit, "cpu_copies", cpu_copies),
-        (mcpref.stacking.config, "device", device),
+        (mcpref.gui.stacking.fit, "cpu_copies", cpu_copies),
+        (mcpref.gui.stacking.config, "device", device),
     ],
 )
 def test_moved_from_gui_stack(module, name, moved):

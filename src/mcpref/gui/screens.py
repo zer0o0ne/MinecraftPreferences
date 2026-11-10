@@ -1,4 +1,4 @@
-"""Interface of specs/gui-screens.md: the screen catalogue of configs/gui-screens.yaml."""
+"""Interface of specs/gui-screens.md: the screen catalogue of configs/gui/screens.yaml."""
 
 import dataclasses
 import re
@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-import yaml
+from mcpref.config import read_yaml
 
 IGNORED = {"src", "note", "cond"}
 RIGHT_HANDLED = r"(book_recipe|option|recipe|pattern)_[0-9]+"
@@ -102,7 +102,7 @@ def fields(
 
 def read_catalogue(path: Path) -> dict:
     """Interface Data: the YAML file with top-level keys `classes`, `textures`."""
-    return fields(yaml.safe_load(path.read_text()), {"classes", "textures"})
+    return fields(read_yaml(path), {"classes", "textures"})
 
 
 def named(entry: dict) -> Rect:

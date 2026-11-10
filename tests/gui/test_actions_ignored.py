@@ -3,7 +3,8 @@ on a button for which `right_handled` is false is ignored (no segment, not forei
 its own, though it ends an earlier hold of the right button); hand cases, tiny catalogue."""
 
 import pytest
-from gui_action_lines import (
+
+from gui.gui_action_lines import (
     B37,
     C37,
     MS,
@@ -17,11 +18,10 @@ from gui_action_lines import (
     slot,
     world,
 )
-
+from mcpref.datasets.vpt.actions import Segment as S
+from mcpref.datasets.vpt.actions import interval_actions
 from mcpref.gui.actions import GuiActions, gui_actions
 from mcpref.gui.screens import Element, Rect
-from mcpref.vpt.actions import Segment as S
-from mcpref.vpt.actions import interval_actions
 
 fs = frozenset
 SHIFTS = [[], ["left.shift"], ["right.shift"]]

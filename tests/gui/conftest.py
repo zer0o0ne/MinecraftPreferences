@@ -146,9 +146,9 @@ def fake_ask_many(monkeypatch):
     """Factory: a FakeAskMany put in place of ask_many in every mcpref module holding it
     (mcpref.gui.labels is imported first, so the modules it loads are among them)."""
     import mcpref.gui.labels
-    import mcpref.vlm.client
+    import mcpref.integrations.vlm.client
 
-    real = mcpref.vlm.client.ask_many
+    real = mcpref.integrations.vlm.client.ask_many
 
     def make(answers: dict, images: dict, out: Path) -> FakeAskMany:
         fake = FakeAskMany(answers, images, out)
@@ -165,7 +165,9 @@ def lab(tmp_path, repo, catalogue, write_config, fake_ask_many, monkeypatch, cap
     """Catalogue inventory, inventory_book, chest3; FRAMES in SHARDS, K = 2; a vlm.yaml copy whose
     server refuses (an unfaked ask_many fails); config paths relative to the repository root;
     cwd elsewhere; tqdm's defaults (no TQDM_* variable)."""
-    from labels_world import (
+    from progress_bars import tqdm_defaults
+
+    from gui.labels_world import (
         FRAMES,
         PATHS,
         SEED,
@@ -175,13 +177,12 @@ def lab(tmp_path, repo, catalogue, write_config, fake_ask_many, monkeypatch, cap
         frame_rgb,
         write_frames,
     )
-    from progress_bars import tqdm_defaults
 
     alpha, beta = catalogue["classes"]["alpha"], catalogue["classes"]["beta"]
     book = {**copy.deepcopy(alpha), "description": "Alpha with the book."}
     catalogue["classes"] = {"inventory": alpha, "inventory_book": book, "chest3": beta}
     write_config(catalogue)
-    from vlm.config_files import STARTING
+    from integrations.vlm.config_files import STARTING
 
     vlm = {
         "client": STARTING["client"]

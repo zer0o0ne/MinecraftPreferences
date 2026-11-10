@@ -22,9 +22,9 @@ STARTING = {
 }
 STARTING_PATHS = {
     "frames_dir": "data/gui_frames",
-    "screens": "configs/gui-screens.yaml",
+    "screens": "configs/gui/screens.yaml",
 }
-STARTING_PATHS.update(vlm="configs/vlm.yaml", out_dir="data/gui_labels")
+STARTING_PATHS.update(vlm="configs/integrations/vlm.yaml", out_dir="data/gui_labels")
 
 
 def test_load_config_starting_values(repo, tmp_path, monkeypatch):

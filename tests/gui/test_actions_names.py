@@ -4,15 +4,15 @@
 import dataclasses
 
 import pytest
-from gui_action_lines import SCREENS
 
+from gui.gui_action_lines import SCREENS
+from mcpref.datasets.vpt.actions import WORLD_ACTIONS
 from mcpref.gui.actions import (
     GuiActionsConfig,
     action_names,
     gui_action_names,
     load_config,
 )
-from mcpref.vpt.actions import WORLD_ACTIONS
 
 KINDS = ("left_click", "right_click", "shift_click", "double_click")
 

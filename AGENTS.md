@@ -34,10 +34,10 @@ Minecraft agent training pipeline (MineStudio, VPT dataset). Stages and data flo
 ## Layout
 ```
 specs/                                 block contracts; 00-overview.md is the pipeline map
-src/mcpref/<subpackage>/<module>.py    never deeper
-tests/<subpackage>/test_<module>.py    mirrors src/
+src/mcpref/<domain>/<block>/<module>.py  domain-grouped blocks; large blocks add one grouping level
+tests/<domain>/<block>/test_<module>.py  mirrors src/
 tests/scripts/test_<script>.py         mirrors scripts/
-configs/<block>.yaml                   exact numeric configuration, loaded into frozen dataclasses
+configs/<domain>/<block>.yaml          mirrors src/; shared values live in higher-level base configs
 scripts/<action>.sh                    thin bash wrappers over python -m mcpref.…
 data/                                  gitignored datasets, checkpoints, logs and run outputs
 ```

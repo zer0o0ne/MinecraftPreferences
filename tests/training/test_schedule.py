@@ -1,17 +1,16 @@
 """`schedule` of src/mcpref/training/schedule.py against the transcription of the Notation of
 specs/gui-stack.md (schedule_oracle.py); the move of specs/pretrain.md (Interface:
-`schedule`, `n_batches`, `remaining` moved from `stacking/fit.py`, which imports them)."""
+`schedule`, `n_batches`, `remaining` moved from `gui/stacking/fit.py`, which imports them)."""
 
 import math
 
 import numpy as np
 import pytest
 
-import mcpref.stacking.fit
+import mcpref.gui.stacking.fit
 import mcpref.training.schedule
 from mcpref.training.schedule import schedule
-
-from .schedule_oracle import epoch, mini_batches
+from training.schedule_oracle import epoch, mini_batches
 
 CASES = [([5, 2], 2), ([3], 5), ([1, 4, 2], 1), ([6, 6, 1], 4), ([7], 7)]  # sizes, B
 
@@ -49,4 +48,4 @@ def test_moved_from_gui_stack(name):
     name it holds is the imported function)."""
     moved = getattr(mcpref.training.schedule, name)
     assert moved.__module__ == "mcpref.training.schedule"
-    assert getattr(mcpref.stacking.fit, name, moved) is moved
+    assert getattr(mcpref.gui.stacking.fit, name, moved) is moved

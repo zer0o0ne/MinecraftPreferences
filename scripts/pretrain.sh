@@ -4,5 +4,5 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PATH="$HOME/.local/bin:$PATH"
-uv run --locked python -m mcpref.pretrain.index configs/train-index.yaml
-uv run --locked python -m mcpref.pretrain.run configs/pretrain.yaml
+uv run --locked python -m mcpref.training.pretrain.data.index configs/training/pretrain/train-index.yaml
+uv run --locked python -m mcpref.training.pretrain.run configs/training/pretrain/config.yaml

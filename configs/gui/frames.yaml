@@ -1,0 +1,2 @@
+# Shared sampled GUI-frame dataset for VLM labels and mask fitting.
+frames_dir: "data/gui_frames"

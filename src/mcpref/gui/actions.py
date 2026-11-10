@@ -5,13 +5,11 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
-from mcpref import positive_int
+from mcpref.config import positive_int, read_yaml
+from mcpref.datasets.vpt.actions import WORLD_ACTIONS, Segment
+from mcpref.datasets.vpt.video.channels import runs
 from mcpref.gui.kept_span import kept_span, new_digits, pressed
 from mcpref.gui.screens import ScreenClass
-from mcpref.vpt.actions import WORLD_ACTIONS, Segment
-from mcpref.vpt.channels import runs
 
 NO_SCREEN = frozenset({"other", "pause", "death"})
 CLICKS = ("left_click", "right_click", "shift_click", "double_click")
@@ -19,7 +17,7 @@ CLICKS = ("left_click", "right_click", "shift_click", "double_click")
 
 @dataclass(frozen=True)
 class GuiActionsConfig:
-    """Interface: configs/vpt-gui-actions.yaml."""
+    """Interface: configs/datasets/vpt/gui-actions.yaml."""
 
     double_click_ms: int
 
@@ -35,7 +33,7 @@ class GuiActions:
 
 def load_config(path: Path) -> GuiActionsConfig:
     """Interface: the YAML file loaded into GuiActionsConfig; violated constraints raise."""
-    cfg = GuiActionsConfig(**yaml.safe_load(path.read_text()))
+    cfg = GuiActionsConfig(**read_yaml(path))
     positive_int("double_click_ms", cfg.double_click_ms)
     return cfg
 

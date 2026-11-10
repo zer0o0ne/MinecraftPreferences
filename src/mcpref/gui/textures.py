@@ -9,11 +9,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from mcpref import REPO
-from mcpref.cli.failure import FAILURES, failed
+from mcpref.config import REPO
 from mcpref.gui.screens import ScreenClass, fields, keys, load_screens, read_catalogue
-from mcpref.http import retry
-from mcpref.shards.store import make_dirs, write_file
+from mcpref.infrastructure.cli.failure import FAILURES, failed
+from mcpref.infrastructure.http import retry
+from mcpref.infrastructure.shards.store import make_dirs, write_file
 
 PREFIX = "assets/minecraft/textures/"
 FONT = "font/ascii.png"
@@ -21,7 +21,7 @@ FONT = "font/ascii.png"
 
 @dataclass(frozen=True)
 class TexturesConfig:
-    """Interface Data: section `textures` of configs/gui-screens.yaml."""
+    """Interface Data: section `textures` of configs/gui/screens.yaml."""
 
     url: str
     sha1: str

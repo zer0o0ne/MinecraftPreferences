@@ -1,0 +1,14 @@
+# specs/vpt-gui-frames.md: GuiFramesConfig.
+extends:
+  - "configs/datasets/vpt/download.yaml"
+fps: 20
+n_frames: 50000
+per_episode: 5
+seed: 0
+workers: 8
+plan_shard_draws: 20
+ffmpeg_rw_timeout: 60
+ffmpeg_timeout: 300
+verify_relpath: "data/10.0/cheeky-cornflower-setter-02e496ce4abb-20220421-092639.mp4"
+verify_frames: [0, 127, 128, 129, 1271, 5999, 6000]
+out_dir: "data/gui_frames"

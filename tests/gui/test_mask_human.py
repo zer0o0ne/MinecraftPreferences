@@ -5,13 +5,13 @@ a close) and the world segments and turns of specs/vpt-actions.md; each action a
 mask of the line where it is pressed; the right presses on other buttons absent."""
 
 import pytest
-from gui_action_lines import MS, episode, inv, px, world
-from mask_oracle import D, names, right_handled
 
+from gui.gui_action_lines import MS, episode, inv, px, world
+from gui.mask_oracle import D, names, right_handled
+from mcpref.datasets.vpt.actions import Segment as S
+from mcpref.datasets.vpt.actions import interval_actions, segments
 from mcpref.gui.actions import GuiActions, gui_actions
 from mcpref.gui.mask import state_mask
-from mcpref.vpt.actions import Segment as S
-from mcpref.vpt.actions import interval_actions, segments
 
 A = names(90)
 SHIFT = ["left.shift"]

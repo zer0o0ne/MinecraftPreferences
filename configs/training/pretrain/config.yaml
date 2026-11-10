@@ -1,0 +1,27 @@
+# specs/pretrain.md: PretrainConfig. Paths relative to the repository root; perception,
+# action_mask, policy, preference: the module configs; groups (name: {lr, weight_decay})
+# of the blocks providing the modules.
+extends:
+  - "configs/training/optimizer.yaml"
+remove:
+  - "groups.metra_dual"
+retrain: true
+w_P: 1.0
+w_phi: 0.3
+w_pi: 1.0
+index_dir: "data/train_index"
+out_dir: "data/pretrain"
+perception: "configs/models/perception.yaml"
+action_mask: "configs/gui/action-mask.yaml"
+policy: "configs/models/policy.yaml"
+preference: "configs/models/preference.yaml"
+diagnostics: "configs/diagnostics.yaml"
+diagnostic_window: 100
+reference_steps: 500
+reference_pairs: 64
+calibration_bins: 10
+saturation_threshold: 0.01
+inc_classification_threshold: 0.5
+quantiles: [0.05, 0.5, 0.95]
+action_copy_eps: 0.1
+latent_init_scale: 1.0

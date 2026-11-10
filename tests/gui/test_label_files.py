@@ -10,7 +10,9 @@ import subprocess
 import sys
 
 import pytest
-from labels_world import (
+from progress_bars import assert_aborted
+
+from gui.labels_world import (
     ENDS,
     FINGERPRINT,
     HASHED,
@@ -23,9 +25,7 @@ from labels_world import (
     label_bar,
     summary,
 )
-from progress_bars import assert_aborted
-
-from mcpref.vlm.client import load_config as load_vlm_config
+from mcpref.integrations.vlm.client import load_config as load_vlm_config
 
 
 def test_one_call_per_plan_shard_with_its_ok_frames_and_seeds(lab):

@@ -1,6 +1,6 @@
 """The line of specs/acyclic.md (Interface: Script) in
 scripts/collect_preferences_pretrain_data.sh, with a fake uv: `main` of
-mcpref.preferences.acyclic right after the line of vlm-labels, the script's last, from the
+mcpref.datasets.preferences.acyclic right after the line of vlm-labels, the script's last, from the
 repository root; a failing vlm-labels stops the script before it; its failure fails the
 script."""
 
@@ -10,8 +10,16 @@ import pytest
 
 CFG = {"driver_min": "575.64.05", "python_version": "3.10.18", "uv_version": "0.13.2"}
 RUN = (f"uv@{CFG['uv_version']}", "run", "--locked", "python", "-m")
-LABELS = (*RUN, "mcpref.preferences.labels", "configs/vlm-labels.yaml")
-ACYCLIC = (*RUN, "mcpref.preferences.acyclic", "configs/acyclic.yaml")
+LABELS = (
+    *RUN,
+    "mcpref.datasets.preferences.labels",
+    "configs/datasets/preferences/labels.yaml",
+)
+ACYCLIC = (
+    *RUN,
+    "mcpref.datasets.preferences.acyclic",
+    "configs/datasets/preferences/acyclic.yaml",
+)
 
 
 @pytest.fixture
@@ -39,12 +47,12 @@ def test_acyclic_after_the_labels(spark, where, argv):
 
 def test_failing_labels_stop_before_acyclic(spark):
     """vlm-labels fails (set -e of the preamble): the correction does not run."""
-    failing(spark, "mcpref.preferences.labels")
+    failing(spark, "mcpref.datasets.preferences.labels")
     result = spark.run()
     assert result.returncode != 0 and ACYCLIC not in result.events
 
 
 def test_failing_acyclic_fails_the_script(spark):
-    failing(spark, "mcpref.preferences.acyclic")
+    failing(spark, "mcpref.datasets.preferences.acyclic")
     result = spark.run()
     assert result.returncode != 0 and result.events[-1] == ACYCLIC

@@ -16,7 +16,7 @@ Stage: data of P1, P2 (blocks perception-data, preference-pool; `specs/00-overvi
 - Interval $p$ ($0 \le p$, $p + \Delta \le |K| - 1$): from state $a = \kappa_p$ to state $b = \kappa_{p+\Delta}$, input lines $I_p = \{\kappa_p, \dots, \kappa_{p+\Delta-1}\}$.
 - Clip at $p$: states $\kappa_{p + i\Delta}$, $i = 0..L-1$, intervals $p + i\Delta$, $i = 0..L-2$; it exists iff $p + (L-1)\Delta \le |K| - 1$; its span — the lines $\kappa_p..\kappa_{p+(L-1)\Delta}$ (cut lines between included).
 - GUI flag of a state $t$: $\text{gui}_t$ = `isGuiOpen` of $\ell_t$, false on the first line of a container span (the first-line rule of `specs/vpt-gui-actions.md`).
-- Config `configs/clips.yaml` → `@dataclass(frozen=True) class ClipsConfig`: `delta` (a YAML integer ≥ 1, not a boolean), `actions` (path of `configs/vpt-actions.yaml`, relative to the repository root, resolved against it); violated constraints → `ValueError` at load.
+- Config `configs/datasets/clips.yaml` → `@dataclass(frozen=True) class ClipsConfig`: `delta` (a YAML integer ≥ 1, not a boolean), `actions` (path of `configs/datasets/vpt/actions.yaml`, relative to the repository root, resolved against it); violated constraints → `ValueError` at load.
 
 ## Math
 (1) Interval $p$ is valid iff $n(p) = $ `len(interval_actions(`$S$`, lines, `$a$`, `$b$`, `$C$`, `$\rho$`))` $\ge 1$ and $\{a, \dots, b - 1\} \cap F = \emptyset$ (cut lines included: riding goes on while a screen is cut) ([U]; `specs/vpt-actions.md` (12), `specs/vpt-gui-actions.md` (9)).
@@ -26,7 +26,7 @@ Stage: data of P1, P2 (blocks perception-data, preference-pool; `specs/00-overvi
 (5) A taken clip carries, per interval $p + i\Delta$, its actions (the list of (1)) and $n$; per state, $\text{gui}_t$ and `pitch`.
 
 ## Interface
-- Subpackage `src/mcpref/clips/`:
+- Subpackage `src/mcpref/datasets/clips/`:
   - `config.py`: `ClipsConfig`; `def load_config(path: Path) -> ClipsConfig`.
   - `evidence.py`: `@dataclass(frozen=True) class Evidence`: `lines: Sequence[Mapping]`, `segments: list[Segment]` ($S$), `cut: frozenset[int]`, `foreign: frozenset[int]`, `modes: np.ndarray` ($\Omega$), `turn_deg: float`; `def evidence(lines: Sequence[Mapping], gui: GuiActions, start: tuple[bool, bool, int], actions: ActionsConfig) -> Evidence` — Notation (calls `segments`, `foreign_lines`, `riding_lines`, `mode_frames` of `specs/vpt-actions.md`); `def kept(ev: Evidence) -> list[int]` — $\kappa$.
   - `validity.py`: `def interval(ev: Evidence, kappa: Sequence[int], p: int, delta: int) -> tuple[list[str], bool]` — the actions of interval $p$ and its validity (1); `IntervalCache` holds the consecutive interval action lists and validity results; `def cache_intervals(ev: Evidence, kappa: Sequence[int], delta: int) -> IntervalCache` computes them once with ordered segment intersections and integer foreign-line prefixes; `def valid_starts(ev: Evidence, kappa: Sequence[int], delta: int, states: int, *, cache: IntervalCache | None = None) -> list[int]` — (3), using integer prefix counts over the strided interval/state windows.
@@ -35,14 +35,14 @@ Stage: data of P1, P2 (blocks perception-data, preference-pool; `specs/00-overvi
 - Callers: block perception-data ($L$, $m$ from its config), block preference-pool.
 - No progress bar here: the caller's bar counts clips (one episode's work is in memory; the run time of `valid_starts` on a 6000-line episode is measured at the prototype and reported).
 - `specs/00-overview.md`: block 22 clips; block 25 perception-data; package map `clips` → P1, P2 data → this spec and `specs/perception-data.md`.
-- Starting config values: `delta` = 6 (300 ms), `actions` = `configs/vpt-actions.yaml`.
+- Starting config values: `delta` = 6 (300 ms), `actions` = `configs/datasets/vpt/actions.yaml`.
 - Tests: hand-made lines, segments, cuts, foreign lines and modes: $\kappa$ around cut spans; a world hold across a cut span (one segment); interval $p$ with $\Delta$ kept lines across a cut span; validity by $n = 0$, by a foreign line, by a riding line inside a cut span, by a mode on a state (first, middle, last); a clip that does not fit; (3) against a naive reference over all $p$; (4) with a fixed seed: draw order on an ascending $W$, overlap removal (spans touching at one line overlap), rejection by `accept`, stop at $m$ and at an empty $W$; (5); the config loader.
 
 ## Library mapping
 | Item | Call | Version | Explicit args | Source read |
 |---|---|---|---|---|
-| (1) | `mcpref.vpt.actions.interval_actions` | this repo | $S$, lines, $a$, $b$, $C$, $\rho$ | `specs/vpt-actions.md` |
-| $S$ | `mcpref.vpt.actions.segments` | this repo | the kept lines in order, `r_min` | `specs/vpt-actions.md` |
+| (1) | `mcpref.datasets.vpt.actions.interval_actions` | this repo | $S$, lines, $a$, $b$, $C$, $\rho$ | `specs/vpt-actions.md` |
+| $S$ | `mcpref.datasets.vpt.actions.segments` | this repo | the kept lines in order, `r_min` | `specs/vpt-actions.md` |
 | (4) | `numpy.random.Generator.integers` | numpy 1.26.4 | `0, len(W)`, `dtype=np.int64`, `endpoint=False` (the defaults written out); with `len(W) == 1` it returns 0 without advancing the generator | `_generator.pyx:526, 610-612, 620-621`, `_bounded_integers.pyx.in:340-362`, `distributions.c:1275-1310, 1508-1544` (prototype of 2026-10-15) |
 | GUI flag | `mcpref.gui.actions.opens_container` | this repo | lines, $t$ | `specs/vpt-gui-actions.md` |
 | config | `yaml.safe_load` | PyYAML 6.0.3 | — | as in `specs/gui-screens.md` |

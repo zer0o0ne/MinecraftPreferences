@@ -2,8 +2,8 @@
 first-line rule for states); hand cases."""
 
 import pytest
-from gui_action_lines import box, episode, inv, world
 
+from gui.gui_action_lines import box, episode, inv, world
 from mcpref.gui.actions import excluded_states, opens_container
 
 fs = frozenset

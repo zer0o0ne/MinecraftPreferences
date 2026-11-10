@@ -15,7 +15,7 @@ Open questions: `specs/00-questions.md`, section VLMC.
 - Image — RGB `uint8` array of shape $(H, W, 3)$.
 - $s$ — sampling seed of one request, $0 \le s < 2^{63}$.
 - Answer — the model's reply text `message.content`, stripped of surrounding whitespace.
-- Client config fields (`VLMConfig`, file `configs/vlm.yaml`, section `client`): `base_url`; `model` — the served name; the fields of Table 1; `max_in_flight` ($K$); `attempt_timeout` ($T_{out}$, s); `max_resends` ($R$); `resend_delay` ($\delta$, s).
+- Client config fields (`VLMConfig`, file `configs/integrations/vlm.yaml`, section `client`): `base_url`; `model` — the served name; the fields of Table 1; `max_in_flight` ($K$); `attempt_timeout` ($T_{out}$, s); `max_resends` ($R$); `resend_delay` ($\delta$, s).
 - Server config fields (`ServerConfig`, same file, section `server`): `image` — the vLLM image with digest; `model_repo`, `revision` — the weights; `hf_cli` — the `huggingface_hub` version providing the `hf` command; `hf_home` — the Hugging Face cache directory, relative to the repository root (starting value `data/hf`); `container` — container name; `port`; `gpu_memory_utilization`; `max_images` ($N_{img}$); `max_prompt_tokens` ($P_{max}$); `seed` — vLLM's `--seed`; `stack_ulimit` — bytes; `ready_timeout`, `poll_interval`, `poll_request_timeout` (s); `log_tail` — log lines printed on failure; `transformers_version` — the version inside the image. The server's served name is the client's `model`, its `--max-num-seqs` the client's `max_in_flight`, its pixel bounds and `max_tokens` the client's Table 1 values; `client.base_url` = `http://localhost:{server.port}` when the client runs on the Spark.
 
 ## Behaviour
@@ -43,14 +43,14 @@ Table 1 — sampling and preprocessing fields; all are config fields with the sa
 | `max_pixels` → server `--mm-processor-kwargs` `max_pixels` | 230 400 (640×360) | default 16 777 216; as `min_pixels` |
 
 ## Interface
-- Module: `src/mcpref/vlm/client.py`.
-- `@dataclass(frozen=True) class VLMConfig`, `@dataclass(frozen=True) class ServerConfig` — the config fields of Notation; `def load_config(path: Path) -> tuple[VLMConfig, ServerConfig]` reads `configs/vlm.yaml`.
+- Module: `src/mcpref/integrations/vlm/client.py`.
+- `@dataclass(frozen=True) class VLMConfig`, `@dataclass(frozen=True) class ServerConfig` — the config fields of Notation; `def load_config(path: Path) -> tuple[VLMConfig, ServerConfig]` reads `configs/integrations/vlm.yaml`.
 - `def ask_many(prompts: Sequence[Sequence[str | np.ndarray]], seeds: Sequence[int], cfg: VLMConfig) -> list[str | None]` — synchronous, runs its own event loop; result $i$ is the answer to `prompts[i]` with seed `seeds[i]`; (1)–(6). Request: `POST {cfg.base_url}/v1/chat/completions`; `base_url` has no trailing slash and no `/v1`, e.g. `http://localhost:8100`. No authentication ([U] 2026-10-10: the server is reachable only from the Spark itself, and any local process may use it).
 - Domain: `len(seeds) == len(prompts) ≥ 1`; every prompt has ≥ 1 part, ≤ $N_{img}$ images and ≤ $P_{max}$ tokens; text parts contain no special-token strings (`<|…|>`); seeds as in Notation. Nothing outside it is checked.
 - `max_in_flight` = server `--max-num-seqs`.
 - Consumes: the server of section Server at `base_url`.
 - Produces: nothing on disk; the caller (block gui-labels, later vlm-labels) stores answers.
-- Module: `src/mcpref/vlm/server.py` (entry, Server steps 2 and 4), with `src/mcpref/vlm/container.py` (container existence, Server step 5); `def main(argv: Sequence[str]) -> int`, run as `python -m mcpref.vlm.server {prepare|serve|stop} <config path>` (argparse: one positional subcommand, one positional path).
+- Module: `src/mcpref/integrations/vlm/server.py` (entry, Server steps 2 and 4), with `src/mcpref/integrations/vlm/container.py` (container existence, Server step 5); `def main(argv: Sequence[str]) -> int`, run as `python -m mcpref.integrations.vlm.server {prepare|serve|stop} <config path>` (argparse: one positional subcommand, one positional path).
   - `def prepare_commands(srv: ServerConfig) -> list[list[str]]` — the argument lists of Server step 2; `def serve_command(cfg: VLMConfig, srv: ServerConfig) -> list[str]` — the argument list of Server step 4. Pure functions; commands run without a shell; paths made absolute from the repository root.
   - `prepare`: runs `prepare_commands` in order, then checks GPU access inside containers: `docker run --rm --gpus all --entrypoint nvidia-smi {server.image} -L` must exit 0 (else the one-line message names the NVIDIA Container Toolkit). Called by `scripts/setup_env.sh` step (8) (block spark-env), which this block adds.
   - `serve`: `docker rm -f {server.container}` if the container exists; runs `serve_command`; then Server step 5.
@@ -58,14 +58,14 @@ Table 1 — sampling and preprocessing fields; all are config fields with the sa
   - `stop`: if the container exists, `docker rm -f {server.container}` and print `stopped {server.container}`; else print `{server.container} is not running`; both exit 0.
   - Subprocess output passes through, except the outputs the code reads (the existence check, `docker container inspect -f`, the transformers check, `docker logs` on the success path), which are captured; the log tail printed after a readiness failure passes through. A failing or missing subprocess, an unmet readiness, a failed check, an unreadable config or response → a one-line message on stderr naming the cause and exit code 1, no traceback; success → 0.
 - Produces (`prepare`): the vLLM image in Docker; the weights under `{server.hf_home}/hub`.
-- Script: `scripts/serve_vlm.sh` (preamble of `specs/spark-env.md`): frees the page cache (`sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`); `uv run --locked python -m mcpref.vlm.server serve configs/vlm.yaml`.
-- Script: `scripts/stop_vlm.sh` (preamble of `specs/spark-env.md`; [U] 2026-10-10): `uv run --locked python -m mcpref.vlm.server stop configs/vlm.yaml`.
+- Script: `scripts/serve_vlm.sh` (preamble of `specs/spark-env.md`): frees the page cache (`sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`); `uv run --locked python -m mcpref.integrations.vlm.server serve configs/integrations/vlm.yaml`.
+- Script: `scripts/stop_vlm.sh` (preamble of `specs/spark-env.md`; [U] 2026-10-10): `uv run --locked python -m mcpref.integrations.vlm.server stop configs/integrations/vlm.yaml`.
 - Tests: `prepare_commands` and `serve_command` against the Server section; `stop` with a fake `subprocess.run` (running / not running / failing `docker`); `scripts/stop_vlm.sh` with a fake `uv`; `main` with an injected fake `subprocess.run` and a fake HTTP server for readiness; `scripts/serve_vlm.sh` with fake `sudo` and `uv` on `PATH`. Real runs are manual, on the Spark.
 
 ## Server
 The steps below are what `prepare`, `scripts/serve_vlm.sh` and `serve` do; listed for the record.
 DGX Spark: GB10, aarch64, 128 GB unified memory. Checked against DGX OS 7.5.0 (driver 580.159.03, CUDA 13.0.2).
-1. `nvidia-smi` shows driver ≥ `driver_min` of `configs/spark-env.yaml` (580.95.05; checked by `scripts/setup_env.sh`; the user's Spark runs 580.142). Avoid NGC `nvcr.io/nvidia/vllm` ≥ 26.04: it needs driver ≥ 595.58, and forward compatibility fails on Spark.
+1. `nvidia-smi` shows driver ≥ `driver_min` of `configs/infrastructure/spark-env.yaml` (580.95.05; checked by `scripts/setup_env.sh`; the user's Spark runs 580.142). Avoid NGC `nvcr.io/nvidia/vllm` ≥ 26.04: it needs driver ≥ 595.58, and forward compatibility fails on Spark.
 2. `prepare`: `docker pull {server.image}`; `HF_HOME={server.hf_home} uvx --from huggingface_hub=={server.hf_cli} hf download {server.model_repo} --revision {server.revision}` (32.3 GB). `serve_vlm.sh` frees the page cache before `serve`, since it shares the unified memory.
 3. No API key: vLLM runs without `--api-key` / `VLLM_API_KEY`, so it installs no authentication; the port is bound to 127.0.0.1 ([U] 2026-10-10).
 4. `serve` runs (`{…}` = config field; `{client.max_tokens + server.max_prompt_tokens}` computed):

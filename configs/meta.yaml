@@ -1,0 +1,4 @@
+# Shared observation metadata for perception and preference labelling.
+inventory_line: "Inventory: {items}\n"
+item_line: "{quantity} {type}"
+no_items: "empty"

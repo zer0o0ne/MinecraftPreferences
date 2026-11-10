@@ -4,8 +4,7 @@ GUI state of each class of D; target 0.1 ms, failing only above 1 ms; the median
 import statistics
 import time
 
-from mask_oracle import D
-
+from gui.mask_oracle import D
 from mcpref.gui.mask import state_mask
 
 

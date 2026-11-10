@@ -5,7 +5,8 @@ import dataclasses
 
 import numpy as np
 import pytest
-from mask_oracle import (
+
+from gui.mask_oracle import (
     KINDS,
     LIMIT,
     WORLD,
@@ -16,7 +17,6 @@ from mask_oracle import (
     names,
     world_allowed,
 )
-
 from mcpref.gui.mask import Masks, state_mask
 
 A = names(90)

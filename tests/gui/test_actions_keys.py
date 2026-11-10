@@ -2,7 +2,8 @@
 hand cases, tiny catalogue."""
 
 import pytest
-from gui_action_lines import (
+
+from gui.gui_action_lines import (
     B37,
     C37,
     MS,
@@ -15,9 +16,8 @@ from gui_action_lines import (
     inv,
     world,
 )
-
+from mcpref.datasets.vpt.actions import Segment as S
 from mcpref.gui.actions import GuiActions, gui_actions
-from mcpref.vpt.actions import Segment as S
 
 fs = frozenset
 

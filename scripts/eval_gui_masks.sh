@@ -4,5 +4,5 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PATH="$HOME/.local/bin:$PATH"
-uv run --locked python -m mcpref.recognition.evaluate configs/gui-masks.yaml
-uv run --locked python -m mcpref.stacking.run configs/gui-stack.yaml
+uv run --locked python -m mcpref.gui.recognition.evaluate configs/gui/recognition/masks.yaml
+uv run --locked python -m mcpref.gui.stacking.run configs/gui/recognition/stacking.yaml

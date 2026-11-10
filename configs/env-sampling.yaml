@@ -1,9 +1,0 @@
-# specs/env-sampling.md: SamplingConfig. Paths relative to the repository root.
-pretrain: "configs/pretrain.yaml"
-env: "configs/env.yaml"
-mcts: "configs/mcts.yaml"
-perception_data: "configs/perception-data.yaml"
-out_dir: "data/sampling"
-steps: 1000
-seed: 0
-safety_limit: 25.0

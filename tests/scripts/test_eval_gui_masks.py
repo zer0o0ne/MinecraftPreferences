@@ -7,8 +7,12 @@ import pytest
 
 CFG = {"driver_min": "575.64.05", "python_version": "3.10.18", "uv_version": "0.13.2"}
 RUN = (f"uv@{CFG['uv_version']}", "run", "--locked", "python", "-m")
-EVALUATE = (*RUN, "mcpref.recognition.evaluate", "configs/gui-masks.yaml")
-STACK = (*RUN, "mcpref.stacking.run", "configs/gui-stack.yaml")
+EVALUATE = (
+    *RUN,
+    "mcpref.gui.recognition.evaluate",
+    "configs/gui/recognition/masks.yaml",
+)
+STACK = (*RUN, "mcpref.gui.stacking.run", "configs/gui/recognition/stacking.yaml")
 
 
 @pytest.fixture
@@ -37,6 +41,6 @@ def test_failing_evaluation_stops_the_script(spark):
 def test_failing_stack_fails_the_script(spark):
     """gui-stack fails (set -e of the preamble): the script fails."""
     uv = spark.bin / "uv"
-    uv.write_text(uv.read_text() + '[ "${5-}" != mcpref.stacking.run ] || exit 1\n')
+    uv.write_text(uv.read_text() + '[ "${5-}" != mcpref.gui.stacking.run ] || exit 1\n')
     result = spark.run()
     assert result.returncode != 0 and result.events == [EVALUATE, STACK]

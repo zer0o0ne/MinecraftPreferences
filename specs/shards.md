@@ -6,7 +6,7 @@ Stage: every block that builds or reads a dataset (AGENTS.md Code, Data); `specs
 - [U] the user, 2026-10-15: every dataset, when built and when used, is dumped to disk in shards and loaded from there; holding data in memory is unacceptable for safety and resources (AGENTS.md Code, Data); one shared mechanism, a block of its own, before the blocks that use it.
 - [U2] the user, 2026-10-15, decision on the audited draft: shards survive an OS crash or power loss, not only an interrupted process (every file and directory entry synced before it is trusted); shard names, the in-order check and the error texts as proposed in the draft.
 - [POSIX] `rename(2)`: renaming to a name that does not exist, or replacing a file, is atomic within one file system; `fsync(2)` on a file or a directory (Linux): its data, or its entries, reach the disk; a new entry survives a crash only once its parent directory is synced.
-- [CPy] CPython 3.10.20 (`configs/spark-env.yaml`), audit of 2026-10-15: `os.rename` = `rename(2)` (`Modules/posixmodule.c:4682`); `os.fsync` = `fsync(2)` retried on `EINTR`, raising `OSError` without a file name (`:3539`, `:1761`); `os.open` adds `O_CLOEXEC` (`:9166`); `open(2)` with `O_RDONLY` and `fsync(2)` work on a directory on Linux (checked with the pinned interpreter); `shutil.rmtree` (`Lib/shutil.py:627-681`, `688-750`): errors raise, a missing path raises `FileNotFoundError`, symlinks inside are deleted, not followed; `pathlib.Path.rename` binds `os.rename` at import (`Lib/pathlib.py:306`).
+- [CPy] CPython 3.10.20 (`configs/infrastructure/spark-env.yaml`), audit of 2026-10-15: `os.rename` = `rename(2)` (`Modules/posixmodule.c:4682`); `os.fsync` = `fsync(2)` retried on `EINTR`, raising `OSError` without a file name (`:3539`, `:1761`); `os.open` adds `O_CLOEXEC` (`:9166`); `open(2)` with `O_RDONLY` and `fsync(2)` work on a directory on Linux (checked with the pinned interpreter); `shutil.rmtree` (`Lib/shutil.py:627-681`, `688-750`): errors raise, a missing path raises `FileNotFoundError`, symlinks inside are deleted, not followed; `pathlib.Path.rename` binds `os.rename` at import (`Lib/pathlib.py:306`).
 
 ## Notation
 - $D$ — a sharded dataset: a directory.
@@ -35,7 +35,7 @@ Stage: every block that builds or reads a dataset (AGENTS.md Code, Data); `specs
 (4) Writing a file atomically [U2]: $\mathrm{make}$ of the parent of `path`; `data` written to `<path>.part` (a leftover one truncated), closed; published as `path` by (3).
 
 ## Interface
-- Module `src/mcpref/shards/store.py`:
+- Module `src/mcpref/infrastructure/shards/store.py`:
   - `def shard_path(D: Path, k: int) -> Path` — $D/\mathrm{name}(k)$.
   - `@contextlib.contextmanager def write_shard(D: Path, k: int) -> Iterator[Path]` — (1); yields the staged shard.
   - `def complete_shards(D: Path) -> int` — (2).

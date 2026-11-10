@@ -6,7 +6,9 @@ import json
 import shutil
 
 import pytest
-from labels_world import (
+from progress_bars import assert_aborted
+
+from gui.labels_world import (
     ENDS,
     LABELS,
     NAMES,
@@ -17,7 +19,6 @@ from labels_world import (
     ok_of,
     summary,
 )
-from progress_bars import assert_aborted
 
 
 @pytest.mark.parametrize("j", [1, 2, 3])

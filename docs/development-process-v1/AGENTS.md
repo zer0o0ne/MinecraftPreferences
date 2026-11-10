@@ -52,7 +52,7 @@ src/mcpref/<subpackage>/<module>.py    never deeper
 tests/<subpackage>/test_<module>.py    mirrors src/
 tests/scripts/test_<script>.py         mirrors scripts/
 configs/<block>.yaml                   every exact number of a block; loaded into the block's frozen dataclass
-scripts/<action>.sh                    every action the user runs on the Spark; bash, thin wrappers over `python -m mcpref.…` (exception: `setup_env.sh` bootstraps uv and Python in bash and reads `configs/spark-env.yaml` itself)
+scripts/<action>.sh                    every action the user runs on the Spark; bash, thin wrappers over `python -m mcpref.…` (exception: `setup_env.sh` bootstraps uv and Python in bash and reads `configs/infrastructure/spark-env.yaml` itself)
 data/                                  gitignored: datasets, checkpoints, logs, all run outputs
 ```
 Code holds no numeric defaults; secrets come from environment variables, never from configs.

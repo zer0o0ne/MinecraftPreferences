@@ -7,9 +7,9 @@ from pathlib import Path
 
 import numpy as np
 
-from mcpref.runs import files
-from mcpref.shards.store import shard_path, write_shard
-from mcpref.vpt.gui_frames import yuv420p_to_rgb
+from mcpref.datasets.vpt.gui_frames import yuv420p_to_rgb
+from mcpref.infrastructure.runs import files
+from mcpref.infrastructure.shards.store import shard_path, write_shard
 
 OTHER = "other"
 INVALID = "invalid"

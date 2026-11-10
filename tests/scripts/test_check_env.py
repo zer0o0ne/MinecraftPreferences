@@ -6,7 +6,7 @@ import pytest
 
 RUN = (
     "uv@0.13.2", "run", "--locked", "python", "-m",
-    "mcpref.env.check", "configs/env.yaml",
+    "mcpref.runtime.env.check", "configs/runtime/env.yaml",
 )  # fmt: skip
 
 

@@ -6,7 +6,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PATH="$HOME/.local/bin:$PATH"
-uv run --locked python -m mcpref.gui.textures configs/gui-screens.yaml
-uv run --locked python -m mcpref.pool.run configs/preference-pool.yaml
-uv run --locked python -m mcpref.preferences.labels configs/vlm-labels.yaml
-uv run --locked python -m mcpref.preferences.acyclic configs/acyclic.yaml
+uv run --locked python -m mcpref.gui.textures configs/gui/screens.yaml
+uv run --locked python -m mcpref.datasets.pool.run configs/datasets/preference-pool.yaml
+uv run --locked python -m mcpref.datasets.preferences.labels configs/datasets/preferences/labels.yaml
+uv run --locked python -m mcpref.datasets.preferences.acyclic configs/datasets/preferences/acyclic.yaml

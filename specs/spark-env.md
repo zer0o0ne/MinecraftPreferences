@@ -8,12 +8,12 @@ Stage: infrastructure for every stage run on the NVIDIA DGX Spark (`specs/00-ove
 - [NV] NVIDIA DGX Spark vLLM playbook: the user must be in the `docker` group (`sudo usermod -aG docker $USER`, then log in again).
 
 ## Notation
-- `configs/spark-env.yaml`, read by bash: one `key: value` per line, `key` matching `[a-z_]+`, `value` without spaces, quotes or comments; a missing key is an error. Keys: `uv_version`, `python_version`, `driver_min` (minimum NVIDIA driver version); `ffmpeg_deb_version` (added by block vpt-gui-frames, step (7)).
+- `configs/infrastructure/spark-env.yaml`, read by bash: one `key: value` per line, `key` matching `[a-z_]+`, `value` without spaces, quotes or comments; a missing key is an error. Keys: `uv_version`, `python_version`, `driver_min` (minimum NVIDIA driver version); `ffmpeg_deb_version` (added by block vpt-gui-frames, step (7)).
 - Starting values: `uv_version` = `0.12.19`, `python_version` = `3.10.20` (cpython linux-aarch64-gnu build listed by uv), `driver_min` = `580.95.05` (the minimum for CUDA 13.0 Update 2, the image's CUDA; the user's Spark runs 580.142).
 
 ## Behaviour
 `scripts/setup_env.sh`, bash with `set -euo pipefail`. It first changes to the repository root (`cd "$(dirname "$0")/.."`). Each step prints `== <name>` on stdout before it runs; an `ERR` trap prints `setup_env.sh: step <name> failed` to stderr. Idempotent: a second run installs nothing new and succeeds. Step names in parentheses below.
-(0) `config`: read `configs/spark-env.yaml`; a missing file or key prints `setup_env.sh: missing <key> in configs/spark-env.yaml` (or `missing configs/spark-env.yaml`) to stderr and fails.
+(0) `config`: read `configs/infrastructure/spark-env.yaml`; a missing file or key prints `setup_env.sh: missing <key> in configs/infrastructure/spark-env.yaml` (or `missing configs/infrastructure/spark-env.yaml`) to stderr and fails.
 (1) `arch`: `uname -m` is `aarch64`.
 (2) `driver`: `nvidia-smi --query-gpu=driver_version --format=csv,noheader` ≥ `driver_min` (compared with `sort -V`); else stderr contains `driver <found> is older than driver_min <driver_min>`.
 (3) `docker`: `docker info >/dev/null` succeeds — else stderr contains `sudo usermod -aG docker $USER` and `log in again`. GPU access inside containers is checked by step (8) (block vlm-client), with the vLLM image itself: on DGX OS the NVIDIA Container Toolkit serves `--gpus all` without registering a `nvidia` runtime (found on the user's Spark, 2026-10-10).
@@ -22,15 +22,23 @@ Stage: infrastructure for every stage run on the NVIDIA DGX Spark (`specs/00-ove
 (5a) `engine-deps`, added by block engine (`specs/engine.md`).
 (6) `sync`: `uv sync --locked --python <python_version>`.
 (7) `ffmpeg`, added by block vpt-gui-frames: ffmpeg for frame extraction over HTTPS.
-(8) `vlm`, added by block vlm-client: `uv run --locked python -m mcpref.vlm.server prepare configs/vlm.yaml`.
-(9) `engine`, added by block engine: `uv run --locked python -m mcpref.engine.prepare configs/engine.yaml`.
+(8) `vlm`, added by block vlm-client: `uv run --locked python -m mcpref.integrations.vlm.server prepare configs/integrations/vlm.yaml`.
+(9) `engine`, added by block engine: `uv run --locked python -m mcpref.runtime.engine.prepare configs/runtime/engine.yaml`.
 
 Every other script in `scripts/` starts the same way: `set -euo pipefail`, `cd "$(dirname "$0")/.."`, `PATH="$HOME/.local/bin:$PATH"`, and calls Python only as `uv run --locked python -m mcpref.…`.
 
+## Configuration files
+- The `configs/` directories mirror the package map. A leaf holds the values owned by its block; values shared by several blocks live in a higher-level base config.
+- Python config readers use `mcpref.config.read_yaml`. The optional `extends` field is an ordered list of repository-relative YAML paths. Parents are read recursively and deep-merged in order: a later parent and then the leaf override earlier values, mappings merge without changing the existing key order, and lists and scalars replace earlier values.
+- The optional `remove` field is a list of dotted mapping paths removed after the parents are merged and before the leaf's own fields. It preserves explicit ordering when a child needs only part of a base mapping. Both metadata fields are absent from the resulting configuration object. Cycles, invalid paths and unknown removal paths are configuration errors.
+- Run files keep the raw YAML mapping as written, including `extends` and `remove`; only dataclass loading resolves inheritance.
+- Config fingerprints use `mcpref.config.config_sha256`: the leaf bytes followed by every ancestor's bytes in `extends` order. A config without parents keeps the previous plain-file hash, while changing a shared base invalidates resume exactly like changing the leaf.
+- `configs/infrastructure/spark-env.yaml` remains the flat bash-read exception below.
+
 ## Interface
-- Files: `scripts/setup_env.sh`; `configs/spark-env.yaml`; `uv.lock`; `pyproject.toml`:
+- Files: `scripts/setup_env.sh`; `configs/infrastructure/spark-env.yaml`; `uv.lock`; `pyproject.toml`:
   - `[project]`: `name = "mcpref"`, `version = "0.1.0"`, `requires-python = "==3.10.*"`, `dependencies` pinned exactly; this block adds `numpy==1.26.4` (the last 1.x; MineStudio pins `opencv-python==4.8.0.74`, built against numpy 1.x) and `pyyaml==6.0.3`; later blocks add theirs.
-  - `[build-system]`: `requires = ["uv_build==0.12.19"]`, `build-backend = "uv_build"`; package `src/mcpref` (with `src/mcpref/__init__.py`).
+  - `[build-system]`: `requires = ["uv_build==0.12.19"]`, `build-backend = "uv_build"`; package `src/mcpref` (with `src/mcpref/config.py`).
   - `[dependency-groups] dev`: `pytest==9.1.1`, `ruff==0.16.9`, `pytest-timeout==2.4.0`, `pytest-xdist==3.8.0`.
   - `[tool.pytest.ini_options]`: markers `gpu` and `slow` registered; `addopts = "-m 'not gpu and not slow' -n auto --timeout=10 --durations=10"` (AGENTS.md Tests: fast tests fail at 10 s; a slow test carries `@pytest.mark.timeout(600)`).
   - `[tool.uv] required-version = "==<uv_version>"` (this machine upgrades its uv to the same version).
@@ -50,6 +58,6 @@ Every other script in `scripts/` starts the same way: `set -euo pipefail`, `cd "
 
 ## Exceptions to AGENTS.md (approved 2026-10-10)
 - `setup_env.sh` is bash logic, not a thin wrapper: Python does not exist before it runs.
-- `configs/spark-env.yaml` is read by bash, not loaded into a dataclass.
+- `configs/infrastructure/spark-env.yaml` is read by bash, not loaded into a dataclass.
 - Script tests live in `tests/scripts/`, which mirrors `scripts/`, not `src/`.
 

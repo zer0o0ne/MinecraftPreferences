@@ -4,5 +4,5 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PATH="$HOME/.local/bin:$PATH"
-uv run --locked python -m mcpref.gui.textures configs/gui-screens.yaml
-uv run --locked python -m mcpref.clips.run configs/perception-data.yaml
+uv run --locked python -m mcpref.gui.textures configs/gui/screens.yaml
+uv run --locked python -m mcpref.datasets.clips.run configs/datasets/perception-data.yaml

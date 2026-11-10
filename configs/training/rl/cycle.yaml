@@ -1,0 +1,15 @@
+# specs/rl-cycle.md: RLCycleConfig. Paths relative to the repository root.
+extends:
+  - "configs/training/optimizer.yaml"
+  - "configs/training/shards.yaml"
+remove:
+  - "groups.phi_dual"
+retrain: true
+w_P: 1.0
+w_ppo: 1.0
+w_delta: 1.0
+w_metra: 1.0
+sampling: "configs/runtime/sampling.yaml"
+ppo: "configs/training/rl/ppo.yaml"
+rl_pairs: "configs/training/rl/preference-pairs.yaml"
+out_dir: "data/rl_cycle"

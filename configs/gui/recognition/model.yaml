@@ -1,0 +1,2 @@
+# Shared fitted GUI-mask artifacts for the classifier and stacking experiment.
+masks_dir: "data/gui_masks"

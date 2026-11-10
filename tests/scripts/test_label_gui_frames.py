@@ -14,7 +14,7 @@ LABELS = (
     "-m",
     "mcpref.gui.labels",
 )
-LABELS += ("configs/gui-labels.yaml",)
+LABELS += ("configs/gui/labels.yaml",)
 
 
 @pytest.fixture

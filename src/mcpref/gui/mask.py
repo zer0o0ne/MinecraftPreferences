@@ -5,12 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import yaml
 
-from mcpref import config_mapping, number, repo_path
+from mcpref.config import config_mapping, number, read_yaml, repo_path
+from mcpref.datasets.vpt.actions import WORLD_ACTIONS
 from mcpref.gui.actions import action_names
 from mcpref.gui.screens import Element, ScreenClass, load_screens, right_handled
-from mcpref.vpt.actions import WORLD_ACTIONS
 
 NOT_D = frozenset({"death", "pause"})
 """Notation: the classes of K not in D."""
@@ -18,7 +17,7 @@ NOT_D = frozenset({"death", "pause"})
 
 @dataclass(frozen=True)
 class ActionMaskConfig:
-    """Notation: configs/action-mask.yaml; screens as written, resolved against the
+    """Notation: configs/gui/action-mask.yaml; screens as written, resolved against the
     repository root where read."""
 
     screens: str
@@ -37,7 +36,7 @@ class Masks:
 
 def load_config(path: Path) -> ActionMaskConfig:
     """Notation: the YAML file loaded into ActionMaskConfig; violated constraints raise."""
-    raw = config_mapping(yaml.safe_load(path.read_text()), path, ActionMaskConfig)
+    raw = config_mapping(read_yaml(path), path, ActionMaskConfig)
     repo_path("screens", raw["screens"])
     pitch_limit = number("pitch_limit", raw["pitch_limit"])
     if not pitch_limit > 0:

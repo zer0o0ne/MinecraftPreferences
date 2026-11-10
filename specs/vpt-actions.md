@@ -31,7 +31,7 @@ Stage: data of P1, P2 (blocks perception-data, preference-pool), later P5 (`spec
 - $a < b$ — the lines of two consecutive states of the consumer's grid ($b - a$ = $\Delta$ plus the cut lines between them); $I \subseteq \{a, \dots, b-1\}$ — the input lines of their interval, without the lines the consumer cuts (Q ACT-20); $S_I$ — the segments with a line in $I$; $n_\psi$, $n_\theta$ — the yaw and pitch turns of the interval; $n_{world}(I)$ — the count of its world actions.
 - $\rho$ — degrees per turn (`turn_deg`); $r_{min}$ — the shortest piece and run kept apart (`r_min`).
 - $C_3$ — the F3 combo keys; $\eta$ — the combo flag; $O_t$ debug overlay, $H_t$ hidden HUD (booleans), $V_t \in \{0, 1, 2\}$ point of view (0 = first person), per frame $t$; $\Omega_t$ — frame $t$ shows a mode.
-- Config `configs/vpt-actions.yaml` → `@dataclass(frozen=True) class ActionsConfig`: `turn_deg` (a YAML integer or float, read with `float()`, > 0), `r_min` (a YAML integer, not a boolean, ≥ 1); violated constraints → `ValueError` at load.
+- Config `configs/datasets/vpt/actions.yaml` → `@dataclass(frozen=True) class ActionsConfig`: `turn_deg` (a YAML integer or float, read with `float()`, > 0), `r_min` (a YAML integer, not a boolean, ≥ 1); violated constraints → `ValueError` at load.
 
 ## Math
 (1) Channel values; none on every line without $W_k$:
@@ -69,7 +69,7 @@ $O_t = O_0 \oplus (\#\text{overlay toggles at frames} \le t \bmod 2)$, $H_t$ lik
 (13) Session start: the episode starts a session iff `stats` of $\ell_0$ is empty ([R3]: empty in lines 0–4 of the 3 such episodes, non-empty in line 0 of the others).
 
 ## Interface
-- Module `src/mcpref/vpt/actions.py`:
+- Module `src/mcpref/datasets/vpt/actions.py`:
   - `WORLD_ACTIONS: tuple[str, ...]` — the 34 world actions in this order: `forward`, `back`, `left`, `right`, `forward_left`, `forward_right`, `back_left`, `back_right`, `jump`, `jump_forward`, `jump_back`, `jump_left`, `jump_right`, `jump_forward_left`, `jump_forward_right`, `jump_back_left`, `jump_back_right`, `sneak`, `turn_left`, `turn_right`, `turn_up`, `turn_down`, `attack`, `use`, `hotbar_1`, `hotbar_2`, `hotbar_3`, `hotbar_4`, `hotbar_5`, `hotbar_6`, `hotbar_7`, `hotbar_8`, `hotbar_9`, `open_inventory`.
   - `ActionsConfig`; `def load_config(path: Path) -> ActionsConfig`.
   - `@dataclass(frozen=True) class Segment`: `action: str`, `first: int`, `last: int`.

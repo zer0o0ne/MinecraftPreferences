@@ -3,4 +3,4 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PATH="$HOME/.local/bin:$PATH"
-uv run --locked python -m mcpref.engine.check configs/engine.yaml
+uv run --locked python -m mcpref.runtime.engine.check configs/runtime/engine.yaml

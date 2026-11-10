@@ -8,8 +8,12 @@ import pytest
 
 CFG = {"driver_min": "575.64.05", "python_version": "3.10.18", "uv_version": "0.13.2"}
 RUN = (f"uv@{CFG['uv_version']}", "run", "--locked", "python", "-m")
-INDEX = (*RUN, "mcpref.pretrain.index", "configs/train-index.yaml")
-LOOP = (*RUN, "mcpref.pretrain.run", "configs/pretrain.yaml")
+INDEX = (
+    *RUN,
+    "mcpref.training.pretrain.data.index",
+    "configs/training/pretrain/train-index.yaml",
+)
+LOOP = (*RUN, "mcpref.training.pretrain.run", "configs/training/pretrain/config.yaml")
 COMMENT = ("# specs/train-index.md, then specs/policy.md (13): the index shards, then the "
            "pretraining loop;")  # fmt: skip
 

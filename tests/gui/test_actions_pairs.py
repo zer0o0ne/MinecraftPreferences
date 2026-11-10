@@ -2,11 +2,11 @@
 through `interval_actions`; hand cases, tiny catalogue."""
 
 import pytest
-from gui_action_lines import B37, MS, OUT, S1, S2, SCREENS, episode, inv, world
 
+from gui.gui_action_lines import B37, MS, OUT, S1, S2, SCREENS, episode, inv, world
+from mcpref.datasets.vpt.actions import Segment as S
+from mcpref.datasets.vpt.actions import interval_actions
 from mcpref.gui.actions import GuiActions, gui_actions
-from mcpref.vpt.actions import Segment as S
-from mcpref.vpt.actions import interval_actions
 
 fs = frozenset
 PAIR = S("double_click_1", 2, 4)

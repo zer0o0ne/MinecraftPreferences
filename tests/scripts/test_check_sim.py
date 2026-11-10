@@ -10,8 +10,8 @@ CHECK = (
     "--locked",
     "python",
     "-m",
-    "mcpref.engine.check",
-    "configs/engine.yaml",
+    "mcpref.runtime.engine.check",
+    "configs/runtime/engine.yaml",
 )
 
 
@@ -24,7 +24,7 @@ def spark(make_script):
     "where, argv", [("cwd", None), ("repo/scripts", ["./check_sim.sh"])]
 )
 def test_runs_check_from_repository_root(spark, where, argv):
-    """`uv run --locked python -m mcpref.engine.check configs/engine.yaml` from the
+    """`uv run --locked python -m mcpref.runtime.engine.check configs/runtime/engine.yaml` from the
     repository root, uv found in $HOME/.local/bin, and nothing else."""
     result = spark.run(cwd=spark.tmp / where, argv=argv)
     assert result.returncode == 0, result.stderr
@@ -33,7 +33,7 @@ def test_runs_check_from_repository_root(spark, where, argv):
 
 
 def test_failing_check_fails_the_script(spark):
-    spark.fail = "mcpref.engine.check"
+    spark.fail = "mcpref.runtime.engine.check"
     result = spark.run()
     assert result.returncode != 0
     assert result.events == [(f"uv@{spark.cfg['uv_version']}", *CHECK)]

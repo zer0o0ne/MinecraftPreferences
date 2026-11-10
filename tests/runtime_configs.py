@@ -7,14 +7,14 @@ from pathlib import Path
 import numpy as np
 import yaml
 from classifier_world import Masks, both
-from clips.collect_site import FIELDS as PERCEPTION_FIELDS
-from engine.engine_world import STARTING as ENGINE_STARTING
-from perception.world import BASE as PERCEPTION_BASE
-from perception.world import STARTING as PERCEPTION_STARTING
-from perception.world import write_config as write_perception
-from pretrain.loop_configs import action_mask_catalogue
-from pretrain.loop_starting import STARTING_GROUPS
-from recognition.config_files import OVERLAY_STARTING
+from datasets.clips.collect_site import FIELDS as PERCEPTION_FIELDS
+from gui.recognition.config_files import OVERLAY_STARTING
+from models.perception.world import BASE as PERCEPTION_BASE
+from models.perception.world import STARTING as PERCEPTION_STARTING
+from models.perception.world import write_config as write_perception
+from runtime.engine.engine_world import STARTING as ENGINE_STARTING
+from training.pretrain.loop_configs import action_mask_catalogue
+from training.pretrain.loop_starting import STARTING_GROUPS
 
 MCTS_STARTING = {
     "simulations": 24, "min_n_sampling": 4, "depth": 8, "width": 8, "latency_calls": 10,
@@ -49,13 +49,24 @@ def write_repository(
 ) -> None:
     """Write every config consumed by the runtime fixtures, with scenario overrides explicit."""
     alpha = [1.5, 0.5] if alpha is None else alpha
-    paths = {name: f"configs/{name}.yaml" for name in (
-        "engine", "gui-classifier", "action-mask", "clips", "perception", "policy",
-        "preference", "perception-data", "pretrain", "env", "mcts", "env-sampling", "ppo",
-        "rl-preference-pairs",
-    )}  # fmt: skip
+    paths = {
+        "engine": "configs/runtime/engine.yaml",
+        "gui-classifier": "configs/gui/recognition/classifier.yaml",
+        "action-mask": "configs/gui/action-mask.yaml",
+        "clips": "configs/datasets/clips.yaml",
+        "perception": "configs/models/perception.yaml",
+        "policy": "configs/models/policy.yaml",
+        "preference": "configs/models/preference.yaml",
+        "perception-data": "configs/datasets/perception-data.yaml",
+        "pretrain": "configs/training/pretrain/config.yaml",
+        "env": "configs/runtime/env.yaml",
+        "mcts": "configs/runtime/mcts.yaml",
+        "env-sampling": "configs/runtime/sampling.yaml",
+        "ppo": "configs/training/rl/ppo.yaml",
+        "rl-preference-pairs": "configs/training/rl/preference-pairs.yaml",
+    }
     docs = {
-        "action-mask": {"screens": "configs/gui-screens.yaml", "pitch_limit": 90},
+        "action-mask": {"screens": "configs/gui/screens.yaml", "pitch_limit": 90},
         "gui-screens": action_mask_catalogue(),
         "vpt-actions": {"turn_deg": 10, "r_min": 3},
         "vpt-gui-actions": {"double_click_ms": 250},
@@ -70,7 +81,7 @@ def write_repository(
             "clips": paths["clips"],
             "cursor_scale": 20 / 3,
         },
-        "clips": {"delta": delta, "actions": "configs/vpt-actions.yaml"},
+        "clips": {"delta": delta, "actions": "configs/datasets/vpt/actions.yaml"},
         "mcts": MCTS_STARTING | (mcts or {}),
         "ppo": {
             "horizon": horizon,
@@ -98,9 +109,9 @@ def write_repository(
     }  # fmt: skip
     docs["perception-data"] = PERCEPTION_FIELDS | {
         "index_urls": {"tiny": "http://127.0.0.1:9/index.json"},
-        "ffmpeg": "/x/ffmpeg", "clips": "configs/clips.yaml",
-        "screens": "configs/gui-screens.yaml", "gui_actions": "configs/vpt-gui-actions.yaml",
-        "overlay": "configs/f3-overlay.yaml", "classifier_config": "configs/gui-classifier.yaml",
+        "ffmpeg": "/x/ffmpeg", "clips": "configs/datasets/clips.yaml",
+        "screens": "configs/gui/screens.yaml", "gui_actions": "configs/datasets/vpt/gui-actions.yaml",
+        "overlay": "configs/gui/recognition/f3-overlay.yaml", "classifier_config": "configs/gui/recognition/classifier.yaml",
         "states": states, "out_dir": "data/perception",
     }  # fmt: skip
     docs["diagnostics"] = {
@@ -130,8 +141,15 @@ def write_repository(
         "perception_data": paths["perception-data"], "out_dir": "data/sampling",
         "steps": steps, "seed": 7, "safety_limit": 25.0,
     }  # fmt: skip
+    destinations = paths | {
+        "gui-screens": "configs/gui/screens.yaml",
+        "vpt-actions": "configs/datasets/vpt/actions.yaml",
+        "vpt-gui-actions": "configs/datasets/vpt/gui-actions.yaml",
+        "f3-overlay": "configs/gui/recognition/f3-overlay.yaml",
+        "diagnostics": "configs/diagnostics.yaml",
+    }
     for name, doc in docs.items():
-        write(root / "configs" / f"{name}.yaml", doc)
+        write(root / destinations[name], doc)
     perception = write_perception(
         root / "perception",
         base=PERCEPTION_STARTING,
@@ -142,7 +160,7 @@ def write_repository(
     doc = yaml.safe_load(perception.read_text())
     doc["cursor"] = "perception/sprite/cursor.png"
     write(perception, doc)
-    write(root / "configs" / "perception.yaml", doc)
+    write(root / paths["perception"], doc)
 
 
 def write_classifier_masks(root: Path) -> None:
@@ -158,8 +176,11 @@ def write_classifier_masks(root: Path) -> None:
     run = json.loads(run_path.read_text())
     run["sha256"]["screens"] = hashlib.sha256(text.encode()).hexdigest()
     run_path.write_text(json.dumps(run, indent=2) + "\n")
-    write(root / "configs" / "gui-classifier.yaml", {"masks_dir": masks.masks_dir, "criterion": "agreement"})  # fmt: skip
     write(
-        root / "configs" / "action-mask.yaml",
+        root / "configs/gui/recognition/classifier.yaml",
+        {"masks_dir": masks.masks_dir, "criterion": "agreement"},
+    )
+    write(
+        root / "configs/gui/action-mask.yaml",
         {"screens": masks.screens, "pitch_limit": 90},
     )

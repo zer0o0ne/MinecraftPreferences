@@ -1,0 +1,4 @@
+# specs/gui-classifier.md: GuiClassifierConfig. Paths relative to the repository root.
+extends:
+  - "configs/gui/recognition/model.yaml"
+criterion: "agreement"

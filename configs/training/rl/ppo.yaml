@@ -1,0 +1,6 @@
+# specs/ppo.md: PpoConfig.
+extends:
+  - "configs/models/metra.yaml"
+horizon: 64
+clip: 0.2
+skill_eps: 1.0e-8

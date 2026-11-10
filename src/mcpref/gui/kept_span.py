@@ -3,9 +3,9 @@
 import itertools
 from collections.abc import Mapping, Sequence
 
+from mcpref.datasets.vpt.actions import Segment
+from mcpref.datasets.vpt.video.channels import keys
 from mcpref.gui.screens import Element, ScreenClass, element_at, right_handled
-from mcpref.vpt.actions import Segment
-from mcpref.vpt.channels import keys
 
 DIGITS = {f"key.keyboard.{s}": s for s in range(1, 10)}
 SHIFT = frozenset({"left.shift", "right.shift"})

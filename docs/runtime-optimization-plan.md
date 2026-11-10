@@ -52,7 +52,7 @@ Record baseline wall time and, where applicable, perception/preference call coun
 
 ### RL-1: Cache immutable trajectory records
 
-Current locations: `src/mcpref/sampling/shards.py`, `src/mcpref/rl/loss.py`.
+Current locations: `src/mcpref/runtime/sampling/shards.py`, `src/mcpref/training/rl/learning/loss.py`.
 
 - Compute `steps_per_shard` once per RL cycle instead of reloading `state.pt` for every operation.
 - Add a bounded LRU for globally indexed step records, shared by `read_history` and `load_step`.
@@ -68,7 +68,7 @@ Acceptance:
 
 ### RL-2: Reuse causal perception prefixes within one optimizer step
 
-Current locations: `src/mcpref/rl/history.py`, `src/mcpref/rl/loss.py`.
+Current locations: `src/mcpref/training/rl/learning/history.py`, `src/mcpref/training/rl/learning/loss.py`.
 
 - Cache no-grad latents by stream-restart segment for the duration of one `step_gradients` call.
 - Encode the longest required no-grad prefix once and derive shorter histories by slicing.
@@ -87,7 +87,7 @@ Acceptance:
 
 ### RL-3: Batch preference advantage evaluation
 
-Current location: `src/mcpref/ppo/reward.py`.
+Current location: `src/mcpref/training/rl/ppo/reward.py`.
 
 - Gather all consequence/origin pairs of a micro-batch.
 - Group by history lengths to avoid padding and changing the model's positional inputs.
@@ -104,7 +104,7 @@ Acceptance:
 
 ### RL-4: Construct latent/action histories without repeated concatenation
 
-Current locations: `src/mcpref/rl/history.py`, `src/mcpref/sampling/history.py`.
+Current locations: `src/mcpref/training/rl/learning/history.py`, `src/mcpref/runtime/sampling/history.py`.
 
 - Replace iterative `append` calls in `encode_raw` with direct construction of the final truncated `Y` and one-hot `C` tensors.
 - Preserve row order, action indices, the no-action column, and the last-`L` truncation exactly.
@@ -113,7 +113,7 @@ Acceptance: bitwise-identical `Y` and `C` on hand-built and real histories, with
 
 ### MCTS-1: Build only model-required history tails during simulation
 
-Current locations: `src/mcpref/mcts/tree.py`, `src/mcpref/mcts/search.py`, `src/mcpref/policy/network.py`, `src/mcpref/preferences/network.py`.
+Current locations: `src/mcpref/runtime/mcts/tree.py`, `src/mcpref/runtime/mcts/search.py`, `src/mcpref/models/policy/network.py`, `src/mcpref/models/preference/network.py`.
 
 - Add a model-input path that constructs only the tail consumed by the policy and preference windows instead of materializing the complete base-plus-node history.
 - Build a leaf's required history once per simulation and share it between leaf evaluation and expansion.
@@ -131,7 +131,7 @@ Acceptance:
 
 ### PT-1: Prepare each pretrain clip once
 
-Current locations: `src/mcpref/pretrain/micro_loss.py`, `src/mcpref/perception/phi.py`, `src/mcpref/perception/loss.py`.
+Current locations: `src/mcpref/training/pretrain/steps/micro_loss.py`, `src/mcpref/models/perception/phi.py`, `src/mcpref/models/perception/loss.py`.
 
 - Compute `(frames, metas)` once per clip occurrence in `micro_loss`.
 - Pass the same objects to `phi.frames_z` and to the perception loss for `changed()` and diagnostics.
@@ -142,7 +142,7 @@ Acceptance: identical latents, changed masks, losses, and gradients, with one YU
 
 ### DATA-3: Remove avoidable clip-write copies and release pass-1 frames
 
-Current locations: `src/mcpref/clips/store.py`, `src/mcpref/clips/episode.py`.
+Current locations: `src/mcpref/datasets/clips/store.py`, `src/mcpref/datasets/clips/episode.py`.
 
 - Replace `b"".join(...)` for `frames.yuv` with `os.writev`, handling partial writes, or sequential writes if `writev` is unsuitable on the target filesystem.
 - Release the pass-1 frame mapping before starting pass-2 decoding; retain only clips, classes, and other required state.
@@ -151,7 +151,7 @@ Acceptance: byte-identical clip files and lower copy/allocation volume, with no 
 
 ### DATA-2a: Reuse the ffmpeg stdout buffer
 
-Current location: `src/mcpref/vpt/ffmpeg.py`.
+Current location: `src/mcpref/datasets/vpt/video/ffmpeg.py`.
 
 - Read raw frames into a reusable `bytearray` using a fill loop that handles short reads correctly.
 - Allocate immutable `bytes` only for frames in `keep`.
@@ -161,7 +161,7 @@ Acceptance: identical selected frame bytes and failure behavior, with fewer disc
 
 ### DATA-4: Cache encoded VLM image payloads
 
-Current locations: `src/mcpref/preferences/labels.py`, `src/mcpref/vlm/client.py`.
+Current locations: `src/mcpref/datasets/preferences/labels.py`, `src/mcpref/integrations/vlm/client.py`.
 
 - Cache PNG/base64 data URLs for unique shown frame objects for the lifetime of one label shard.
 - Keep the frame object in each cache entry so object IDs cannot be reused unsafely.
@@ -171,7 +171,7 @@ Acceptance: byte-identical request image payloads and fewer PNG encodes; no chan
 
 ### PT-4, PT-6, PT-7: Remove small repeated tensor and target computations
 
-- Cache RoPE cosine/sine values by positions, device, dtype, head width, and base in `src/mcpref/transformer/layers.py`; do not add them to model checkpoints.
+- Cache RoPE cosine/sine values by positions, device, dtype, head width, and base in `src/mcpref/models/transformer/layers.py`; do not add them to model checkpoints.
 - Compute policy `weights(clip)` once and share it between policy input construction and loss diagnostics.
 - Reuse the factual squared shift for the zero-shift diagnostic instead of recomputing the same metric.
 - Reuse `alpha` tensors by device and dtype instead of recreating them in every metric call.
@@ -182,7 +182,7 @@ Acceptance: equivalent outputs and gradients, unchanged checkpoint contents, and
 
 ### PT-2: Defer loss and observation host transfers
 
-Current locations: `src/mcpref/pretrain/micro_loss.py`, `src/mcpref/pretrain/loss.py`, `src/mcpref/pretrain/observation.py`, `src/mcpref/rl/loss.py`.
+Current locations: `src/mcpref/training/pretrain/steps/micro_loss.py`, `src/mcpref/training/pretrain/steps/loss.py`, `src/mcpref/diagnostics/pretrain/observation.py`, `src/mcpref/training/rl/learning/loss.py`.
 
 - Keep logging values as detached GPU scalars or compact sufficient statistics until the end of the relevant step.
 - Replace scattered `.item()`/`float(...)` calls with batched `stack(...).cpu().tolist()` transfers.
@@ -195,7 +195,7 @@ Acceptance: identical logged schemas and values within approved floating-point r
 
 ### PT-3: Evaluate fused AdamW
 
-Current location: `src/mcpref/pretrain/update.py`.
+Current location: `src/mcpref/training/optim.py`.
 
 - Benchmark the CUDA fused implementation with the existing groups, betas, epsilon, decoupled weight decay, and learning-rate schedule.
 - Vet the pinned Torch implementation and pass relevant arguments explicitly.
@@ -205,7 +205,7 @@ Acceptance: equivalent parameters and Adam moments, compatible checkpoints, no u
 
 ### PT-5: Batch the two preference-layer directions
 
-Current location: `src/mcpref/preferences/layers.py`.
+Current location: `src/mcpref/models/preference/layers.py`.
 
 - For `LayerS`, combine self-attention inputs where sequence lengths match.
 - For `LayerX`, combine queries `[A,B]` with keys `[B,A]`, then split the result.
@@ -232,7 +232,7 @@ These items require individual measurements and, where the current contract excl
 
 ### PT-10: Batch independent images in vision attention
 
-Current locations: `src/mcpref/perception/phi.py` and the pinned Transformers Qwen3.5 vision-attention implementation.
+Current locations: `src/mcpref/models/perception/phi.py` and the pinned Transformers Qwen3.5 vision-attention implementation.
 
 - For the SDPA path, combine independent per-image Q/K/V chunks along the batch dimension instead of invoking attention separately for every image.
 - Run one attention call per vision block for the equal-sized 12-image case, then restore outputs to the original packed sequence order.
@@ -252,7 +252,7 @@ Acceptance:
 
 ### R3-1: Cache fixed-model evaluation latents and batch comparisons
 
-Current locations: `src/mcpref/rl/history.py`, `src/mcpref/rl_pairs/scores.py`, `src/mcpref/rl_pairs/sample.py`.
+Current locations: `src/mcpref/training/rl/learning/history.py`, `src/mcpref/training/rl/pairs/scores.py`, `src/mcpref/training/rl/pairs/sample.py`.
 
 - Cache evaluation latents for the whole `sample_pairs` invocation, where `phi` is fixed and evaluation is under `no_grad`.
 - Reuse them across seed scoring, seed insertion, and discovered comparisons.
@@ -263,7 +263,7 @@ Acceptance: identical selected seeds, alternatives, comparisons, and final keys;
 
 ### R3-2: Remove repeated History scans and per-vertex synchronizations
 
-Current locations: `src/mcpref/rl_pairs/alternatives.py`, `src/mcpref/rl_pairs/history.py`.
+Current locations: `src/mcpref/training/rl/pairs/alternatives.py`, `src/mcpref/training/rl/pairs/history.py`.
 
 - Compute nearest distances one shard at a time with vectorized operations and maintain only the required top results with the existing `(distance, StateRef)` ordering.
 - Add a ref-to-shard/offset index or bounded lookup cache so `_raw` does not rescan every base shard per miss.
@@ -276,7 +276,7 @@ Acceptance: identical nearest sets, beam results, eviction sequences, cleanup pr
 
 ### DATA-1: Classify directly from masked YUV samples
 
-Current locations: `src/mcpref/clips/episode.py`, `src/mcpref/recognition/classifier.py`, `src/mcpref/vpt/yuv.py`.
+Current locations: `src/mcpref/datasets/clips/episode.py`, `src/mcpref/gui/recognition/classifier.py`, `src/mcpref/datasets/vpt/video/yuv.py`.
 
 - Gather Y and corresponding half-resolution U/V samples only at `model.flat` coordinates.
 - Reproduce the existing float64 operation order, two-step green subtraction, round-half-up, clipping, and integer count reductions exactly.
@@ -288,7 +288,7 @@ Existing evidence: on 12 real frames, all 44,799 selected RGB values and all cla
 
 ### DATA-2b: Emit only selected frames from ffmpeg
 
-Current locations: `src/mcpref/vpt/ffmpeg.py`, `src/mcpref/clips/episode.py`.
+Current locations: `src/mcpref/datasets/vpt/video/ffmpeg.py`, `src/mcpref/datasets/clips/episode.py`.
 
 - Add an ffmpeg `select` path for pass 2 so only requested raw frames cross the pipe.
 - Preserve passthrough timestamps, pixel format, selected byte identity, timeout, and failure propagation.
@@ -299,7 +299,7 @@ Acceptance: identical selected bytes and validated frame counts, with a measured
 
 ### DATA-5a: Stream ranged video downloads to their final offsets
 
-Current locations: `src/mcpref/vpt/downloads.py`, `src/mcpref/clips/episode.py`.
+Current locations: `src/mcpref/datasets/vpt/downloads.py`, `src/mcpref/datasets/clips/episode.py`.
 
 - Add a video-specific fetch-to-path implementation using streaming writes or `pwrite` at each range offset.
 - Retain the existing bounded per-file range-fetch executor.
@@ -309,7 +309,7 @@ Acceptance: byte-identical MP4 files, bounded part memory, equivalent HTTP failu
 
 ### DATA-5b: Reuse the range-fetch executor
 
-Current location: `src/mcpref/vpt/downloads.py`.
+Current location: `src/mcpref/datasets/vpt/downloads.py`.
 
 - Reuse a bounded range-fetch executor rather than constructing one per file; this is separate from DATA-5a.
 
@@ -317,7 +317,7 @@ Acceptance: byte-identical artifacts, preserved failure behavior, and a measured
 
 ### DATA-6: Refill preference-pool workers as individual jobs finish
 
-Current locations: `src/mcpref/pool/shards.py`, `src/mcpref/clips/plan.py`.
+Current locations: `src/mcpref/datasets/pool/shards.py`, `src/mcpref/datasets/clips/plan.py`.
 
 - Replace whole-draw waiting with completion-driven refilling from remaining episodes and subsequent draws.
 - Keep a bounded global outstanding-job count.
@@ -328,7 +328,7 @@ Acceptance: byte-identical shards for multiple worker counts and interruption/re
 
 ### DATA-7: Replace repeated long-episode scans
 
-Current locations: `src/mcpref/vpt/actions.py`, `src/mcpref/clips/validity.py`, `src/mcpref/clips/sample.py`, `src/mcpref/gui/actions.py`.
+Current locations: `src/mcpref/datasets/vpt/actions.py`, `src/mcpref/datasets/clips/validity.py`, `src/mcpref/datasets/clips/sample.py`, `src/mcpref/gui/actions.py`.
 
 - Replace event `counts` with an `O(T+F)` running-counter pass.
 - Cache interval action lists and validity results for reuse by accepted clips.
@@ -341,7 +341,7 @@ Acceptance: identical action lists, turn counts, valid starts, accepted clips, a
 
 ### DATA-8: Remove redundant filesystem synchronization
 
-Current location: `src/mcpref/shards/store.py`.
+Current location: `src/mcpref/infrastructure/shards/store.py`.
 
 - Remove `fsync` from the read-only `complete_shards` path after amending its stated contract.
 - Track directories already synchronized by the current process and avoid repeatedly syncing unchanged ancestor chains.

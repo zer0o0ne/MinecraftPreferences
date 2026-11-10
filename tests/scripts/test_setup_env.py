@@ -130,15 +130,15 @@ def test_second_run_installs_nothing(spark):
 
 
 def test_missing_config_file(spark):
-    (spark.repo / "configs/spark-env.yaml").unlink()
-    message = "setup_env.sh: missing configs/spark-env.yaml"
+    (spark.repo / "configs/infrastructure/spark-env.yaml").unlink()
+    message = "setup_env.sh: missing configs/infrastructure/spark-env.yaml"
     assert_failed(spark.run(), spark.expected([], "config"), "config", message)
 
 
 @pytest.mark.parametrize("key", list(CFG))
 def test_missing_config_key(spark, key):
     spark.write_config({k: v for k, v in CFG.items() if k != key})
-    message = f"setup_env.sh: missing {key} in configs/spark-env.yaml"
+    message = f"setup_env.sh: missing {key} in configs/infrastructure/spark-env.yaml"
     assert_failed(spark.run(), spark.expected([], "config"), "config", message)
 
 
@@ -185,7 +185,7 @@ def test_failed_download_fails_uv_step(spark):
 @pytest.mark.parametrize(
     "step, command",
     [("python", "python"), ("sync", "sync"), ("vlm", "run"),
-     ("engine", "mcpref.engine.prepare")],
+     ("engine", "mcpref.runtime.engine.prepare")],
 )  # fmt: skip
 def test_failed_uv_command_fails_its_step(spark, step, command):
     spark.fail = command

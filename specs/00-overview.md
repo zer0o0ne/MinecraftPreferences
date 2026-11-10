@@ -103,30 +103,34 @@ Former candidate blocks 10 (METRA) and 11 (memory) are merged into blocks 12 and
 
 ## Package map
 Filled as block specs are approved: subpackage → stage(s) → spec.
-- `vlm` → P2 (later R-stage labelling) → `specs/vlm-client.md`
-- `scripts/`, `pyproject.toml`, `uv.lock`, `configs/spark-env.yaml` → all → `specs/spark-env.md`
-- `vpt` → GUI-recognition experiment, P1, P2, P5 data → `specs/vpt-gui-frames.md`, `specs/vpt-actions.md`
-- `gui` → GUI-recognition experiment, env, human-click mapping, P1, P2, P5 data → `specs/gui-screens.md` (data: `configs/gui-screens.yaml`), `specs/gui-labels.md`, `specs/vpt-gui-actions.md`, `specs/action-mask.md`
-- `recognition` → GUI-recognition experiment, P1, P2 data, later env → `specs/gui-masks.md`, `specs/f3-overlay.md`, `specs/gui-classifier.md`
-- `clips` → P1, P2 data → `specs/clips.md`, `specs/perception-data.md`
-- `stacking` → GUI-recognition experiment → `specs/gui-stack.md`
-- `http` → shared HTTP retries (textures, VPT downloads, VLM client, engine download) → the retry rules of `specs/vlm-client.md` (6), `specs/gui-screens.md`, `specs/vpt-gui-frames.md`
-- `cli` → shared one-line failure messages of the command-line entry points
-- `shards` → every block that builds or reads a dataset → `specs/shards.md`
-- `pretrain` → pretraining → `specs/train-index.md`, `specs/pretrain.md`, `specs/policy.md` (`run.py`), `specs/pretrain-diagnostics.md`
-- `runs` → every block with a run.json → `specs/runs.md`
-- `pool` → P2 data → `specs/preference-pool.md`
-- `preferences` → P2, P3, P4 (later R1, R3) → `specs/vlm-labels.md`, `specs/acyclic.md`, `specs/preference.md`
-- `graphs` → train-index, P2 data, P3 (later R3) → `specs/preference-pool.md`, `specs/acyclic.md`
-- `training` → gui-stack, pretraining → `specs/gui-stack.md`, `specs/pretrain.md`
-- `perception` → P1, R1 → `specs/perception.md`
-- `policy` → P5 (later R1, R2, R4) → `specs/policy.md`
-- `mcts` → R1 → `specs/mcts.md`
-- `ppo` → R2, R4 → `specs/ppo.md`
-- `transformer` → P4, P5 (layers shared by $P$ and $\pi$) → `specs/preference.md`, `specs/policy.md`
-- `engine` → R1 (simulator install and check) → `specs/engine.md`
-- `env` → R1 → `specs/env.md`
-- `sampling` → R1 → `specs/env-sampling.md`
-- `rl_pairs` → R3, R5 → `specs/rl-preference-pairs.md`
-- `rl` → R1–R5 → `specs/rl-cycle.md`
+- `integrations/vlm` → P2 (later R-stage labelling) → `specs/vlm-client.md`
+- `scripts/`, `pyproject.toml`, `uv.lock`, `configs/infrastructure/spark-env.yaml` → all → `specs/spark-env.md`
+- `datasets/vpt` → GUI-recognition experiment, P1, P2, P5 data → `specs/vpt-gui-frames.md`, `specs/vpt-actions.md`
+- `gui` → GUI-recognition experiment, env, human-click mapping, P1, P2, P5 data → `specs/gui-screens.md` (data: `configs/gui/screens.yaml`), `specs/gui-labels.md`, `specs/vpt-gui-actions.md`, `specs/action-mask.md`
+- `gui/recognition` → GUI-recognition experiment, P1, P2 data, later env → `specs/gui-masks.md`, `specs/f3-overlay.md`, `specs/gui-classifier.md`
+- `datasets/clips` → P1, P2 data and shared clip input → `specs/clips.md`, `specs/perception-data.md`
+- `gui/stacking` → GUI-recognition experiment → `specs/gui-stack.md`
+- `infrastructure/http` → shared HTTP retries (textures, VPT downloads, VLM client, engine download) → the retry rules of `specs/vlm-client.md` (6), `specs/gui-screens.md`, `specs/vpt-gui-frames.md`
+- `infrastructure/cli` → shared one-line failure messages of the command-line entry points
+- `infrastructure/shards` → every block that builds or reads a dataset → `specs/shards.md`
+- `infrastructure/runs` → every block with a run.json → `specs/runs.md`
+- `infrastructure/progress.py` → shared resumable-shard progress reporting
+- `training/pretrain` → pretraining → `specs/train-index.md`, `specs/pretrain.md`, `specs/pretrain-diagnostics.md`
+- `datasets/pool` → P2 data → `specs/preference-pool.md`
+- `datasets/preferences` → P2, P3 labels and correction → `specs/vlm-labels.md`, `specs/acyclic.md`
+- `models/preference` → P4 (later R1, R3) → `specs/preference.md`
+- `datasets/graphs` → train-index, P2 data, P3 (later R3) → `specs/preference-pool.md`, `specs/acyclic.md`
+- `training` → shared devices, schedule, checkpoints, parameter groups and optimizer updates; pretraining and RL
+- `models/perception` → P1, R1 → `specs/perception.md`
+- `models/policy` → P5 (later R1, R2, R4) → `specs/policy.md`
+- `models/factory.py` → shared agent-module construction for pretraining and R1 → `specs/policy.md`
+- `runtime/mcts` → R1 → `specs/mcts.md`
+- `training/rl/ppo` → R2, R4 → `specs/ppo.md`
+- `models/transformer` → P4, P5 (layers shared by $P$ and $\pi$) → `specs/preference.md`, `specs/policy.md`
+- `runtime/engine` → R1 (simulator install and check) → `specs/engine.md`
+- `runtime/env` → R1 → `specs/env.md`
+- `runtime/sampling` → R1 → `specs/env-sampling.md`
+- `training/rl/pairs` → R3, R5 → `specs/rl-preference-pairs.md`
+- `training/rl` → R1–R5 → `specs/rl-cycle.md`
 - `diagnostics` → diagnostics of pretraining and RL → `specs/rl-diagnostics.md`
+- `config.py` → shared repository paths and configuration validation

@@ -3,4 +3,4 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PATH="$HOME/.local/bin:$PATH"
-uv run --locked python -m mcpref.rl.run configs/rl-cycle.yaml
+uv run --locked python -m mcpref.training.rl.run configs/training/rl/cycle.yaml

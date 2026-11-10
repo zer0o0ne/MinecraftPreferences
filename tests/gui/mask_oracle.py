@@ -12,7 +12,7 @@ WORLD = (*MOVES, "jump", *(f"jump_{m}" for m in MOVES), "sneak", "turn_left",
          *(f"hotbar_{i}" for i in range(1, 10)), "open_inventory")  # fmt: skip
 KINDS = ("left_click", "right_click", "shift_click", "double_click")
 RIGHT = r"(book_recipe|option|recipe|pattern)_[0-9]+"
-LIMIT = 90.0  # pitch_limit of configs/action-mask.yaml
+LIMIT = 90.0  # pitch_limit of configs/gui/action-mask.yaml
 # D = K without `death`, `pause` (specs/gui-screens.md (1)).
 D = ("inventory", "inventory_book", "crafting", "crafting_book", "furnace", "furnace_book",
      "chest3", "chest6", "shulker_box", "dispenser", "hopper", "brewing_stand",

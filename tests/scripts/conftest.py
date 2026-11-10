@@ -191,7 +191,9 @@ class Spark:
 
     def write_config(self, cfg: dict) -> None:
         text = "".join(f"{k}: {v}\n" for k, v in cfg.items())
-        (self.repo / "configs/spark-env.yaml").write_text(text)
+        path = self.repo / "configs/infrastructure/spark-env.yaml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
 
     def set_uv(self, version: str | None) -> None:
         """Fake uv of `version` in $HOME/.local/bin; None removes it."""
@@ -271,16 +273,16 @@ class Spark:
         return [ENGINE_QUERY, *calls, JAVA_VERSION]
 
     def engine_prepare(self) -> tuple:
-        """Step (9): `uv run --locked python -m mcpref.engine.prepare configs/engine.yaml`."""
+        """Step (9): `uv run --locked python -m mcpref.runtime.engine.prepare configs/runtime/engine.yaml`."""
         uv = f"uv@{self.cfg['uv_version']}"
-        run = ("run", "--locked", "python", "-m", "mcpref.engine.prepare")
-        return (uv, *run, "configs/engine.yaml")
+        run = ("run", "--locked", "python", "-m", "mcpref.runtime.engine.prepare")
+        return (uv, *run, "configs/runtime/engine.yaml")
 
     def vlm_server(self, command: str) -> tuple:
-        """`uv run --locked python -m mcpref.vlm.server <command> configs/vlm.yaml`."""
+        """`uv run --locked python -m mcpref.integrations.vlm.server <command> configs/integrations/vlm.yaml`."""
         uv = f"uv@{self.cfg['uv_version']}"
-        run = ("run", "--locked", "python", "-m", "mcpref.vlm.server")
-        return (uv, *run, command, "configs/vlm.yaml")
+        run = ("run", "--locked", "python", "-m", "mcpref.integrations.vlm.server")
+        return (uv, *run, command, "configs/integrations/vlm.yaml")
 
     def expected(
         self,

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "shards"))
-from store_disk import contents, fd_path, is_read_only
+from infrastructure.shards.store_disk import contents, fd_path, is_read_only
 
 from mcpref.gui.textures import main
 

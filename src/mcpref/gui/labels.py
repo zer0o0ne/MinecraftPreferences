@@ -8,11 +8,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
-import yaml
 from tqdm import tqdm
 
-from mcpref import REPO
-from mcpref.cli.failure import FAILURES, failed
+from mcpref.config import REPO, config_sha256, read_yaml
+from mcpref.datasets.vpt.plan import read_shard
 from mcpref.gui.label_files import (
     INVALID,
     NO_ANSWER,
@@ -28,18 +27,17 @@ from mcpref.gui.label_files import (
     yuv_path,
 )
 from mcpref.gui.screens import ScreenClass, load_screens
-from mcpref.runs.files import sha256
-from mcpref.shards.store import complete_shards
-from mcpref.vlm.client import VLMConfig, ask_many
-from mcpref.vlm.client import load_config as load_vlm_config
-from mcpref.vpt.plan import read_shard
+from mcpref.infrastructure.cli.failure import FAILURES, failed
+from mcpref.infrastructure.shards.store import complete_shards
+from mcpref.integrations.vlm.client import VLMConfig, ask_many
+from mcpref.integrations.vlm.client import load_config as load_vlm_config
 
 QUOTES = "`'\""
 
 
 @dataclass(frozen=True)
 class GuiLabelsConfig:
-    """Notation: config fields of configs/gui-labels.yaml; paths relative to REPO."""
+    """Notation: config fields of configs/gui/labels.yaml; paths relative to REPO."""
 
     frames_dir: str
     screens: str
@@ -54,7 +52,7 @@ class GuiLabelsConfig:
 
 def load_config(path: Path) -> GuiLabelsConfig:
     """Interface: the YAML file loaded into GuiLabelsConfig."""
-    return GuiLabelsConfig(**yaml.safe_load(path.read_text()))
+    return GuiLabelsConfig(**read_yaml(path))
 
 
 def class_lines(cfg: GuiLabelsConfig, classes: Sequence[ScreenClass]) -> str:
@@ -87,11 +85,11 @@ def parse(answer: str | None, names: Sequence[str]) -> str:
 
 
 def hashes(cfg: GuiLabelsConfig, config_path: Path) -> dict[str, str]:
-    """(4): SHA-256 of the config, of configs/vlm.yaml and of the catalogue file."""
+    """(4): SHA-256 of the config, of configs/integrations/vlm.yaml and of the catalogue file."""
     return {
-        "config": sha256(config_path),
-        "vlm": sha256(REPO / cfg.vlm),
-        "screens": sha256(REPO / cfg.screens),
+        "config": config_sha256(config_path),
+        "vlm": config_sha256(REPO / cfg.vlm),
+        "screens": config_sha256(REPO / cfg.screens),
     }
 
 

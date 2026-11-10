@@ -7,9 +7,19 @@ import pytest
 
 CFG = {"driver_min": "575.64.05", "python_version": "3.10.18", "uv_version": "0.13.2"}
 PYTHON = ("uv@0.13.2", "run", "--locked", "python", "-m")
-TEXTURES = (*PYTHON, "mcpref.gui.textures", "configs/gui-screens.yaml")
-VERIFY = (*PYTHON, "mcpref.vpt.gui_frames", "verify", "configs/vpt-gui-frames.yaml")
-RUN = (*PYTHON, "mcpref.vpt.gui_frames", "run", "configs/vpt-gui-frames.yaml")
+TEXTURES = (*PYTHON, "mcpref.gui.textures", "configs/gui/screens.yaml")
+VERIFY = (
+    *PYTHON,
+    "mcpref.datasets.vpt.gui_frames",
+    "verify",
+    "configs/datasets/vpt/gui-frames.yaml",
+)
+RUN = (
+    *PYTHON,
+    "mcpref.datasets.vpt.gui_frames",
+    "run",
+    "configs/datasets/vpt/gui-frames.yaml",
+)
 
 
 @pytest.mark.parametrize(
