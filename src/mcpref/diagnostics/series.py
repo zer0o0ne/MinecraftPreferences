@@ -78,6 +78,12 @@ def identity(record: dict) -> tuple[str, ...]:
 def curve_points(record: dict, entry: dict, name: str) -> list[tuple[float, float]]:
     axis = entry["x"]
     joined = record["joined"]
+    if (
+        record["context"]["producer"] == "pretrain"
+        and name.startswith("preference.")
+        and joined.get("window_preference") is None
+    ):
+        return []  # An open window is not a missing measurement of a closed window.
     if axis == "bin":
         rows = joined.get("policy", joined).get("reliability", [])
         return [
@@ -118,6 +124,34 @@ def candidates(record: dict) -> list[dict]:
     for group in GROUP_PANELS:
         entries += group_registry(
             group, facet, extra if group == "update-health" else ()
+        )
+    covered = {name for entry in entries for name in entry["series"]}
+    prefixes = {
+        "target": "target-provenance",
+        "policy": "policy-action-quality",
+        "mask": "policy-masks",
+        "ppo": "ppo",
+        "mcts": "mcts-outcomes",
+        "shift": "factual-metra",
+        "metra": "factual-metra",
+        "update": "update-health",
+        "memory": "memory-efficiency",
+        "milestones": "milestones",
+    }
+    for name in sorted(record["metrics"].keys() - covered):
+        group = prefixes.get(
+            name.split(".")[0],
+            "pretrain-preference" if record["kind"] == "pretrain" else "losses",
+        )
+        if record["kind"] == "targets":
+            group = "target-provenance"
+        entries.append(
+            {
+                "group": group,
+                "file": f"{group}__{name}.png",
+                "series": [name],
+                "x": "index" if group == "target-provenance" else "step",
+            }
         )
     return entries
 
@@ -204,6 +238,8 @@ def axis_label(entry: dict) -> str:
         return "Matched probability mass"
     if axis.startswith("km:"):
         return "Time to milestone (real actions)"
+    if entry.get("identity", ("",))[0] == "mcts":
+        return "Real action"
     if entry["group"] == "memory-efficiency":
         return "Cycle"
     if entry["group"] in ("policy-mcts", "mcts-outcomes", "milestones"):

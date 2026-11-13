@@ -5,18 +5,22 @@ import hashlib
 import math
 import sys
 from collections.abc import Iterable, Sequence
+from itertools import chain
 from pathlib import Path
 
 from tqdm import tqdm
 
-from mcpref.diagnostics.charts import line_figure, save_png
+from mcpref.diagnostics.charts import save_png
 from mcpref.diagnostics.core.artifacts import (
     iter_all_records,
     stream_index,
 )
 from mcpref.diagnostics.gallery import write_gallery
+from mcpref.diagnostics.report.build import dashboards
+from mcpref.diagnostics.report.gradient import gradient_records
+from mcpref.diagnostics.report.render import dashboard_figure
 from mcpref.diagnostics.saved import iter_saved_runs
-from mcpref.diagnostics.series import axis_label, collect, registries
+from mcpref.diagnostics.series import collect, registries
 
 
 def saved_points(records: Iterable[dict]) -> tuple[list[dict], dict]:
@@ -60,6 +64,11 @@ def saved_points(records: Iterable[dict]) -> tuple[list[dict], dict]:
                     "series": names,
                     "x": "step",
                     "title": f"{title} | {panel}\n{source_path}",
+                    "source": source_path,
+                    "population": title,
+                    "x_label": "Selected optimizer step"
+                    if group == "saved-gradient-flow"
+                    else "Optimizer step",
                 }
             )
             steps = sorted(source_steps[group, source_path])
@@ -77,15 +86,7 @@ def render(directory: Path, entries: list[dict], points: dict) -> None:
         print("diagnostics plot: nothing to do", file=sys.stderr)
         return
     for entry in tqdm(entries, desc="diagnostics plot", unit="plot", file=sys.stderr):
-        title = entry["title"]
-        if "snapshot" in entry:
-            title += f"\nLatest snapshot: {entry['snapshot']}"
-        result = line_figure(
-            title,
-            points[entry["file"]],
-            axis_label(entry),
-            step=entry["x"].startswith("km:"),
-        )
+        result = dashboard_figure(entry, points[entry["file"]])
         save_png(result, directory / entry["file"])
 
 
@@ -100,17 +101,25 @@ def main(argv: Sequence[str]) -> int:
         parser.error(f"diagnostics directory does not exist: {args.diagnostics_dir}")
     entries = registries(iter_all_records(args.diagnostics_dir))
     points = collect(iter_all_records(args.diagnostics_dir), entries)
-    extra, saved = saved_points(iter_saved_runs(args.pretrain_dir, args.rl_dir))
-    render(args.plot_dir, entries + extra, points | saved)
+    extra, saved = saved_points(
+        chain(
+            iter_saved_runs(args.pretrain_dir, args.rl_dir),
+            gradient_records(args.pretrain_dir),
+        )
+    )
+    report, panels = dashboards(entries + extra, points | saved)
+    render(args.plot_dir, report, panels)
     if args.diagnostics_dir.is_dir():
         registry = [
             {key: entry[key] for key in ("group", "file", "series", "x")}
-            for entry in entries
+            | {"series": entry["accepted_series"]}
+            for entry in report
+            if entry["accepted_series"]
         ]
         stream_index(
             args.diagnostics_dir, iter_all_records(args.diagnostics_dir), registry
         )
-    write_gallery(args.plot_dir, extra + entries)
+    write_gallery(args.plot_dir, report)
     return 0
 
 

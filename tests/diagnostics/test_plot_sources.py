@@ -177,9 +177,9 @@ def test_saved_run_cli_creates_gallery_without_diagnostic_records(tmp_path):
         main([str(tmp_path / "absent"), str(report), "--pretrain-dir", str(run)]) == 0
     )
     files = list(report.glob("*.png"))
-    assert len(files) == 1 and Image.open(files[0]).format == "PNG"
+    assert len(files) == 12 and all(Image.open(path).format == "PNG" for path in files)
     page = (report / "index.html").read_text()
-    assert files[0].name in page and "Pretrain / joint" in page
+    assert files[0].name in page and str(run) in page
     assert (run / "checkpoints/000000/losses.json").read_bytes() == before
     assert not (tmp_path / "absent").exists()
 

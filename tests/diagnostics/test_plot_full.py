@@ -8,7 +8,7 @@ import torch
 
 from diagnostics.core.world import config, context
 from diagnostics.test_plot import fake_render, make_records, write_records
-from mcpref.diagnostics.core.artifacts import GROUP_PANELS, write_record
+from mcpref.diagnostics.core.artifacts import write_record
 from mcpref.diagnostics.core.observations import (
     EpisodeArtifacts,
     MemoryEvent,
@@ -33,7 +33,13 @@ from mcpref.diagnostics.producers.update import on_update_observation
 def test_full_plot_registry_and_special_source_curves(tmp_path, monkeypatch):
     from mcpref.diagnostics import plot
 
-    monkeypatch.setattr(plot, "render", fake_render)
+    rendered = {}
+
+    def capture(directory, entries, points):
+        rendered.update(points)
+        fake_render(directory, entries, points)
+
+    monkeypatch.setattr(plot, "render", capture)
     ctx = context(
         "rl/000000/checkpoints/000000/losses.json",
         "policy",
@@ -157,17 +163,28 @@ def test_full_plot_registry_and_special_source_curves(tmp_path, monkeypatch):
     index = json.loads((tmp_path / "diag/index.json").read_text())
     files = {entry["file"] for entry in index["plots"]}
     assert {entry["group"] for entry in index["plots"]} == {
-        "target-provenance",
-        "pretrain-preference",
-        *GROUP_PANELS,
+        "data",
+        "preferences",
+        "reference",
+        "policy",
+        "ppo",
+        "mcts",
+        "milestones",
+        "representation",
+        "optimization",
+        "memory",
+        "losses",
     }
-    for name in (
-        "policy-calibration__train__joint__reliability.png",
-        "mcts-outcomes__train__joint__matched-reliability.png",
-        "milestones__train__joint__km-stone_pickaxe.png",
-        "update-health__train__joint__groups.png",
-    ):
-        assert any(path.startswith(name.removesuffix(".png") + "__") for path in files)
+    assert "03_policy.png" in files and "09_milestones.png" in files
+    assert any(
+        panel["x_label"] == "Confidence bin" for panel in rendered["03_policy.png"]
+    )
+    assert any(
+        panel["x_label"] == "Matched probability mass"
+        for panel in rendered["08_mcts.png"]
+    )
+    assert any(panel["step"] for panel in rendered["09_milestones.png"])
+    assert len(list((tmp_path / "plots").glob("*.png"))) == 12
     assert all(
         (tmp_path / "plots" / entry["file"]).is_file() for entry in index["plots"]
     )
