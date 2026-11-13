@@ -7,6 +7,7 @@ from torch import Tensor
 
 from mcpref.config import REPO
 from mcpref.diagnostics.core.observations import PpoObservations, ShiftObservations
+from mcpref.infrastructure.profiling.scopes import measured, phase
 from mcpref.models.perception.config import PerceptionConfig
 from mcpref.models.perception.loss import latent_metric
 from mcpref.runtime.sampling.config import SamplingConfig
@@ -23,6 +24,7 @@ from mcpref.training.rl.ppo.reward import reward
 ROLES = ("ppo", "shift", "metra", "P")
 
 
+@measured("micro.forward")
 def micro_loss(
     items: list[dict],
     modules: dict[str, torch.nn.Module],
@@ -54,99 +56,102 @@ def micro_loss(
         fixed_advantages is not None,
     )
 
-    for item in items:
-        kind, t = item["kind"], item.get("index")
-        if kind == "preference":
-            a, b = next(encoded), next(encoded)
-            value = modules["P_loss"](P(a.Y, b.Y), [item["labels"]])[0]
-            terms["P"].append(value)
-            logged["P"].append(value.detach())
-            continue
-        origin = next(encoded)
-        record = load_step(REPO / sampling.out_dir, t)
-        R = pi.readout(origin.Y, origin.C)[:, -1]
-        eligible = ppo_eligible(item, sampling, ppo)
-        successor = next(encoded) if kind == "fresh" else None
-        if eligible:
-            logits = pi.logits(R)
-            if fixed_advantages is None:
-                futures = [
-                    next(rewards).Y
-                    for _ in range(1 if successor is None else 2, ppo.horizon + 1)
-                ]
-                if successor is not None:
-                    futures = [successor.Y] + futures
-                advantage = reward(
-                    P, [origin.Y], [futures], ppo.horizon, discount, min_p
+    with phase("rl.heads_losses"):
+        for item in items:
+            kind, t = item["kind"], item.get("index")
+            if kind == "preference":
+                a, b = next(encoded), next(encoded)
+                value = modules["P_loss"](P(a.Y, b.Y), [item["labels"]])[0]
+                terms["P"].append(value)
+                logged["P"].append(value.detach())
+                continue
+            origin = next(encoded)
+            record = load_step(REPO / sampling.out_dir, t)
+            R = pi.readout(origin.Y, origin.C)[:, -1]
+            eligible = ppo_eligible(item, sampling, ppo)
+            successor = next(encoded) if kind == "fresh" else None
+            if eligible:
+                logits = pi.logits(R)
+                if fixed_advantages is None:
+                    futures = [
+                        next(rewards).Y
+                        for _ in range(1 if successor is None else 2, ppo.horizon + 1)
+                    ]
+                    if successor is not None:
+                        futures = [successor.Y] + futures
+                    advantage = reward(
+                        P, [origin.Y], [futures], ppo.horizon, discount, min_p
+                    )
+                else:
+                    advantage = torch.tensor(
+                        [fixed_advantages[kind, t]],
+                        dtype=logits.dtype,
+                        device=logits.device,
+                    )
+                actions = torch.tensor(
+                    [record.action], dtype=torch.int64, device=logits.device
                 )
-            else:
-                advantage = torch.tensor(
-                    [fixed_advantages[kind, t]],
-                    dtype=logits.dtype,
-                    device=logits.device,
+                behavior = (
+                    record.probabilities[record.action]
+                    .reshape(1)
+                    .to(device=logits.device, dtype=logits.dtype)
                 )
-            actions = torch.tensor(
-                [record.action], dtype=torch.int64, device=logits.device
-            )
-            behavior = (
-                record.probabilities[record.action]
-                .reshape(1)
-                .to(device=logits.device, dtype=logits.dtype)
-            )
-            value = ppo_loss(logits, actions, behavior, advantage, ppo.clip)[0]
-            terms["ppo"].append(value)
-            logged["ppo"].append(value.detach())
+                value = ppo_loss(logits, actions, behavior, advantage, ppo.clip)[0]
+                terms["ppo"].append(value)
+                logged["ppo"].append(value.detach())
+                if observations is not None:
+                    probability = torch.softmax(logits, dim=-1, dtype=None)
+                    ratio = probability[0, record.action] / behavior[0]
+                    observations["ppo"].append(
+                        PpoObservations(
+                            ratio.detach().reshape(1),
+                            advantage.detach().reshape(1),
+                            record.probabilities.reshape(1, -1).to(
+                                device=logits.device, dtype=logits.dtype
+                            ),
+                            probability.detach(),
+                            actions,
+                            ppo.clip,
+                            (kind,),
+                            torch.tensor([True], device=logits.device),
+                        )
+                    )
+                    observations["ppo_clusters"].append(state_ref(sampling, t).episode)
+                    observations["logits"].append(logits.detach())
+            if kind == "pending":
+                continue
+            actions = torch.tensor([record.action], dtype=torch.int64, device=R.device)
+            predicted = pi.shift(R, actions)
+            actual = successor.Y[0, -1:] - origin.Y[0, -1:]
+            shift = shift_loss(predicted, actual, metric)[0]
+            metra = modules["metra"](actual, predicted, alpha)[0]
+            terms["shift"].append(shift)
+            terms["metra"].append(metra)
+            logged["shift"].append(shift.detach())
+            logged["metra"].append(metra.detach())
             if observations is not None:
-                probability = torch.softmax(logits, dim=-1, dtype=None)
-                ratio = probability[0, record.action] / behavior[0]
-                observations["ppo"].append(
-                    PpoObservations(
-                        ratio.detach().reshape(1),
-                        advantage.detach().reshape(1),
-                        record.probabilities.reshape(1, -1).to(
-                            device=logits.device, dtype=logits.dtype
+                distance = metric(actual).detach()
+                observations["shift"].append(
+                    ShiftObservations(
+                        predicted.detach(),
+                        actual.detach(),
+                        alpha,
+                        distance,
+                        torch.clamp(
+                            1 - distance**2, max=modules["metra"].cfg.dual_slack
                         ),
-                        probability.detach(),
-                        actions,
-                        ppo.clip,
-                        (kind,),
-                        torch.tensor([True], device=logits.device),
+                        modules["metra"].log_lambda.exp().detach().reshape(1),
+                        modules["metra"].cfg.dual_slack,
+                        (
+                            torch.linalg.vector_norm(
+                                predicted.detach() * alpha, ord=2, dim=-1
+                            )
+                            == 0
+                        ),
                     )
                 )
-                observations["ppo_clusters"].append(state_ref(sampling, t).episode)
-                observations["logits"].append(logits.detach())
-        if kind == "pending":
-            continue
-        actions = torch.tensor([record.action], dtype=torch.int64, device=R.device)
-        predicted = pi.shift(R, actions)
-        actual = successor.Y[0, -1:] - origin.Y[0, -1:]
-        shift = shift_loss(predicted, actual, metric)[0]
-        metra = modules["metra"](actual, predicted, alpha)[0]
-        terms["shift"].append(shift)
-        terms["metra"].append(metra)
-        logged["shift"].append(shift.detach())
-        logged["metra"].append(metra.detach())
-        if observations is not None:
-            distance = metric(actual).detach()
-            observations["shift"].append(
-                ShiftObservations(
-                    predicted.detach(),
-                    actual.detach(),
-                    alpha,
-                    distance,
-                    torch.clamp(1 - distance**2, max=modules["metra"].cfg.dual_slack),
-                    modules["metra"].log_lambda.exp().detach().reshape(1),
-                    modules["metra"].cfg.dual_slack,
-                    (
-                        torch.linalg.vector_norm(
-                            predicted.detach() * alpha, ord=2, dim=-1
-                        )
-                        == 0
-                    ),
-                )
-            )
-            observations["shift_clusters"].append(state_ref(sampling, t).episode)
-    return terms, logged
+                observations["shift_clusters"].append(state_ref(sampling, t).episode)
+        return terms, logged
 
 
 def step_gradients(
@@ -206,15 +211,17 @@ def step_gradients(
             total = part if total is None else total + part
         if total is None:
             raise RuntimeError("a non-empty micro-batch supplies no loss")
-        total.backward()
+        with phase("backward"):
+            total.backward()
         totals.append(total.detach())
         for role in ROLES:
             logged[role].extend(values[role])
-    scalars = (
-        torch.stack([*totals, *(value for role in ROLES for value in logged[role])])
-        .cpu()
-        .tolist()
-    )
+    with phase("diagnostics.reduce"):
+        scalars = (
+            torch.stack([*totals, *(value for role in ROLES for value in logged[role])])
+            .cpu()
+            .tolist()
+        )
     total_value = 0.0
     for value in scalars[: len(totals)]:
         total_value += value

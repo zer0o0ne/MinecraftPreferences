@@ -19,6 +19,7 @@ from mcpref.diagnostics.producers.preference import (
     on_pretrain_step,
     on_reference,
 )
+from mcpref.infrastructure.profiling.scopes import measured
 from mcpref.infrastructure.shards.store import complete_shards, name
 from mcpref.training.pretrain.config import PretrainConfig
 from mcpref.training.pretrain.references.reference import ReferenceData
@@ -41,6 +42,7 @@ def step_sources(
     return sources
 
 
+@measured("diagnostics.record")
 def stage_step(
     diagnostics: DiagnosticRun,
     cfg: PretrainConfig,
@@ -106,6 +108,7 @@ def stage_step(
     diagnostics.stage("pretrain-step", step, f"step:{step}", step + 1, sources, record)
 
 
+@measured("diagnostics.publish")
 def accept_step(
     diagnostics: DiagnosticRun,
     step: int,
@@ -137,6 +140,7 @@ def reference_sources(
     return sources
 
 
+@measured("diagnostics.reference_publish")
 def stage_reference(
     diagnostics: DiagnosticRun,
     cfg: PretrainConfig,
@@ -187,6 +191,7 @@ def stage_reference(
             ordinal += 1
 
 
+@measured("diagnostics.reference_publish")
 def accept_reference(diagnostics: DiagnosticRun, k: int) -> None:
     diagnostics.accept("pretrain-reference", f"reference:{k}", join=join_reference)
 

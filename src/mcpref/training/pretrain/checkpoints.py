@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
+from mcpref.infrastructure.profiling.scopes import measured
 from mcpref.infrastructure.runs.files import json_bytes
 from mcpref.infrastructure.shards.store import shard_path, write_shard
 from mcpref.training.checkpoints import CHECKPOINT, Modules, cpu_states
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
 LOSSES, DIAGNOSTICS = "losses.json", "diagnostics.json"
 
 
+@measured("checkpoint")
 def write_checkpoint(
     directory: Path,
     j: int,

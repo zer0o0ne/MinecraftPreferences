@@ -2,6 +2,7 @@
 
 import torch
 
+from mcpref.infrastructure.profiling.scopes import phase
 from mcpref.runtime.sampling.config import SamplingConfig
 from mcpref.training.rl.learning.history import encode_refs
 from mcpref.training.rl.pairs.types import StateRef
@@ -38,9 +39,10 @@ def micro_histories(items, phi, perception, sampling, states, action_count, ppo,
                 state_ref(sampling, t + k)
                 for k in range(2 if kind == "fresh" else 1, ppo.horizon + 1)
             )
-    encoded = encode_refs(refs, phi, perception, sampling, states, action_count)
+    with phase("rl.gradient_histories"):
+        encoded = encode_refs(refs, phi, perception, sampling, states, action_count)
     rewards = []
-    with torch.no_grad():
+    with phase("rl.reward_histories"), torch.no_grad():
         for start in range(0, len(reward_refs), len(items)):
             rewards.extend(
                 encode_refs(

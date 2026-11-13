@@ -12,6 +12,7 @@ from mcpref.diagnostics.pretrain.diagnostics import (
     preference_baselines,
     preference_suite,
 )
+from mcpref.infrastructure.profiling.scopes import measured
 from mcpref.training.checkpoints import Modules
 from mcpref.training.groups import Groups
 from mcpref.training.optim import update
@@ -21,6 +22,7 @@ from mcpref.training.pretrain.steps.loss import step_gradients
 from mcpref.training.pretrain.update import gradient_stats, update_stats
 
 
+@measured("diagnostics.record")
 def step_record(
     cfg: PretrainConfig,
     fit: GlobalFit | None,

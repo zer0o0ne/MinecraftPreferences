@@ -18,6 +18,7 @@ from transformers.image_utils import PILImageResampling
 from transformers.trainer_pt_utils import get_parameter_names
 
 from mcpref.datasets.clips.io import Clip
+from mcpref.infrastructure.profiling.scopes import measured, phase, qwen_batch
 from mcpref.models.perception.config import PerceptionConfig
 from mcpref.models.perception.cursor import load_sprite
 from mcpref.models.perception.meta import clip_states
@@ -49,6 +50,7 @@ class Head(torch.nn.Sequential):
     """(7): z = head(h_r), h_r cast to the dtype of the head's parameters, outside
     autocast."""
 
+    @measured("phi.head")
     def forward(self, h: Tensor) -> Tensor:
         with torch.autocast(device_type=h.device.type, enabled=False):
             return super().forward(h.to(self[0].weight.dtype))
@@ -118,12 +120,19 @@ class Phi(torch.nn.Module):
         """(6), (9): B's last hidden states of `ids` under autocast, the inputs moved to
         phi's device; the cache used when given."""
         device = self.head[0].weight.device
-        with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
+        with phase("qwen.transfer"):
+            inputs = {
+                "input_ids": torch.tensor([ids], dtype=torch.int64, device=device),
+                "pixel_values": pixels.to(device),
+                "image_grid_thw": grid.to(device),
+                "position_ids": pos.to(device),
+            }
+        with (
+            phase("qwen.forward"),
+            torch.autocast(device_type=device.type, dtype=torch.bfloat16),
+        ):
             out = self.backbone(
-                input_ids=torch.tensor([ids], dtype=torch.int64, device=device),
-                pixel_values=pixels.to(device),
-                image_grid_thw=grid.to(device),
-                position_ids=pos.to(device),
+                **inputs,
                 use_cache=cache is not None,
                 past_key_values=cache,
             )
@@ -131,18 +140,20 @@ class Phi(torch.nn.Module):
 
     def frames_z(self, frames: list[np.ndarray], metas: list[str]) -> Tensor:
         """(3)-(7): already constructed RGB frames and meta strings -> (L, D)."""
-        pixels, grid = image_inputs(self.processor, frames)
-        segments = [
-            segment(self.tokenizer, self.sp, g, mu, self.cfg.marker)
-            for g, mu in zip(grid, metas)
-        ]
-        ids = [t for sigma in segments for t in sigma]
-        r = [n - 1 for n in accumulate(len(sigma) for sigma in segments)]
-        h = self.hidden(
-            ids, pixels, grid, positions(self.backbone, ids, grid, self.sp), None
-        )
+        with phase("qwen.preprocess"):
+            pixels, grid = image_inputs(self.processor, frames)
+            segments = [
+                segment(self.tokenizer, self.sp, g, mu, self.cfg.marker)
+                for g, mu in zip(grid, metas)
+            ]
+            ids = [t for sigma in segments for t in sigma]
+            r = [n - 1 for n in accumulate(len(sigma) for sigma in segments)]
+            pos = positions(self.backbone, ids, grid, self.sp)
+        qwen_batch([len(ids)], len(frames))
+        h = self.hidden(ids, pixels, grid, pos, None)
         return self.head(h[r])
 
+    @measured("phi.prepare")
     def prepare(self, clips: list[Clip]) -> list[tuple[list[np.ndarray], list[str]]]:
         """(1)-(2): RGB frames and meta strings, once per clip."""
         return [clip_states(clip, self.cfg, self.sprite) for clip in clips]
@@ -162,9 +173,14 @@ class Phi(torch.nn.Module):
             self.cfg.marker,
         )
         device = self.head[0].weight.device
-        with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
+        with phase("qwen.transfer"):
+            inputs = {name: value.to(device) for name, value in inputs.items()}
+        with (
+            phase("qwen.forward"),
+            torch.autocast(device_type=device.type, dtype=torch.bfloat16),
+        ):
             h = self.backbone(
-                **{name: value.to(device) for name, value in inputs.items()},
+                **inputs,
                 use_cache=False,
                 past_key_values=None,
             ).last_hidden_state

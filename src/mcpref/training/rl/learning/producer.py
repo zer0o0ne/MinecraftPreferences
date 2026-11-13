@@ -10,6 +10,7 @@ from mcpref.diagnostics.core.stats import distribution
 from mcpref.diagnostics.core.types import ProducerContext, metric_record
 from mcpref.diagnostics.producers.policy import on_ppo_observation, on_shift_observation
 from mcpref.diagnostics.producers.update import on_update_observation
+from mcpref.infrastructure.profiling.scopes import measured
 from mcpref.infrastructure.shards.store import name
 from mcpref.training.optim import iter_update_terms
 
@@ -76,6 +77,7 @@ def _stage_shift(items, cfg, diagnostics, context):
     return on_shift_observation(observation, cfg=diagnostics.cfg, context=context)
 
 
+@measured("diagnostics.gradients")
 def capture_gradients(groups) -> dict:
     return {
         groups.parameter_names[id(parameter)]: parameter.grad.detach().clone()
@@ -144,6 +146,7 @@ def register(
     diagnostics.recover("rl")
 
 
+@measured("diagnostics.record")
 def stage(
     diagnostics: DiagnosticRun,
     cfg,
@@ -213,6 +216,7 @@ def stage(
         )
 
 
+@measured("diagnostics.publish")
 def accept(diagnostics: DiagnosticRun, cfg, cycle: int, start: int, t: int) -> None:
     diagnostics.recover("rl")
     event = start + t

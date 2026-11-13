@@ -6,6 +6,7 @@ import torch
 from torch import Tensor
 
 from mcpref.datasets.clips.io import Clip
+from mcpref.infrastructure.profiling.scopes import measured, phase
 
 Pairs = list[tuple[int, int, dict]]
 """R(B): per labeled item in order, i_a, i_b and its labels."""
@@ -25,6 +26,7 @@ def component_sums(terms: dict[str, Tensor]) -> dict[str, Tensor]:
     return {key: value.detach().sum() for key, value in terms.items() if key != "total"}
 
 
+@measured("micro.forward")
 def micro_loss(
     modules: dict[str, torch.nn.Module],
     clips: list[Clip],
@@ -40,9 +42,10 @@ def micro_loss(
     phi_loss = (
         modules["phi_loss"].compiled_terms if compiled else modules["phi_loss"].terms
     )
-    phi_terms, phi_diagnostics = phi_loss(Z, clips, states)
-    pi_out = modules["pi"](Z, clips)
-    pi_terms, valid, policy_diagnostics = modules["pi_loss"].terms(pi_out, Z, clips)
+    with phase("heads_losses"):
+        phi_terms, phi_diagnostics = phi_loss(Z, clips, states)
+        pi_out = modules["pi"](Z, clips)
+        pi_terms, valid, policy_diagnostics = modules["pi_loss"].terms(pi_out, Z, clips)
     q = policy_diagnostics["q"]
     current = policy_diagnostics["current"]
     zero_shift = policy_diagnostics["zero_shift"]
@@ -60,19 +63,26 @@ def micro_loss(
         "P": None,
     }
     preference = None
-    if pairs:
-        i_a, i_b, labels = (list(x) for x in zip(*pairs))
-        preference_loss = (
-            modules["P_loss"].compiled_terms if compiled else modules["P_loss"].terms
-        )
-        preference_out = modules["P"](Z[i_a], Z[i_b])
-        preference_terms = preference_loss(preference_out, labels)
-        l_P = preference_terms["total"]
-        loss = loss + r_factor * l_P.sum()
-        weighted["P"] = r_factor * l_P.sum()
-        sums[2] = l_P.detach().sum()
-        components["P"] = component_sums(preference_terms)
-        preference = (preference_out[0].detach(), preference_out[1].detach(), labels)
+    with phase("preference_loss"):
+        if pairs:
+            i_a, i_b, labels = (list(x) for x in zip(*pairs))
+            preference_loss = (
+                modules["P_loss"].compiled_terms
+                if compiled
+                else modules["P_loss"].terms
+            )
+            preference_out = modules["P"](Z[i_a], Z[i_b])
+            preference_terms = preference_loss(preference_out, labels)
+            l_P = preference_terms["total"]
+            loss = loss + r_factor * l_P.sum()
+            weighted["P"] = r_factor * l_P.sum()
+            sums[2] = l_P.detach().sum()
+            components["P"] = component_sums(preference_terms)
+            preference = (
+                preference_out[0].detach(),
+                preference_out[1].detach(),
+                labels,
+            )
     policy = (
         pi_out[0].detach(),
         q,

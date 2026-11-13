@@ -6,6 +6,7 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
+from mcpref.infrastructure.profiling.scopes import measured
 from mcpref.training.groups import Groups
 from mcpref.training.optim import iter_update_terms
 from mcpref.training.pretrain.config import PretrainConfig
@@ -24,6 +25,7 @@ def norm_activity(parameters: list[torch.nn.Parameter]) -> dict:
     return {"norm": math.sqrt(squared) if active else None, "active": active}
 
 
+@measured("diagnostics.gradients")
 def gradient_stats(
     groups: Groups, grad_clip: float, *, preference: torch.nn.Module | None
 ) -> dict:
@@ -69,6 +71,7 @@ def update_result(squared: dict) -> dict:
     return {"groups": result}
 
 
+@measured("diagnostics.updates")
 def update_stats(
     cfg: PretrainConfig,
     optimizer: torch.optim.AdamW,

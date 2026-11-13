@@ -8,6 +8,7 @@ import torch
 from torch import Tensor
 
 from mcpref.config import REPO
+from mcpref.infrastructure.profiling.scopes import measured
 from mcpref.models.perception.config import PerceptionConfig
 from mcpref.models.perception.meta import meta_text
 from mcpref.models.perception.phi import Phi
@@ -32,6 +33,7 @@ def encode_raw(
     return latent_history(raw, torch.cat(latents, dim=0), states, action_count)
 
 
+@measured("phi.prepare")
 def raw_segments(raw: RawHistory, perception: PerceptionConfig, states: int) -> list:
     """Keep stream restart boundaries and each segment's own meta origin."""
     boundaries = [0]
@@ -76,6 +78,7 @@ def encode_ref(
     return encode_raw(phi, perception, raw, states, action_count)
 
 
+@measured("data.history_read")
 def read_ref(ref: StateRef, sampling: SamplingConfig, states: int) -> RawHistory:
     match = re.fullmatch(re.escape(sampling.out_dir) + r"#([0-9]{6,})", ref.episode)
     if match is None:

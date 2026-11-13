@@ -1,7 +1,7 @@
 """Original pretrain losses, ordinary observations and selected component work."""
 
 from collections.abc import Callable
-from contextlib import nullcontext
+from contextlib import closing, nullcontext
 from pathlib import Path
 
 import torch
@@ -15,6 +15,7 @@ from mcpref.diagnostics.pretrain.observation import (
     raw_policy_observation,
     step_observation,
 )
+from mcpref.infrastructure.profiling.scopes import phase
 from mcpref.training.groups import Groups
 from mcpref.training.pretrain.config import PretrainConfig
 from mcpref.training.pretrain.gradients.work import collect_micro
@@ -133,55 +134,62 @@ def gradient_steps(
         for j in range(0, len(items), micro_batch)
     ]
     batches = (paths for paths, _ in runs)
-    for micro_index, ((paths, pairs), clips) in enumerate(
-        zip(runs, prefetch_clips(read, batches))
-    ):
-        # Compiled MLP backward may consume buffers needed by repeated gradients.
-        with (
-            torch.compiler.set_stance("force_eager")
-            if selected is not None
-            else nullcontext()
-        ):
-            loss, result = micro_loss(
-                modules, clips, pairs, factors, compile_tensors=selected is None
-            )
-            if selected is None:
-                loss.backward()
-            else:
-                groups, directory, progress = selected
-                loss.backward(retain_graph=True)
-                work_records.append(
-                    collect_micro(
-                        result.weighted, modules, groups, directory, micro_index
+    with closing(prefetch_clips(read, batches)) as prefetched:
+        for micro_index, (paths, pairs) in enumerate(runs):
+            with phase("data.input_wait"):
+                clips = next(prefetched)
+            # Compiled MLP backward may consume buffers needed by repeated gradients.
+            with (
+                torch.compiler.set_stance("force_eager")
+                if selected is not None
+                else nullcontext()
+            ):
+                loss, result = micro_loss(
+                    modules, clips, pairs, factors, compile_tensors=selected is None
+                )
+                if selected is None:
+                    with phase("backward"):
+                        loss.backward()
+                else:
+                    groups, directory, progress = selected
+                    with phase("backward"):
+                        loss.backward(retain_graph=True)
+                    work_records.append(
+                        collect_micro(
+                            result.weighted, modules, groups, directory, micro_index
+                        )
+                    )
+                    if progress is not None:
+                        progress.update()
+                        progress.refresh()
+            with phase("diagnostics.observations"):
+                policy, state_rows = policy_observation(
+                    result.policy, cfg.calibration_bins, cfg.action_copy_eps
+                )
+                micro.append(
+                    MicroObservations(
+                        preference_observation(result.preference, deferred=True),
+                        policy,
+                        phi_observation(result.phi),
+                        state_rows,
+                        raw_policy_observation(
+                            result.policy,
+                            clips,
+                            getattr(modules["pi_loss"], "masks", None),
+                        ),
                     )
                 )
-                if progress is not None:
-                    progress.update()
-                    progress.refresh()
-        policy, state_rows = policy_observation(
-            result.policy, cfg.calibration_bins, cfg.action_copy_eps
+                scalar_rows.append(logging_row(result, loss))
+                p_present.append(result.components["P"] is not None)
+                sum_p += sum(pair[2]["p"] for pair in pairs if pair[2]["inc"] == 0)
+                n_k, n_r = n_k + len(paths), n_r + len(pairs)
+            del clips, loss, result
+    with phase("diagnostics.reduce"):
+        totals, component_totals, dual_lambda = finish_scalars(
+            scalar_rows, p_present, modules["phi_loss"].log_lambda.exp().detach()
         )
-        micro.append(
-            MicroObservations(
-                preference_observation(result.preference, deferred=True),
-                policy,
-                phi_observation(result.phi),
-                state_rows,
-                raw_policy_observation(
-                    result.policy, clips, getattr(modules["pi_loss"], "masks", None)
-                ),
-            )
-        )
-        scalar_rows.append(logging_row(result, loss))
-        p_present.append(result.components["P"] is not None)
-        sum_p += sum(pair[2]["p"] for pair in pairs if pair[2]["inc"] == 0)
-        n_k, n_r = n_k + len(paths), n_r + len(pairs)
-        del clips, loss, result
-    totals, component_totals, dual_lambda = finish_scalars(
-        scalar_rows, p_present, modules["phi_loss"].log_lambda.exp().detach()
-    )
-    phi, pi, P, loss = totals
-    observations = step_observation(micro, n_k)
+        phi, pi, P, loss = totals
+        observations = step_observation(micro, n_k)
     logged = {
         "phi": phi / n_k,
         "pi": pi / n_k,

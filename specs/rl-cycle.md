@@ -2,6 +2,10 @@
 Status: approved (2026-11-07); 2026-11-07: cross-cycle AdamW state, wrapper continuation and reward-only encoding, approved; 2026-11-10: optional frozen-$\phi$ retraining with fixed PPO advantages, approved
 Stage: block 13 of `specs/00-overview.md` — R1–R5 orchestration and the one joint training loop of $\phi,P,\pi$
 
+Execution profiling is controlled by `configs/training/profile.yaml` (`enabled: true`
+currently), with a `MCPREF_PROFILE` override, without changing training fingerprints
+or checkpoint state; see [Training profiling](../docs/training-profiling.md).
+
 ## Sources
 - [U] the user, 2026-11-10: add full resumable `retrain` support. After joint training and before R5, freeze $\phi$ and METRA's dual, precompute every PPO advantage with the joint $\phi,P$, then retrain $\pi,P$ on the same index and fixed labels/advantages for the same number of epochs. Continue the existing joint AdamW and its moments without a new optimizer; reset only the phase-local LR/schedule. The next cycle loads the final retrained model and final retrain checkpoint's joint optimizer state.
 - [U] the user, 2026-11-03: R2's METRA, R3's fixed-label preference fine-tuning, R4's PPO and factual-shift regression form one joint training loop, analogous to pretraining. All three networks train together; current $\phi,P$ recompute PPO advantages on every optimizer step, and gradients of the policy and preference losses flow into $\phi$.

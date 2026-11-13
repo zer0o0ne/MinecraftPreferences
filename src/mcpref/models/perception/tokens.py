@@ -14,6 +14,8 @@ from transformers import (
     Qwen3_5Model,
 )
 
+from mcpref.infrastructure.profiling.scopes import measured, qwen_batch
+
 
 @dataclass(frozen=True)
 class Specials:
@@ -79,6 +81,7 @@ def positions(
     )[0]
 
 
+@measured("qwen.preprocess")
 def batch_inputs(
     backbone: Qwen3_5Model,
     tokenizer: PreTrainedTokenizerBase,
@@ -98,6 +101,7 @@ def batch_inputs(
         grids.append(grid)
         pos.append(positions(backbone, sequence, grid, sp))
         readouts.append([n - 1 for n in accumulate(map(len, segments))])
+    qwen_batch([len(row) for row in ids], sum(len(frames) for frames, _ in states))
     lengths = torch.tensor([len(row) for row in ids])
     padded = torch.nn.utils.rnn.pad_sequence(
         ids, batch_first=True, padding_value=sp.end

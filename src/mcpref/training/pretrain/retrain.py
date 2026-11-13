@@ -8,6 +8,8 @@ from tqdm import tqdm
 
 from mcpref.config import REPO
 from mcpref.datasets.vpt.plan import generator
+from mcpref.infrastructure.profiling.runtime import TrainingProfile
+from mcpref.infrastructure.profiling.scopes import phase
 from mcpref.infrastructure.runs.files import write_json
 from mcpref.infrastructure.shards.store import complete_shards
 from mcpref.training.checkpoints import prune, restore_rng, write_model
@@ -72,13 +74,16 @@ def retrain(cfg: PretrainConfig, modules: dict, data: Part) -> None:
     fit = load_global_fit(root) if data.r_tot else None
     windows = accumulator(cfg, fit)
     visit, t, losses, j = None, position["step"], [], h
-    with tqdm(
-        total=data.total,
-        initial=t,
-        desc="pretrain retrain",
-        unit="step",
-        file=sys.stderr,
-    ) as bar:
+    with (
+        TrainingProfile(cfg, root, modules, "pretrain-retrain") as profile,
+        tqdm(
+            total=data.total,
+            initial=t,
+            desc="pretrain retrain",
+            unit="step",
+            file=sys.stderr,
+        ) as bar,
+    ):
         for at, shard, positions in remaining(
             generator([cfg.seed, 3], position["schedule_rng"]),
             data.sizes,
@@ -86,30 +91,33 @@ def retrain(cfg: PretrainConfig, modules: dict, data: Part) -> None:
             position,
             cfg.epochs,
         ):
-            if visit != (at["epoch"], shard):
-                visit, items = (at["epoch"], shard), read_items(cfg, shard)
-            t += 1
-            batch = [items[i] for i in positions]
-            entry, observations = step(
-                cfg, modules, optimizer, groups, data, batch, t, fit
-            )
-            losses.append(entry)
-            windows.add(entry, observations)
-            if t % cfg.checkpoint_steps == 0 or t == data.total:
-                write_checkpoint(
-                    directory,
-                    j,
-                    {"step": t} | at,
-                    modules,
-                    optimizer,
-                    torch.device(cfg.device),
-                    losses,
-                    windows.drain(final=t == data.total),
-                    [],
+            with profile.step(t + 1, len(positions)):
+                with phase("data.index_read"):
+                    if visit != (at["epoch"], shard):
+                        visit, items = (at["epoch"], shard), read_items(cfg, shard)
+                t += 1
+                batch = [items[i] for i in positions]
+                entry, observations = step(
+                    cfg, modules, optimizer, groups, data, batch, t, fit
                 )
-                prune(directory, j, cfg.keep_checkpoints)
-                j, losses = j + 1, []
-            bar.set_postfix({key: entry[key] for key in ("phi", "pi", "P", "loss")})
-            bar.update()
+                losses.append(entry)
+                with phase("diagnostics.window"):
+                    windows.add(entry, observations)
+                if t % cfg.checkpoint_steps == 0 or t == data.total:
+                    write_checkpoint(
+                        directory,
+                        j,
+                        {"step": t} | at,
+                        modules,
+                        optimizer,
+                        torch.device(cfg.device),
+                        losses,
+                        windows.drain(final=t == data.total),
+                        [],
+                    )
+                    prune(directory, j, cfg.keep_checkpoints)
+                    j, losses = j + 1, []
+                bar.set_postfix({key: entry[key] for key in ("phi", "pi", "P", "loss")})
+                bar.update()
     write_model(root / "model.pt", modules)
     write_json(marker, {"complete": True, "steps": data.total})

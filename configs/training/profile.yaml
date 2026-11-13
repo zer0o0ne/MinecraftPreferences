@@ -1,0 +1,6 @@
+# Loaded by default by pretrain/RL; set enabled: false to disable profiling.
+# Counts optimizer steps executed in this invocation, separately for each stage.
+enabled: true
+skip_steps: 2
+steps: 1
+top_ops: 30

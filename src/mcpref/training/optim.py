@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
+from mcpref.infrastructure.profiling.scopes import measured, phase
 from mcpref.training.groups import Groups
 from mcpref.training.pretrain.config import PretrainConfig
 
@@ -48,6 +49,7 @@ def adamw(cfg: PretrainConfig, groups: Groups) -> torch.optim.AdamW:
     return optimizer
 
 
+@measured("optimizer")
 def update(
     cfg: PretrainConfig,
     optimizer: torch.optim.AdamW,
@@ -57,13 +59,15 @@ def update(
 ) -> dict:
     """(4)-(6) of step t: clipping over G, eta_{q,t} set, AdamW step; {q: eta_{q,t}}."""
     params = [p for g in optimizer.param_groups for p in g["params"]]
-    torch.nn.utils.clip_grad_norm_(
-        params, max_norm=cfg.grad_clip, norm_type=2.0, error_if_nonfinite=False
-    )
+    with phase("optimizer.clip_grad"):
+        torch.nn.utils.clip_grad_norm_(
+            params, max_norm=cfg.grad_clip, norm_type=2.0, error_if_nonfinite=False
+        )
     f, lr = lr_factor(t, total, cfg.warmup_steps, cfg.lr_floor), {}
     for g, q in zip(optimizer.param_groups, groups):
         g["lr"] = lr[q] = cfg.groups[q]["lr"] * f
-    optimizer.step()
+    with phase("optimizer.adamw"):
+        optimizer.step()
     return lr
 
 

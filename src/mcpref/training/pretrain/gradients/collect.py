@@ -6,6 +6,7 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
+from mcpref.infrastructure.profiling.scopes import measured
 from mcpref.infrastructure.runs.files import json_bytes
 from mcpref.infrastructure.shards.store import name, write_shard
 from mcpref.training.checkpoints import Modules
@@ -140,6 +141,7 @@ def collect_gradients(
                 add_counts(counts[x][component][group], nonfinite(value))
 
 
+@measured("diagnostics.component_gradients")
 def collect_micro(
     weighted: dict[str, Tensor | None],
     modules: Modules,

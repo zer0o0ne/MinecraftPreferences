@@ -4,6 +4,7 @@ from pathlib import Path
 
 import torch
 
+from mcpref.infrastructure.profiling.scopes import measured
 from mcpref.infrastructure.runs.files import json_bytes
 from mcpref.infrastructure.shards.store import shard_path, write_shard
 from mcpref.training.checkpoints import cpu_states, restore_rng
@@ -12,6 +13,7 @@ CHECKPOINT, LOSSES = "checkpoint.pt", "losses.json"
 STATEFUL = ("phi", "pi", "P", "metra")
 
 
+@measured("checkpoint")
 def write_checkpoint(
     directory: Path,
     j: int,

@@ -11,6 +11,7 @@ from tqdm import tqdm
 from mcpref.diagnostics.core.types import ReferencePair
 from mcpref.diagnostics.preference.suites import PreferenceRows, pool_preferences
 from mcpref.diagnostics.pretrain.diagnostics import GlobalFit
+from mcpref.infrastructure.profiling.scopes import measured
 from mcpref.training.checkpoints import Modules, cpu_states
 from mcpref.training.pretrain.config import PretrainConfig
 from mcpref.training.pretrain.references.metrics import (
@@ -158,6 +159,7 @@ def evaluate_initial_event(
     return initial, metrics, pairs, observations
 
 
+@measured("diagnostics.reference")
 def evaluate_reference_event(
     cfg: PretrainConfig,
     modules: Modules,

@@ -10,6 +10,8 @@ from tqdm import tqdm
 from mcpref.config import REPO
 from mcpref.datasets.clips.collect import load_config as load_perception_data_config
 from mcpref.datasets.vpt.plan import generator
+from mcpref.infrastructure.profiling.runtime import TrainingProfile
+from mcpref.infrastructure.profiling.scopes import phase
 from mcpref.infrastructure.runs.files import write_json
 from mcpref.infrastructure.shards.store import complete_shards
 from mcpref.models.perception.config import load_config as load_perception_config
@@ -172,9 +174,12 @@ def retrain(
     mcts = load_mcts_config(REPO / sampling.mcts)
     weight = modules["phi"].head[0].weight
     alpha = torch.tensor(perception.alpha, dtype=weight.dtype, device=weight.device)
-    with tqdm(
-        total=total, initial=t, desc="rl retrain", unit="step", file=sys.stderr
-    ) as bar:
+    with (
+        TrainingProfile(cfg, root, modules, "rl-retrain") as profile,
+        tqdm(
+            total=total, initial=t, desc="rl retrain", unit="step", file=sys.stderr
+        ) as bar,
+    ):
         for at, shard, positions in remaining(
             generator([cfg.seed, 3], position["schedule_rng"]),
             sizes,
@@ -182,52 +187,54 @@ def retrain(
             position,
             cfg.epochs,
         ):
-            if visit != (at["epoch"], shard):
-                shard_items = read_json_shard(
-                    index_dir / "shards", shard, "items.json"
-                )["items"]
-                advantages = fixed_advantages(root, shard)
-                visit = at["epoch"], shard
-            t += 1
-            items = [shard_items[i] for i in positions]
-            optimizer.zero_grad(set_to_none=True)
-            entry = step_gradients(
-                items,
-                modules,
-                sampling=sampling,
-                perception=perception,
-                states=states,
-                alpha=alpha,
-                ppo=ppo,
-                discount=mcts.discount,
-                min_p=mcts.min_p,
-                m=run["batches"],
-                n_a=counts["ppo"],
-                n_delta=counts["fresh"],
-                r_c=counts["preference"],
-                w_ppo=cfg.w_ppo,
-                w_delta=cfg.w_delta,
-                w_metra=cfg.w_metra,
-                w_P=cfg.w_P,
-                micro_batch=cfg.micro_batch,
-                fixed_advantages=advantages,
-            )
-            lr = update(cfg, optimizer, groups, t, total)
-            optimizer.zero_grad(set_to_none=True)
-            losses.append({"step": t} | entry | {"lr": lr})
-            if t % cfg.checkpoint_steps == 0 or t == total:
-                write_checkpoint(
-                    directory,
-                    j,
-                    {"step": t} | at,
-                    stateful,
-                    optimizer,
-                    torch.device(cfg.device),
-                    losses,
+            with profile.step(t + 1, len(positions)):
+                with phase("data.index_read"):
+                    if visit != (at["epoch"], shard):
+                        shard_items = read_json_shard(
+                            index_dir / "shards", shard, "items.json"
+                        )["items"]
+                        advantages = fixed_advantages(root, shard)
+                        visit = at["epoch"], shard
+                t += 1
+                items = [shard_items[i] for i in positions]
+                optimizer.zero_grad(set_to_none=True)
+                entry = step_gradients(
+                    items,
+                    modules,
+                    sampling=sampling,
+                    perception=perception,
+                    states=states,
+                    alpha=alpha,
+                    ppo=ppo,
+                    discount=mcts.discount,
+                    min_p=mcts.min_p,
+                    m=run["batches"],
+                    n_a=counts["ppo"],
+                    n_delta=counts["fresh"],
+                    r_c=counts["preference"],
+                    w_ppo=cfg.w_ppo,
+                    w_delta=cfg.w_delta,
+                    w_metra=cfg.w_metra,
+                    w_P=cfg.w_P,
+                    micro_batch=cfg.micro_batch,
+                    fixed_advantages=advantages,
                 )
-                prune(directory, j, cfg.keep_checkpoints)
-                j, losses = j + 1, []
-            bar.set_postfix({key: entry[key] for key in (*ROLES, "loss")})
-            bar.update()
+                lr = update(cfg, optimizer, groups, t, total)
+                optimizer.zero_grad(set_to_none=True)
+                losses.append({"step": t} | entry | {"lr": lr})
+                if t % cfg.checkpoint_steps == 0 or t == total:
+                    write_checkpoint(
+                        directory,
+                        j,
+                        {"step": t} | at,
+                        stateful,
+                        optimizer,
+                        torch.device(cfg.device),
+                        losses,
+                    )
+                    prune(directory, j, cfg.keep_checkpoints)
+                    j, losses = j + 1, []
+                bar.set_postfix({key: entry[key] for key in (*ROLES, "loss")})
+                bar.update()
     write_model(root / "model.pt", stateful)
     write_json(marker, {"complete": True, "steps": total})
