@@ -181,13 +181,8 @@ def read_yaml(path: Path) -> object:
     return _read_yaml(path, ())
 
 
-def _read_yaml(path: Path, parents: tuple[Path, ...]) -> object:
-    if path in parents:
-        chain = " -> ".join(str(item) for item in (*parents, path))
-        raise ValueError(f"config extends cycle: {chain}")
-    raw = yaml.safe_load(path.read_text())
-    if not isinstance(raw, dict):
-        return raw
+def resolve_config(raw: dict, path: Path, parents: tuple[Path, ...] = ()) -> dict:
+    """Resolve inheritance of a YAML mapping already read from disk."""
     extends = _string_list(raw, "extends", path)
     remove = _string_list(raw, "remove", path)
     result = {}
@@ -201,6 +196,14 @@ def _read_yaml(path: Path, parents: tuple[Path, ...]) -> object:
         _remove(result, dotted, path)
     own = {key: value for key, value in raw.items() if key not in {"extends", "remove"}}
     return _merge(result, own)
+
+
+def _read_yaml(path: Path, parents: tuple[Path, ...]) -> object:
+    if path in parents:
+        chain = " -> ".join(str(item) for item in (*parents, path))
+        raise ValueError(f"config extends cycle: {chain}")
+    raw = yaml.safe_load(path.read_text())
+    return resolve_config(raw, path, parents) if isinstance(raw, dict) else raw
 
 
 def config_sha256(path: Path) -> str:

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from mcpref.config import REPO
+from mcpref.config import REPO, resolve_config
 from mcpref.datasets.clips.io import Clip, read_clip
 from mcpref.datasets.graphs.components import components
 from mcpref.infrastructure.progress import shard_bar
@@ -37,7 +37,8 @@ class Part:
 def part(cfg: PretrainConfig, run: dict) -> Part:
     """Notation: |I_s| from N and B_X, M, K_tot = N_U + 2 N_R, R_tot = N_R, T = E M."""
     n_u, n_r = run["counts"]["train"]["clips"], run["counts"]["train"]["pairs"]
-    b_x, n = run["config"]["items_per_shard"], n_u + n_r
+    stored = resolve_config(run["config"], REPO / cfg.index_dir / "run.json")
+    b_x, n = stored["items_per_shard"], n_u + n_r
     s = -(-n // b_x)
     sizes = [b_x] * (s - 1) + [n - (s - 1) * b_x]
     m = n_batches(sizes, cfg.batch)

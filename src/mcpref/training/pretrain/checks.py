@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from mcpref.config import REPO, config_sha256
+from mcpref.config import REPO, config_sha256, resolve_config
 from mcpref.gui.mask import load_config as load_mask_config
 from mcpref.infrastructure.progress import shard_bar
 from mcpref.infrastructure.runs.files import (
@@ -45,7 +45,7 @@ def given(cfg: PretrainConfig, run: dict, modules: Modules) -> Modules:
 def check_inputs(cfg: PretrainConfig, run: dict) -> None:
     """(R) 5: C (and Q_c) complete; the fingerprints of C, Q_c, Q_l (bar `pretrain
     inputs`) equal those of {X}/run.json."""
-    c = run["config"]
+    c = resolve_config(run["config"], REPO / cfg.index_dir / "run.json")
     paired = c["pair_clips_dir"] is not None
     clips = [c["clips_dir"], *([c["pair_clips_dir"]] if paired else [])]
     fields = [clip_fields(finished_run(REPO / d, d, "clips")) for d in clips]

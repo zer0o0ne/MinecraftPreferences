@@ -127,3 +127,26 @@ def test_chained_pairs_one_group(make_site):
         }
         assert len({where[key(i)] for i in [U[2], *R]}) == 1
         assert where[key(U[0])] == where[key(U[1])]
+
+
+def test_pretrain_resolves_inherited_shard_size_from_stored_config(make_site):
+    """The raw run.json keeps extends, while its consumer gets the inherited B_X."""
+    from types import SimpleNamespace
+
+    import yaml
+
+    from mcpref.training.pretrain.data.items import part
+    from training.pretrain.data.index_run import repo_root
+
+    site = make_site(write=False, validation="0", items_per_shard=4)
+    size = site.config.pop("items_per_shard")
+    site.config["extends"] = ["base.yaml"]
+    site.repo.mkdir()
+    (site.repo / "base.yaml").write_text(yaml.safe_dump({"items_per_shard": size}))
+    site.write()
+    assert site.run().code == 0
+    run = json.loads((site.out / "run.json").read_text())
+    assert "items_per_shard" not in run["config"]
+    with repo_root(site.repo):
+        cfg = SimpleNamespace(batch=2, epochs=1, index_dir="w/index")
+        assert part(cfg, run).sizes == [4, 3]
