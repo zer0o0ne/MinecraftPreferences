@@ -2,6 +2,16 @@
 Status: approved (2026-11-07); 2026-11-05: complete diagnostic signatures and shared `global-fit.json` initialization/resume lifecycle, approved; 2026-11-05: required keyword-only `PretrainConfig` in `step_gradients`, approved; 2026-11-06: required ordered `Groups` in `reduce_work`, approved; 2026-11-07: legacy/new fixed-reference pair layouts and block 33 outbox handoff, approved for drafting
 Stage: revision of block 7 of `specs/00-overview.md` — diagnostics of the existing pretraining loop; no change to its training mathematics
 
+## Gradient diagnostics control
+
+`PretrainConfig.gradient_diagnostics` is a required YAML boolean, set to `false` in the shared `configs/training/optimizer.yaml`. With `true`, the gradient/update statistics and selected-step instrumentation below remain available. With `false`:
+
+- Every optimizer step uses ordinary backward without diagnostic graph retention, component-gradient extraction, update reconstruction or counterfactual gradient-flow evaluation. There is no gradient-flow schedule replay or creation of `gradient-flow/` and checkpoint `gradient_flow/` artifacts.
+- Per-step `gradients` and `updates`, and their window aggregates, are JSON null. Disabled measurements are never reported as zero activity. Losses, learning rates, output/component statistics, global baselines, fixed-reference evaluations and their outbox/checkpoint lifecycle remain enabled.
+- Joint and frozen-perception training preserve their loss, clipping, AdamW, schedule and RNG semantics. After an update and any enabled gradient/update diagnostic reads, optimizer-owned gradients are set to `None` before checkpoint writing and reference evaluation.
+
+These rules qualify all gradient/update schemas and selected-step requirements below. Existing saved artifacts remain readable; changing this field follows ordinary configuration fingerprint rules and does not migrate an existing run. CPU acceptance tests compare enabled/disabled weights, Adam state, RNG and retained metrics, forbid costly diagnostic calls when disabled, and exercise checkpoint publication followed by resume.
+
 ## Sources
 - [U] the user, 2026-11-07: approve `specs/rl-diagnostics.md` block 33 re-clarification. Existing reference runs without shard-0 `pairs.json` remain metrics-only without backfill; new runs store typed pairs in every reference shard. Producer outboxes allow crash recovery from accepted checkpoints/reference shards without another model pass.
 - [U] the user, 2026-11-05: approve the full diagnostic block: low-overhead per-step and 100-step logging plus fixed-reference diagnostics every 500 steps with 64 train and 64 validation pairs and `joint` / `P_only` / `phi_only` / `initial` evaluation. Do not run another full training job for diagnosis.

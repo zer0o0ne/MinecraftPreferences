@@ -94,6 +94,9 @@ def start_reference(
 
 
 def start_gradient_flow(cfg: PretrainConfig, run: dict, data: Part) -> dict:
+    if not cfg.gradient_diagnostics:
+        print("pretrain gradient flow: disabled", file=sys.stderr)
+        return {"version": 1, "middle_target": max(1, data.total // 2), "steps": []}
     root = gradient_dir(cfg)
     shutil.rmtree(root / "work", ignore_errors=True)
     selection = select_gradient_steps(cfg, run, data)

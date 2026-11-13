@@ -31,6 +31,7 @@ BASE = {
     "retrain": False,
     "batch": 2,
     "micro_batch": 1,
+    "gradient_diagnostics": True,
     "items_per_shard": 3,
     "checkpoint_steps": 1,
     "keep_checkpoints": 2,

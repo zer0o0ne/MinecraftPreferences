@@ -23,7 +23,7 @@ PATHS = [
     "preference",
     "diagnostics",
 ]
-NAMES = [*PATHS, "seed", "epochs", "retrain", "batch", "micro_batch", "diagnostic_window",
+NAMES = [*PATHS, "seed", "epochs", "retrain", "batch", "micro_batch", "gradient_diagnostics", "diagnostic_window",
          "reference_steps", "reference_pairs", "calibration_bins", "saturation_threshold",
          "inc_classification_threshold", "quantiles", "action_copy_eps", "latent_init_scale",
          "checkpoint_steps", "keep_checkpoints", "warmup_steps", "w_phi", "w_pi", "w_P", "grad_clip",
@@ -41,6 +41,7 @@ VALID = {  # YAML lines of a valid config
     "retrain": "false",
     "batch": "3",
     "micro_batch": "2",
+    "gradient_diagnostics": "false",
     "diagnostic_window": "1",
     "reference_steps": "1",
     "reference_pairs": "1",
@@ -83,6 +84,7 @@ def test_reads_every_field(tmp_path):
     assert fields[fields.index("perception") :][:5] == PATHS[2:]
     assert (cfg.index_dir, cfg.out_dir) == ("./x/index", "o/p/")
     assert cfg.diagnostics == "c/diagnostics.yaml"
+    assert cfg.gradient_diagnostics is False
     assert (cfg.perception, cfg.action_mask, cfg.policy, cfg.preference) == (
         "c/perception.yaml", "./c/action-mask.yaml", "c/sub/policy.yaml", "preference.yaml"
     )  # fmt: skip
@@ -148,6 +150,8 @@ BAD = {
     "retrain missing": {"retrain": None},
     "retrain integer": {"retrain": "1"},
     "retrain string": {"retrain": '"true"'},
+    "gradient diagnostics integer": {"gradient_diagnostics": "1"},
+    "gradient diagnostics string": {"gradient_diagnostics": '"false"'},
     "index_dir empty": {"index_dir": '""'},
     "index_dir absolute": {"index_dir": "/abs/x"},
     "index_dir with ..": {"index_dir": "x/../y"},
@@ -319,6 +323,7 @@ def test_starting_values_from_test_owned_config(tmp_path):
         "policy": "configs/models/policy.yaml", "preference": "configs/models/preference.yaml",
         "diagnostics": "configs/diagnostics.yaml", "seed": 0,
         "epochs": 1, "retrain": False, "batch": 32, "micro_batch": 1,
+        "gradient_diagnostics": False,
         "diagnostic_window": 100, "reference_steps": 500, "reference_pairs": 64,
         "calibration_bins": 10, "saturation_threshold": 0.01,
         "inc_classification_threshold": 0.5, "quantiles": [0.05, 0.5, 0.95],

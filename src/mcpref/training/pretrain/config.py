@@ -43,6 +43,7 @@ class PretrainConfig:
     retrain: bool
     batch: int
     micro_batch: int
+    gradient_diagnostics: bool
     diagnostic_window: int
     reference_steps: int
     reference_pairs: int
@@ -103,6 +104,9 @@ def load_config(path: Path) -> PretrainConfig:
         raise ValueError("latent_init_scale must be finite")
     read |= {"seed": integer("seed", raw["seed"], 0, 2**32 - 1)}
     read |= {"retrain": boolean("retrain", raw["retrain"])}
+    read["gradient_diagnostics"] = boolean(
+        "gradient_diagnostics", raw["gradient_diagnostics"]
+    )
     read |= {"warmup_steps": integer("warmup_steps", raw["warmup_steps"], 0, math.inf)}
     lr_floor = number("lr_floor", raw["lr_floor"])
     if not 0 <= lr_floor <= 1:

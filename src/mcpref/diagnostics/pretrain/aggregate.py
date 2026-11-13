@@ -118,7 +118,10 @@ class WindowAccumulator:
         )
         return result
 
-    def gradients(self, records: list[dict]) -> dict:
+    def gradients(self, records: list[dict]) -> dict | None:
+        records = [record for record in records if record["gradients"] is not None]
+        if not records:
+            return None
         global_norm, active_steps = self.mean(records, ("gradients", "global", "norm"))
         global_clip = self.mean(records, ("gradients", "global", "clip_coefficient"))[0]
         groups = {}
@@ -142,7 +145,10 @@ class WindowAccumulator:
             "P_heads": heads,
         }
 
-    def updates(self, records: list[dict]) -> dict:
+    def updates(self, records: list[dict]) -> dict | None:
+        records = [record for record in records if record["updates"] is not None]
+        if not records:
+            return None
         groups = {}
         for group in records[0]["updates"]["groups"]:
             base = ("updates", "groups", group)

@@ -81,6 +81,7 @@ CONFIG = {
     "retrain": False,
     "batch": 2,
     "micro_batch": 1,
+    "gradient_diagnostics": True,
     "diagnostic_window": 1,
     "reference_steps": 60,
     "reference_pairs": 1,

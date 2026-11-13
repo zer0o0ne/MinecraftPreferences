@@ -213,6 +213,7 @@ def retrain(
                 fixed_advantages=advantages,
             )
             lr = update(cfg, optimizer, groups, t, total)
+            optimizer.zero_grad(set_to_none=True)
             losses.append({"step": t} | entry | {"lr": lr})
             if t % cfg.checkpoint_steps == 0 or t == total:
                 write_checkpoint(

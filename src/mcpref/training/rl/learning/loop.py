@@ -172,7 +172,7 @@ def train(
                 micro_batch=cfg.micro_batch,
                 observations=observations,
             )
-            gradients = capture_gradients(groups)
+            gradients = capture_gradients(groups) if cfg.gradient_diagnostics else None
             lr = update(cfg, optimizer, groups, t, total)
             stage(
                 diagnostics,
@@ -188,6 +188,8 @@ def train(
                 lr,
                 entry,
             )
+            del gradients
+            optimizer.zero_grad(set_to_none=True)
             losses.append({"step": t} | entry | {"lr": lr})
             if t % cfg.checkpoint_steps == 0 or t == total:
                 write_checkpoint(

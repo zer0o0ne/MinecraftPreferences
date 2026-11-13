@@ -59,6 +59,8 @@ def test_starting_configs_resolve_to_their_previous_values():
     assert list(rl["groups"]).index("metra_dual") < list(rl["groups"]).index("pi")
     assert pretrain["betas"] == rl["betas"] == [0.9, 0.999]
     assert pretrain["retrain"] is True and rl["retrain"] is True
+    assert pretrain["gradient_diagnostics"] is False
+    assert rl["gradient_diagnostics"] is False
     assert pretrain["w_P"] == rl["w_P"] == 1.0
     pretrain_raw = yaml.safe_load(
         (config.REPO / "configs/training/pretrain/config.yaml").read_text()

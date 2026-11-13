@@ -107,6 +107,7 @@ def selected_step(
             updates, alignment = update_and_align(
                 cfg, optimizer, groups, lr, work, reduce_bar
             )
+            optimizer.zero_grad(set_to_none=True)
             shutil.rmtree(work)
             work.parent.rmdir()
             only_phi, joint = post_step_pairs(

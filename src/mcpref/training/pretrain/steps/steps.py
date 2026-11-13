@@ -60,7 +60,7 @@ def steps(
             visit, items = (at["epoch"], s), read_items(cfg, s)
         t += 1
         batch = [items[i] for i in positions]
-        if t in selected:
+        if cfg.gradient_diagnostics and t in selected:
             index, chosen = selected[t]
             entry, observations, record = selected_step(
                 cfg,
@@ -111,10 +111,11 @@ def steps(
             )
             prune(directory, j, cfg.keep_checkpoints)
             pending = []
-            write_json(
-                gradient_dir(cfg) / "summary.json",
-                summarize(accepted_records(cfg), cfg.quantiles),
-            )
+            if cfg.gradient_diagnostics:
+                write_json(
+                    gradient_dir(cfg) / "summary.json",
+                    summarize(accepted_records(cfg), cfg.quantiles),
+                )
             if fit is not None:
                 for loss in losses:
                     accept_step(diagnostics, loss["step"], remove=False, index=False)

@@ -6,7 +6,8 @@ import torch
 
 from mcpref.diagnostics.core.observations import UpdateObservations
 from mcpref.diagnostics.core.runtime import DiagnosticRun
-from mcpref.diagnostics.core.types import ProducerContext
+from mcpref.diagnostics.core.stats import distribution
+from mcpref.diagnostics.core.types import ProducerContext, metric_record
 from mcpref.diagnostics.producers.policy import on_ppo_observation, on_shift_observation
 from mcpref.diagnostics.producers.update import on_update_observation
 from mcpref.infrastructure.shards.store import name
@@ -151,7 +152,7 @@ def stage(
     t: int,
     j: int,
     observations: dict,
-    gradients: dict,
+    gradients: dict | None,
     groups,
     optimizer,
     lr: dict,
@@ -172,12 +173,37 @@ def stage(
             _context(cfg, cycle, t, "shift", source, observations["shift_clusters"]),
         ),
     ]
-    update = _update_observation(cfg, observations, gradients, groups, optimizer, lr, t)
-    actions = update.supported_actions.numel()
+    actions = observations["action_count"]
     context = _context(
         cfg, cycle, t, "update", source, [f"action:{a}" for a in range(actions)]
     )
-    update_record = on_update_observation(update, cfg=diagnostics.cfg, context=context)
+    if cfg.gradient_diagnostics:
+        update = _update_observation(
+            cfg, observations, gradients, groups, optimizer, lr, t
+        )
+        update_record = on_update_observation(
+            update, cfg=diagnostics.cfg, context=context
+        )
+    else:
+        logits = (
+            torch.cat(observations["logits"]).to(torch.float64)
+            if observations["logits"]
+            else torch.empty(0, actions, dtype=torch.float64)
+        )
+        update_record = metric_record(
+            "rl",
+            f"{context.producer}:{t}",
+            context,
+            {
+                "update.learning_rate": next(iter(lr.values())),
+                "update.schedule_position": t,
+                "update.logit_norm": distribution(
+                    torch.linalg.vector_norm(logits, ord=2, dim=-1).cpu().numpy(),
+                    diagnostics.cfg,
+                ),
+            },
+            {"update.logit_norm": list(context.cluster_ids)},
+        )
     update_record["joined"]["outputs"] = entry
     records.append(update_record)
     event = start + t

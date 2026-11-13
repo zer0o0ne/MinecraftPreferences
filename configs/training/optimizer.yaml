@@ -3,6 +3,7 @@ seed: 0
 epochs: 1
 batch: 16
 micro_batch: 1
+gradient_diagnostics: false
 checkpoint_steps: 100
 keep_checkpoints: 2
 groups:

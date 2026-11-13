@@ -1,4 +1,4 @@
-"""Notation: the validated 23-field configs/training/rl/cycle.yaml mapping."""
+"""Notation: the validated configs/training/rl/cycle.yaml mapping."""
 
 import math
 from dataclasses import dataclass
@@ -43,6 +43,7 @@ class RLCycleConfig:
     retrain: bool
     batch: int
     micro_batch: int
+    gradient_diagnostics: bool
     items_per_shard: int
     checkpoint_steps: int
     keep_checkpoints: int
@@ -69,6 +70,9 @@ def load_config(path: Path) -> RLCycleConfig:
     read |= {
         "seed": integer("seed", raw["seed"], 0, 2**32 - 1),
         "retrain": boolean("retrain", raw["retrain"]),
+        "gradient_diagnostics": boolean(
+            "gradient_diagnostics", raw["gradient_diagnostics"]
+        ),
         "warmup_steps": integer("warmup_steps", raw["warmup_steps"], 0, math.inf),
         "betas": betas(raw["betas"]),
         "groups": groups(raw["groups"]),

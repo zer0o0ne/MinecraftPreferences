@@ -30,6 +30,7 @@ def test_field_order_types_and_frozen(tmp_path):
     assert cfg.seed == 2**32 - 1 and type(cfg.seed) is int
     assert cfg.betas == (0.0, 0.5) and all(type(x) is float for x in cfg.betas)
     assert cfg.lr_floor == 0
+    assert cfg.gradient_diagnostics is True
     assert torch.device(cfg.device) == torch.device("cpu")
     assert list(cfg.groups) == list(GROUPS)
     assert all(
@@ -63,6 +64,8 @@ BAD = {
     "seed string": {"seed": "1"},
     "retrain integer": {"retrain": 1},
     "retrain string": {"retrain": "true"},
+    "gradient diagnostics integer": {"gradient_diagnostics": 1},
+    "gradient diagnostics string": {"gradient_diagnostics": "false"},
     **{
         f"{key} {raw}": {key: raw}
         for key in POSITIVE

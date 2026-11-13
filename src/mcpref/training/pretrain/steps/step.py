@@ -26,9 +26,9 @@ def step_record(
     fit: GlobalFit | None,
     logged: dict,
     observations: StepObservations,
-    gradients: dict,
+    gradients: dict | None,
     lr: dict,
-    updates: dict,
+    updates: dict | None,
 ) -> dict:
     """Assemble the exact step schema from detached observations and update statistics."""
     suite = preference_suite(
@@ -99,9 +99,16 @@ def step(
     )
     logged["step"] = t
     observations = logged["observations"]
-    gradients = gradient_stats(groups, cfg.grad_clip, preference=modules.get("P"))
+    gradients = (
+        gradient_stats(groups, cfg.grad_clip, preference=modules.get("P"))
+        if cfg.gradient_diagnostics
+        else None
+    )
     lr = update(cfg, optimizer, groups, t, data.total)
-    updates = update_stats(cfg, optimizer, groups, lr)
+    updates = (
+        update_stats(cfg, optimizer, groups, lr) if cfg.gradient_diagnostics else None
+    )
+    optimizer.zero_grad(set_to_none=True)
     return (
         step_record(cfg, fit, logged, observations, gradients, lr, updates),
         observations,
