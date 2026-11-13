@@ -10,6 +10,7 @@ import io
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 import yaml
@@ -37,14 +38,21 @@ PREFERENCE = preference_cfg(history=2, width=4, heads=2, hidden=6)  # L_P = 2 <=
 
 
 class PhiFloat32(PhiStart):
-    """The fake phi giving Z in float32, the dtype of the modules `main` builds."""
+    """Seeded FP32 head; forward follows the dtype selected by the agent factory."""
 
     def __init__(self):
         super().__init__()
         self.head = torch.nn.Sequential(torch.nn.Linear(2, 2, dtype=torch.float32))
 
     def forward(self, clips: list, states=None) -> torch.Tensor:
-        return super().forward(clips, states).float()
+        x = (
+            torch.tensor(np.stack([c.frames[:, :4] for c in clips]), dtype=self.A.dtype)
+            / 255
+        )
+        z = x @ self.A.T + self.c
+        if self.noise:
+            z = z * (1 + 0.1 * torch.rand(len(clips), 1, 1, dtype=self.A.dtype))
+        return z + self.e1 + self.e2 + self.e3 + self.e4
 
     def groups(self) -> dict:
         groups = super().groups()

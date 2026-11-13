@@ -134,7 +134,8 @@ def collect_gradients(
                 value = gradient.detach().to("cpu", copy=True)
                 torch.save(value, staged / "tensors" / f"{identifier}.pt")
                 norms[x][group][component] += (
-                    torch.linalg.vector_norm(value, ord=2).item() ** 2
+                    torch.linalg.vector_norm(value, ord=2, dtype=torch.float64).item()
+                    ** 2
                 )
                 add_counts(counts[x][component][group], nonfinite(value))
 

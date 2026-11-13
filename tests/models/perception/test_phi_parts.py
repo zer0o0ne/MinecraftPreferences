@@ -179,7 +179,7 @@ def test_build_phi(tmp_path, monkeypatch):
     monkeypatch.setattr(AutoTokenizer, "from_pretrained", fake(tokenizer()))
     phi = build_phi(cfg)
     rev = cfg.revision
-    want_b = (("tiny/model",), {"revision": rev, "dtype": torch.float32, "attn_implementation": "sdpa"})  # fmt: skip
+    want_b = (("tiny/model",), {"revision": rev, "dtype": torch.bfloat16, "attn_implementation": "sdpa"})  # fmt: skip
     want_t = (("tiny/model",), {"revision": rev})
     assert sorted(calls, key=lambda c: len(c[1])) == [want_t, want_b]
     assert isinstance(phi, Phi) and phi.backbone is b

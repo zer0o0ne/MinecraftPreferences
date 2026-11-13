@@ -44,7 +44,7 @@ def load_vector(
     counts: dict | None = None,
 ) -> Tensor:
     total = None
-    shape, dtype = None, None
+    shape = None
     for index, manifest in enumerate(manifests):
         for identifier, entry in manifest.items():
             if (entry["x"], entry["component"], entry["parameter"]) != (
@@ -53,7 +53,7 @@ def load_vector(
                 parameter,
             ):
                 continue
-            shape, dtype = entry["shape"], getattr(torch, entry["dtype"])
+            shape = entry["shape"]
             if entry["zero"]:
                 continue
             value = torch.load(
@@ -61,19 +61,20 @@ def load_vector(
                 map_location="cpu",
                 weights_only=True,
             )
-            total = value.clone() if total is None else total + value
+            value = value.to(torch.float64)
+            total = value if total is None else total + value
             if counts is not None:
                 add_counts(counts[x][component][entry["group"]], nonfinite(value))
             if progress is not None:
                 progress.update()
                 progress.refresh()
     if total is None:
-        total = torch.zeros(shape, dtype=dtype)
+        total = torch.zeros(shape, dtype=torch.float64)
     return total
 
 
 def squared(value: Tensor) -> float:
-    return torch.linalg.vector_norm(value, ord=2).item() ** 2
+    return torch.linalg.vector_norm(value.to(torch.float64), ord=2).item() ** 2
 
 
 def dot(a: Tensor, b: Tensor) -> float:

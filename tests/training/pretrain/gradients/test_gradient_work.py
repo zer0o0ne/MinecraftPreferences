@@ -37,8 +37,13 @@ def test_micro_loss_weighted_scalars_preserve_original_bitwise():
     assert result.weighted["P"] is None
 
 
-def test_collect_micro_exact_contributions_manifest_zero_and_original_state(tmp_path):
+@pytest.mark.parametrize("dtype", [torch.float64, torch.bfloat16])
+def test_collect_micro_exact_contributions_manifest_zero_and_original_state(
+    tmp_path, dtype
+):
     mods, groups = modules()
+    for module in mods.values():
+        module.to(dtype)
     before = {
         f"{name}.{key}": parameter.detach().clone()
         for name, module in mods.items()

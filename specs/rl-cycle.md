@@ -16,6 +16,11 @@ Stage: block 13 of `specs/00-overview.md` — R1–R5 orchestration and the one 
 - `specs/pretrain.md` (approved): the mixed-item schedule, micro-batch accumulation, global normalisation, parameter groups, clipping and checkpoint protocol to reuse where applicable. `specs/ppo.md` (approved): per-action losses and eligibility, including METRA. `specs/rl-preference-pairs.md` (approved): the fixed preference dataset and deferred persistent-memory publication. `specs/perception.md` (approved): stream rebuilding after $\phi$ changes and the shared raw-frame encoder.
 - [N] numpy 1.26.4, source at tag `v1.26.4`: `numpy/random/_generator.pyx:4668-4798` (`shuffle`: descending Fisher–Yates exchanges with `random_interval`; the ndarray fast path and the ndarray-subclass/generic path make the same draws and exchanges), `:4800-4869` (`permutation(n)` = `arange(n)` followed by `shuffle`). A one-dimensional int64 `numpy.memmap` takes the generic path and therefore produces exactly `Generator(PCG64(seed)).permutation(n, axis=0)` when shuffled with `axis=0`.
 
+## Precision
+The RL composition root also converts the separately constructed `MetraLoss` dual to bfloat16.
+
+Fresh runs use full BF16 parameter storage: all model and dual parameters, accumulated gradients, and AdamW `exp_avg`/`exp_avg_sq` tensors are bfloat16, with no FP32 master weights. Adam step counters retain the library FP32 dtype. Seeded initialization/scaling precedes conversion; internal Qwen stability operations and detached diagnostic reductions may use higher precision. This applies to joint training and frozen-perception retraining. New checkpoints preserve BF16 and resume in the same precision; conversion of legacy runs is outside this change.
+
 ## Notation
 - $c$ — one RL cycle and its trajectory shard index; $N$ — `steps` of `configs/runtime/sampling.yaml`; $H$ — PPO's horizon; $\tau_c$ — the fresh trajectory, continuous with the previous one; $\mathcal M_{c-1}$ — the incoming persistent History.
 - $U^-=cN$ — the number of real actions before R1; $U=U^-+N$ — the number after R1. Fresh actions are $t\in[U^-,U)$ and R3 receives states $t\in[U^-,U]$.

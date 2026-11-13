@@ -172,7 +172,7 @@ def build_phi(cfg: PerceptionConfig) -> Phi:
     backbone = Qwen3_5Model.from_pretrained(
         cfg.model,
         revision=cfg.revision,
-        dtype=torch.float32,
+        dtype=torch.bfloat16,
         attn_implementation="sdpa",
     )
     tokenizer = AutoTokenizer.from_pretrained(cfg.model, revision=cfg.revision)

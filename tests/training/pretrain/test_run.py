@@ -118,7 +118,7 @@ def test_modules_with_pairs(tmp_path, masks, built):
     for k, net in fresh.items():
         state, want = mods[k].state_dict(), net.state_dict()
         assert list(state) == list(want) and all(
-            torch.equal(state[n], want[n]) for n in want
+            torch.equal(state[n], want[n].to(torch.bfloat16)) for n in want
         )
     assert mods["pi"].head.out_features == len(masks.names)
 
@@ -151,6 +151,7 @@ def test_modules_moved_to_the_device(tmp_path, masks, built):
     for name, module in mods.items():
         params = list(module.parameters())
         assert all(p.device == torch.device("meta") for p in params), name
+        assert all(p.dtype == torch.bfloat16 for p in params), name
 
 
 def test_latent_init_scale_is_required(tmp_path, masks):
@@ -222,4 +223,6 @@ def test_latent_init_exact_rows_other_state_identity_and_rng(
         assert {n: id(p) for n, p in mods[name].named_parameters()} == identities[name]
         state, expected = mods[name].state_dict(), oracle.state_dict()
         assert list(state) == list(expected)
-        assert all(torch.equal(state[n], expected[n]) for n in expected), name
+        assert all(
+            torch.equal(state[n], expected[n].to(torch.bfloat16)) for n in expected
+        ), name

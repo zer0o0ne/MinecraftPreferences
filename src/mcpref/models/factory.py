@@ -64,18 +64,26 @@ def build_modules(
     latent_init_scale: float,
 ) -> dict[str, torch.nn.Module]:
     """(13): phi, phi_loss, pi, pi_loss (with pairs P, P_loss), in module order, each
-    moved to `device`."""
+    moved to `device` with BF16 parameters after seeded initialization/scaling."""
     D, target = len(perception.alpha), torch.device(device)
     phi = build_phi(perception)
     pi = Policy(policy, D, masks.names)
     _scale_linear(phi.head[-1], perception.alpha, latent_init_scale)
     _scale_linear(pi.dynamics.w2, perception.alpha, latent_init_scale)
-    modules = {"phi": phi.to(target)}
-    modules["phi_loss"] = PhiLoss(perception).to(target)
-    modules["pi"] = pi.to(target)
+    modules = {"phi": phi, "phi_loss": PhiLoss(perception), "pi": pi}
     metric = latent_metric(perception)
-    modules["pi_loss"] = PolicyLoss(policy, masks, metric).to(target)
+    modules["pi_loss"] = PolicyLoss(policy, masks, metric)
     if paired:
-        modules["P"] = Preference(preference, D).to(target)
-        modules["P_loss"] = PreferenceLoss().to(target)
-    return modules
+        modules["P"] = Preference(preference, D)
+        modules["P_loss"] = PreferenceLoss()
+    return {name: _bf16_parameters(module, target) for name, module in modules.items()}
+
+
+def _bf16_parameters(module: torch.nn.Module, device: torch.device) -> torch.nn.Module:
+    """Keep nontrainable buffers, including Qwen's FP32 RoPE constants, exact."""
+    buffers = dict(module.named_buffers())
+    module.to(device=device, dtype=torch.bfloat16)
+    for name, buffer in buffers.items():
+        parent, _, field = name.rpartition(".")
+        setattr(module.get_submodule(parent), field, buffer.to(device=device))
+    return module

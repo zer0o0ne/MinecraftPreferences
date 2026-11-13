@@ -3,13 +3,15 @@
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 
 from diagnostics.core.world import config, context
 from mcpref.diagnostics.producers.mcts import on_step_record
 
 
-def test_step_record_quantised_hits_full_probabilities_and_mask():
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_step_record_quantised_hits_full_probabilities_and_mask(dtype):
     root = {
         "z": torch.zeros(2),
         "children": [
@@ -20,8 +22,8 @@ def test_step_record_quantised_hits_full_probabilities_and_mask():
     record = SimpleNamespace(
         index=7,
         tree={"root": root},
-        probabilities=torch.tensor([0.75, 0.25]),
-        policy_probabilities=torch.tensor([0.6, 0.4]),
+        probabilities=torch.tensor([0.75, 0.25], dtype=dtype),
+        policy_probabilities=torch.tensor([0.75, 0.25], dtype=dtype),
         action=0,
         delta=torch.tensor([0.04, 0.0]),
         predicted=torch.tensor([0.04, 0.0]),
@@ -43,7 +45,7 @@ def test_step_record_quantised_hits_full_probabilities_and_mask():
     assert metrics["mcts.top1_policy_agreement"]["value"] == 1.0
     assert metrics["mcts.rank_prior"]["mean"] == 1.0
     assert abs(metrics["mcts.policy_support_mass"]["mean"] - 1.0) < 1e-6
-    assert abs(metrics["mask.probability"]["mean"] - 0.4) < 1e-6
+    assert metrics["mask.probability"]["mean"] == 0.25
     assert metrics["mask.executed_violation"]["value"] == 0.0
 
 

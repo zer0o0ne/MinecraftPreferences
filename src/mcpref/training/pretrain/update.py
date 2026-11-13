@@ -13,7 +13,8 @@ from mcpref.training.pretrain.gradients.work import dot, load_vector, work_manif
 
 
 def squared_norm(value: Tensor) -> float:
-    return torch.linalg.vector_norm(value, ord=2).item() ** 2
+    dtype = torch.promote_types(value.dtype, torch.float32)
+    return torch.linalg.vector_norm(value, ord=2, dtype=dtype).item() ** 2
 
 
 def norm_activity(parameters: list[torch.nn.Parameter]) -> dict:

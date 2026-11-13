@@ -41,9 +41,13 @@ def on_step_record(
     """(11), (13)-(14), (16): no simulations or fresh model evaluation."""
     root = record.tree["root"]
     children = root["children"]
-    visits = record.probabilities.detach().cpu().numpy().astype(np.float64)
+    visits = record.probabilities.detach().to(device="cpu", dtype=torch.float64).numpy()
     try:
-        policy = record.policy_probabilities.detach().cpu().numpy().astype(np.float64)
+        policy = (
+            record.policy_probabilities.detach()
+            .to(device="cpu", dtype=torch.float64)
+            .numpy()
+        )
     except RuntimeError as error:
         if "unavailable" not in str(error):
             raise

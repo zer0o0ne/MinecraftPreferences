@@ -97,7 +97,12 @@ def _update_observation(cfg, observations, gradients, groups, optimizer, lr, t):
     }
     norm = math.sqrt(
         sum(
-            float(torch.linalg.vector_norm(value, ord=2)) ** 2
+            float(
+                torch.linalg.vector_norm(
+                    value, ord=2, dtype=torch.promote_types(value.dtype, torch.float32)
+                )
+            )
+            ** 2
             for value in gradients.values()
         )
     )

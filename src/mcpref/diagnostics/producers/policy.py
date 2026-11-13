@@ -16,7 +16,7 @@ from mcpref.diagnostics.core.types import ProducerContext, metric_record
 
 
 def _array(value: torch.Tensor) -> np.ndarray:
-    return value.detach().cpu().numpy().astype(np.float64)
+    return value.detach().to(device="cpu", dtype=torch.float64).numpy()
 
 
 def _entropy(rows: np.ndarray) -> np.ndarray:

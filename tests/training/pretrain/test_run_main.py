@@ -60,7 +60,9 @@ def test_modules_given_to_the_loop(tmp_path, repo):
         POLICY, masks.names, (1.0, 2.0), cfg.latent_init_scale
     ).state_dict()
     got = modules["pi"].state_dict()
-    assert list(got) == list(want) and all(torch.equal(got[k], want[k]) for k in want)
+    assert list(got) == list(want) and all(
+        torch.equal(got[k], want[k].to(torch.bfloat16)) for k in want
+    )
 
 
 @pytest.mark.parametrize(

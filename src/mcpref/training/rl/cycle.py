@@ -72,7 +72,7 @@ def build_rl_modules(cfg: RLCycleConfig, sampling, ppo) -> dict[str, torch.nn.Mo
         pretrain.latent_init_scale,
     )
     modules = {name: built[name] for name in ("phi", "pi", "P", "P_loss")}
-    modules["metra"] = MetraLoss(ppo).to(torch.device(cfg.device))
+    modules["metra"] = MetraLoss(ppo).to(device=cfg.device, dtype=torch.bfloat16)
     return modules
 
 

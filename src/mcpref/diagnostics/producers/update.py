@@ -11,7 +11,8 @@ from mcpref.diagnostics.core.types import ProducerContext, metric_record
 
 
 def _norm(value: torch.Tensor) -> float:
-    return float(torch.linalg.vector_norm(value.detach(), ord=2).cpu())
+    dtype = torch.promote_types(value.dtype, torch.float32)
+    return float(torch.linalg.vector_norm(value.detach(), ord=2, dtype=dtype).cpu())
 
 
 def _scalar(value: float | None, cfg: DiagnosticsConfig, reason: str | None = None):
@@ -66,14 +67,16 @@ def on_update_observation(
     metrics["update.clip_coefficient"] = _scalar(observation.clip_coefficient, cfg)
     metrics["update.learning_rate"] = _scalar(observation.learning_rate, cfg)
     metrics["update.schedule_position"] = observation.schedule_position
-    logits = observation.logits.detach()
+    logits = observation.logits.detach().to(torch.float64)
     logit_norm = torch.linalg.vector_norm(logits, ord=2, dim=-1).cpu().numpy()
     metrics["update.logit_norm"] = distribution(logit_norm, cfg)
     head_gradient = observation.gradients.get("pi.head.weight")
     head_update = observation.updates.get("pi.head.weight")
     if head_gradient is not None:
         rows = (
-            torch.linalg.vector_norm(head_gradient.detach(), ord=2, dim=-1)
+            torch.linalg.vector_norm(
+                head_gradient.detach().to(torch.float64), ord=2, dim=-1
+            )
             .cpu()
             .numpy()
         )
@@ -94,7 +97,11 @@ def on_update_observation(
         metrics["update.unavailable"] = _scalar(None, cfg, "zero_decay_factor")
     else:
         metrics["update.head_update_row_norm"] = distribution(
-            torch.linalg.vector_norm(head_update.detach(), ord=2, dim=-1).cpu().numpy(),
+            torch.linalg.vector_norm(
+                head_update.detach().to(torch.float64), ord=2, dim=-1
+            )
+            .cpu()
+            .numpy(),
             cfg,
         )
     populations = {
