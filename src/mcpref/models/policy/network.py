@@ -102,7 +102,7 @@ class Policy(torch.nn.Module):
     def clip_readout(self, Z: Tensor, C: Tensor) -> Tensor:
         """(7): the last L_pi rows ending at each state, independently per state."""
         L = Z.shape[1]
-        if self.history == L:
+        if self.history >= L:
             return self.readout(Z, C)
         if self.history == 1:
             R = self.readout(Z.flatten(0, 1)[:, None], C.flatten(0, 1)[:, None])

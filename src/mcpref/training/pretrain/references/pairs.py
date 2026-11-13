@@ -2,8 +2,7 @@
 
 import torch
 
-from mcpref.config import REPO
-from mcpref.datasets.clips.io import Clip, read_clip
+from mcpref.datasets.clips.io import Clip
 from mcpref.diagnostics.core.types import ReferencePair
 from mcpref.diagnostics.pretrain.observation import (
     MicroObservations,
@@ -16,13 +15,6 @@ from mcpref.training.pretrain.references.metrics import add_preference, preferen
 from mcpref.training.pretrain.references.reference import ReferenceData
 
 InitialPairs = list[ReferencePair] | tuple[ReferencePair, ...] | None
-
-
-def clip_reader(run: dict):
-    def read(path: str) -> Clip:
-        return read_clip(REPO / path, run["states"], run["width"], run["height"])
-
-    return read
 
 
 def observe_joint(

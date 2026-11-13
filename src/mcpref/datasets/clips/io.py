@@ -30,6 +30,19 @@ def read_clip(path: Path, states: int, width: int, height: int) -> Clip:
     return Clip(frames, width, height, info, lines)
 
 
+def clip_tail(clip: Clip, history: int) -> Clip:
+    """Keep the final states and aligned intervals, retaining absolute tick indices."""
+    start = max(0, len(clip.frames) - history)
+    if start == 0:
+        return clip
+    fields = ("states", "gui", "classes", "pitch", "actions", "n")
+    info = clip.info | {
+        key: clip.info[key][start:] for key in fields if key in clip.info
+    }
+    offset = info["states"][0] - clip.info["states"][0]
+    return Clip(clip.frames[start:], clip.width, clip.height, info, clip.lines[offset:])
+
+
 def _read_paths(read: Callable[[str], Clip], paths: list[str]) -> list[Clip]:
     return [read(path) for path in paths]
 

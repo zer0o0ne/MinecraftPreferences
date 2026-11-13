@@ -26,6 +26,7 @@ def test_starting_values_from_test_owned_config(repo, tmp_path):
         "model": "Qwen/Qwen3.5-2B",
         "revision": "15852e8c16360a2fea060d615a32b45270f8a8fc",
         "fp8_mlp": True,
+        "history": 12,
         "seed": 0, "alpha": tuple(ALPHA), "head_layers": 1, "head_width": 1024,
         "c": 1.0, "beta": 1.0, "dual_init": 30.0, "dual_slack": 1.0e-3, "tau": 1.0,
         "min_pixels": 65536, "max_pixels": 16777216,
@@ -65,6 +66,7 @@ def test_reads_the_tiny_config(tmp_path):
 
 
 ACCEPTED = {  # boundaries inside the domain: field, value
+    "history three": ("history", 3),
     "FP8 enabled": ("fp8_mlp", True),
     "FP8 disabled": ("fp8_mlp", False),
     "seed 0": ("seed", 0),
@@ -90,6 +92,7 @@ def test_accepted_values(tmp_path, name, value):
 POSITIVE_NUMBERS = ["c", "beta", "dual_init", "dual_slack", "rescale_factor",
                     "http_timeout", "retry_delay"]  # fmt: skip
 POSITIVE_INTS = [
+    "history",
     "head_width",
     "min_pixels",
     "max_pixels",
@@ -99,6 +102,8 @@ POSITIVE_INTS = [
 NONNEG_INTS = ["head_layers", "decimals", "http_retries"]
 STRINGS = ["model", "revision", "no_items", "marker", "cursor_url"]
 BAD = {
+    "history one": {"history": 1},
+    "history two": {"history": 2},
     **{f"fp8_mlp {v!r}": {"fp8_mlp": v} for v in (0, 1, "true", None)},
     **{f"{k} 0": {k: 0} for k in POSITIVE_NUMBERS},
     **{f"{k} negative": {k: -0.5} for k in POSITIVE_NUMBERS},

@@ -17,7 +17,7 @@ from transformers import (
 from transformers.image_utils import PILImageResampling
 from transformers.trainer_pt_utils import get_parameter_names
 
-from mcpref.datasets.clips.io import Clip
+from mcpref.datasets.clips.io import Clip, clip_tail
 from mcpref.infrastructure.profiling.scopes import measured, phase, qwen_batch
 from mcpref.models.perception.config import PerceptionConfig
 from mcpref.models.perception.cursor import load_sprite
@@ -156,7 +156,10 @@ class Phi(torch.nn.Module):
     @measured("phi.prepare")
     def prepare(self, clips: list[Clip]) -> list[tuple[list[np.ndarray], list[str]]]:
         """(1)-(2): RGB frames and meta strings, once per clip."""
-        return [clip_states(clip, self.cfg, self.sprite) for clip in clips]
+        return [
+            clip_states(clip_tail(clip, self.cfg.history), self.cfg, self.sprite)
+            for clip in clips
+        ]
 
     def batch_frames_z(
         self, states: list[tuple[list[np.ndarray], list[str]]]

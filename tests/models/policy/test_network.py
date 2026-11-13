@@ -164,7 +164,7 @@ CLIPS = [  # L = 4 over the tiny A: n_{s+1} = 1 or not, the last states
 ]  # fmt: skip
 
 
-@pytest.mark.parametrize("history", [1, 2, 4], ids=lambda x: f"history {x}")
+@pytest.mark.parametrize("history", [1, 2, 4, 7], ids=lambda x: f"history {x}")
 def test_forward_against_composition(history):
     """(7): per-state windows, logits (m, L, |A|), shifts (m, L, D), C and a->."""
     cfg = cfg_of(history=history)

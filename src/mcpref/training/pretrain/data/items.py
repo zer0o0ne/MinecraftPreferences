@@ -10,11 +10,12 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from mcpref.config import REPO, resolve_config
-from mcpref.datasets.clips.io import Clip, read_clip
+from mcpref.datasets.clips.io import Clip, clip_tail, read_clip
 from mcpref.datasets.graphs.components import components
 from mcpref.infrastructure.progress import shard_bar
 from mcpref.infrastructure.runs.files import fingerprint, new_hash, shard_files
 from mcpref.infrastructure.shards.store import complete_shards, shard_path
+from mcpref.models.perception.config import load_config as load_perception_config
 from mcpref.training.pretrain.config import PretrainConfig
 from mcpref.training.schedule import n_batches
 
@@ -43,10 +44,18 @@ def part(cfg: PretrainConfig, run: dict) -> Part:
     sizes = [b_x] * (s - 1) + [n - (s - 1) * b_x]
     m = n_batches(sizes, cfg.batch)
 
-    def read(p: str) -> Clip:
-        return read_clip(REPO / p, run["states"], run["width"], run["height"])
+    return Part(sizes, m, n_u + 2 * n_r, n_r, cfg.epochs * m, clip_reader(cfg, run))
 
-    return Part(sizes, m, n_u + 2 * n_r, n_r, cfg.epochs * m, read)
+
+def clip_reader(cfg: PretrainConfig, run: dict) -> Callable[[str], Clip]:
+    """Read stored clips as aligned perception-history tails for all training paths."""
+    history = load_perception_config(REPO / cfg.perception).history
+
+    def read(path: str) -> Clip:
+        clip = read_clip(REPO / path, run["states"], run["width"], run["height"])
+        return clip_tail(clip, history)
+
+    return read
 
 
 def read_items(cfg: PretrainConfig, s: int) -> list[dict]:

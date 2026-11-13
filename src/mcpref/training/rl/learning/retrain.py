@@ -50,7 +50,10 @@ def prepare_advantages(cfg: RLCycleConfig, modules: dict, index_dir: Path) -> No
     sampling = load_sampling_config(REPO / cfg.sampling)
     pretrain = load_pretrain_config(REPO / sampling.pretrain)
     perception = load_perception_config(REPO / pretrain.perception)
-    states = load_perception_data_config(REPO / sampling.perception_data).states
+    states = min(
+        perception.history,
+        load_perception_data_config(REPO / sampling.perception_data).states,
+    )
     ppo = load_ppo_config(REPO / cfg.ppo)
     mcts = load_mcts_config(REPO / sampling.mcts)
     run = json.loads((index_dir / "run.json").read_text())
@@ -169,7 +172,10 @@ def retrain(
     sampling = load_sampling_config(REPO / cfg.sampling)
     pretrain = load_pretrain_config(REPO / sampling.pretrain)
     perception = load_perception_config(REPO / pretrain.perception)
-    states = load_perception_data_config(REPO / sampling.perception_data).states
+    states = min(
+        perception.history,
+        load_perception_data_config(REPO / sampling.perception_data).states,
+    )
     ppo = load_ppo_config(REPO / cfg.ppo)
     mcts = load_mcts_config(REPO / sampling.mcts)
     weight = modules["phi"].head[0].weight

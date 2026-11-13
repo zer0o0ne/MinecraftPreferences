@@ -5,6 +5,7 @@ written under the temporary repository root of loop_run.py."""
 from pathlib import Path
 
 import yaml
+from models.perception.world import BASE, SPRITE_SHA
 
 MODULE_CONFIGS = {"perception": "w/configs/models/perception.yaml",
                   "action_mask": "w/configs/gui/action-mask.yaml",
@@ -15,12 +16,14 @@ SCREENS = "w/configs/screens.yaml"  # the catalogue named by the action-mask con
 
 
 def write_module_configs(repo: Path) -> None:
-    """The files named by MODULE_CONFIGS and SCREENS, each of its own bytes: `pretrain` only
-    hashes them and reads `screens` of the action-mask config (specs/pretrain.md (R) 6)."""
+    """Test-owned module files, including perception history and the mask catalogue path."""
     for key, written in MODULE_CONFIGS.items():
         (repo / written).parent.mkdir(parents=True, exist_ok=True)
         (repo / written).write_text(f"# {key}\n")
     text = f'screens: "{SCREENS}"\npitch_limit: 90\n'
+    (repo / MODULE_CONFIGS["perception"]).write_text(
+        yaml.safe_dump(BASE | {"cursor": "w/cursor.png", "cursor_sha256": SPRITE_SHA})
+    )
     (repo / MODULE_CONFIGS["action_mask"]).write_text(text)
     (repo / SCREENS).write_text("# screens\n")
     (repo / DIAGNOSTICS).write_text(

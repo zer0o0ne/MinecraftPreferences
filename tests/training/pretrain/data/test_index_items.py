@@ -148,5 +148,10 @@ def test_pretrain_resolves_inherited_shard_size_from_stored_config(make_site):
     run = json.loads((site.out / "run.json").read_text())
     assert "items_per_shard" not in run["config"]
     with repo_root(site.repo):
-        cfg = SimpleNamespace(batch=2, epochs=1, index_dir="w/index")
+        from models.perception.world import write_config
+
+        perception = write_config(site.repo / "model")
+        cfg = SimpleNamespace(
+            batch=2, epochs=1, index_dir="w/index", perception=str(perception)
+        )
         assert part(cfg, run).sizes == [4, 3]

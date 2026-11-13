@@ -56,6 +56,7 @@ STARTING_ALPHA = (
 STARTING = {
     "model": "Qwen/Qwen3.5-2B", "revision": "15852e8c16360a2fea060d615a32b45270f8a8fc",
     "fp8_mlp": True,
+    "history": 12,
     "seed": 0, "alpha": STARTING_ALPHA, "head_layers": 1, "head_width": 1024,
     "c": 1.0, "beta": 1.0, "dual_init": 30.0, "dual_slack": 1.0e-3, "tau": 1.0,
     "min_pixels": 65536, "max_pixels": 16777216, "rescale_factor": 1 / 255,
@@ -75,6 +76,7 @@ BASE = {  # the values of a valid config of the tiny world; `cursor` set by `wri
     "model": "tiny/model",
     "revision": "0123456789abcdef0123456789abcdef01234567",
     "fp8_mlp": False,
+    "history": 12,
     "seed": 7,
     "alpha": [1.0, 2, 0.5, 3],
     "head_layers": 1,

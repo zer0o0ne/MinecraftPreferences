@@ -2,11 +2,10 @@
 
 import torch
 
-from mcpref.config import REPO
-from mcpref.datasets.clips.io import read_clip
 from mcpref.diagnostics.preference.metrics import quantile
 from mcpref.training.checkpoints import Modules
 from mcpref.training.pretrain.config import PretrainConfig
+from mcpref.training.pretrain.data.items import clip_reader
 from mcpref.training.pretrain.references.eval import evaluation_state
 
 
@@ -30,13 +29,6 @@ def preference_total(
     return modules["P_loss"].terms(out, [labels])["total"][0].item()
 
 
-def read_pair(item: dict, run: dict) -> list:
-    return [
-        read_clip(REPO / item[key], run["states"], run["width"], run["height"])
-        for key in ("a", "b")
-    ]
-
-
 def baseline_pairs(
     cfg: PretrainConfig,
     modules: Modules,
@@ -46,9 +38,10 @@ def baseline_pairs(
 ) -> list[float]:
     """(27): pre-update eval-mode preference loss for each raw labelled pair."""
     result = []
+    read = clip_reader(cfg, run)
     with evaluation_state(cfg, modules):
         for item in items:
-            Z = modules["phi"](read_pair(item, run))
+            Z = modules["phi"]([read(item["a"]), read(item["b"])])
             result.append(preference_total(modules, Z, item["labels"]))
             if progress is not None:
                 progress.update()
@@ -66,10 +59,11 @@ def post_step_pairs(
 ) -> tuple[list[float], list[float]]:
     """(27): one updated phi call and frozen/current preference calls per pair."""
     only_phi, joint = [], []
+    read = clip_reader(cfg, run)
     frozen_P.eval()
     with evaluation_state(cfg, modules):
         for item in items:
-            Z = modules["phi"](read_pair(item, run))
+            Z = modules["phi"]([read(item["a"]), read(item["b"])])
             only_phi.append(preference_total(modules, Z, item["labels"], frozen_P))
             joint.append(preference_total(modules, Z, item["labels"]))
             if progress is not None:

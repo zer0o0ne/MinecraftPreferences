@@ -55,9 +55,9 @@ class Sampler:
         preference = load_preference_config(REPO / pretrain.preference)
         perception = load_perception_config(REPO / pretrain.perception)
         data = load_perception_data_config(REPO / cfg.perception_data)
-        self.states = data.states
+        self.states = min(data.states, perception.history)
         check_lengths(
-            self.states, policy, preference, paired=True, index_dir=cfg.perception_data
+            data.states, policy, preference, paired=True, index_dir=cfg.perception_data
         )
         self.mcts = load_mcts_config(REPO / cfg.mcts)
         env_cfg = load_env_config(REPO / cfg.env)

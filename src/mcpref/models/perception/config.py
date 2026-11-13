@@ -18,7 +18,7 @@ from mcpref.config import (
 )
 
 POSITIVE_INTS = ("head_width", "min_pixels", "max_pixels", "cursor_crop")
-POSITIVE_INTS += ("mouse_height",)
+POSITIVE_INTS += ("mouse_height", "history")
 POSITIVE_REALS = ("c", "beta", "dual_init", "dual_slack", "rescale_factor")
 POSITIVE_REALS += ("http_timeout", "retry_delay")
 UNBOUNDED_INTS = ("head_layers", "decimals", "http_retries")
@@ -38,6 +38,7 @@ class PerceptionConfig:
     model: str
     revision: str
     fp8_mlp: bool
+    history: int
     seed: int
     alpha: tuple[float, ...]
     head_layers: int
@@ -130,4 +131,6 @@ def load_config(path: Path) -> PerceptionConfig:
         raise ValueError(
             f"min_pixels {raw['min_pixels']} > max_pixels {raw['max_pixels']}"
         )
+    if read["history"] < 3:
+        raise ValueError("history must be at least 3 states for policy training")
     return PerceptionConfig(**raw | read)

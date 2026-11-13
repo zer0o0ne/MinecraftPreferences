@@ -14,6 +14,7 @@ from mcpref.diagnostics.pretrain.diagnostics import GlobalFit
 from mcpref.infrastructure.profiling.scopes import measured
 from mcpref.training.checkpoints import Modules, cpu_states
 from mcpref.training.pretrain.config import PretrainConfig
+from mcpref.training.pretrain.data.items import clip_reader
 from mcpref.training.pretrain.references.metrics import (
     empty_part,
     finish_part,
@@ -21,7 +22,6 @@ from mcpref.training.pretrain.references.metrics import (
 )
 from mcpref.training.pretrain.references.pairs import (
     InitialPairs,
-    clip_reader,
     evaluate_pair,
 )
 from mcpref.training.pretrain.references.reference import PARTS, ReferenceData
@@ -74,7 +74,7 @@ def evaluate_conditions(
     initial = reference is None
     conditions = CONDITIONS[:1] if initial else CONDITIONS
     parts = {name: empty_part(conditions) for name in PARTS}
-    latents, read, pair_records = [], clip_reader(run), []
+    latents, read, pair_records = [], clip_reader(cfg, run), []
     desc = "pretrain reference initial" if initial else "pretrain reference"
     with evaluation_state(cfg, modules):
         frozen = None

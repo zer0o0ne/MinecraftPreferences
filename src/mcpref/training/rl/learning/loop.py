@@ -129,7 +129,10 @@ def train(
         write_model(index_dir.parent / "model.pt", stateful)
         return optimizer
     perception = load_perception_config(REPO / pretrain.perception)
-    states = load_perception_data_config(REPO / sampling.perception_data).states
+    states = min(
+        perception.history,
+        load_perception_data_config(REPO / sampling.perception_data).states,
+    )
     ppo = load_ppo_config(REPO / cfg.ppo)
     mcts = load_mcts_config(REPO / sampling.mcts)
     weight = modules["phi"].head[0].weight

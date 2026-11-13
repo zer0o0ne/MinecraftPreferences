@@ -8,6 +8,7 @@ import pytest
 import torch
 import transformers.modeling_utils
 
+from mcpref.datasets.clips.io import Clip
 from mcpref.models.perception.phi import Phi
 from models.perception import oracle
 from models.perception.world import (
@@ -51,6 +52,29 @@ def test_forward_eval_mode_and_one_clip(tmp_path):
     Z = phi(cs)
     phi.eval()
     torch.testing.assert_close(phi(cs[1:])[0], Z[1])
+
+
+def test_history_encodes_only_the_suffix_with_its_own_meta_origin(tmp_path):
+    phi = phi64(tmp_path, history=3)
+    clip = random_clip(3, [10, 12, 17, 18, 25], [False, True, False, True, False])
+    tail = Clip(
+        clip.frames[2:],
+        clip.width,
+        clip.height,
+        clip.info | {"states": [17, 18, 25], "gui": [False, True, False]},
+        clip.lines[7:],
+    )
+    actual = phi([clip])[0]
+    expected = oracle.phi_clip(phi, tail, values(tmp_path, history=3))
+    assert actual.shape == (3, 4)
+    torch.testing.assert_close(actual, expected)
+    actual_grads = grads(phi, actual)
+    expected_grads = grads(
+        phi, phi.frames_z(oracle.frames(tail), oracle.metas(tail, values(tmp_path)))
+    )
+    assert actual_grads.keys() == expected_grads.keys()
+    for key in actual_grads:
+        torch.testing.assert_close(actual_grads[key], expected_grads[key])
 
 
 @pytest.mark.parametrize(

@@ -87,7 +87,11 @@ def run_cycle(cfg: RLCycleConfig, path: Path, env: Env) -> Path:
     """Run exactly one selected R1 -> R3 -> joint training -> R5 cycle."""
     sampling = load_sampling_config(REPO / cfg.sampling)
     ppo = load_ppo_config(REPO / cfg.ppo)
-    states = load_perception_data_config(REPO / sampling.perception_data).states
+    pretrain = load_pretrain_config(REPO / sampling.pretrain)
+    history = load_perception_config(REPO / pretrain.perception).history
+    states = min(
+        history, load_perception_data_config(REPO / sampling.perception_data).states
+    )
     with record_cache(REPO / sampling.out_dir, states + ppo.horizon):
         return _run_cycle(cfg, path, env, sampling, ppo, states)
 

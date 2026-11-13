@@ -7,7 +7,7 @@ from threading import Event
 import numpy as np
 import pytest
 
-from mcpref.datasets.clips.io import Clip, prefetch_clips, read_clip
+from mcpref.datasets.clips.io import Clip, clip_tail, prefetch_clips, read_clip
 
 LINES = (  # lines.jsonl: UTF-8, each line with its "\n"; U+2028 and NEL inside strings
     '{"tick": 0, "s": "été"}\n'
@@ -52,6 +52,35 @@ def test_clip_is_a_frozen_dataclass():
     clip = Clip(np.zeros((1, 6), np.uint8), 2, 2, {}, [])
     with pytest.raises(dataclasses.FrozenInstanceError):
         clip.width = 3
+
+
+def test_clip_tail_keeps_final_state_and_aligns_irregular_ticks():
+    frames = np.arange(30, dtype=np.uint8).reshape(5, 6)
+    info = {
+        "id": "episode_10",
+        "states": [10, 12, 17, 18, 25],
+        "gui": [False, True, False, True, False],
+        "classes": [None, "chest", None, "crafting", None],
+        "pitch": [1, 2, 3, 4, 5],
+        "actions": [["a"], ["b"], ["c"], ["d"]],
+        "n": [1, 2, 3, 4],
+    }
+    clip = Clip(frames, 2, 2, info, [{"tick": t} for t in range(10, 26)])
+    tail = clip_tail(clip, 3)
+    np.testing.assert_array_equal(tail.frames, frames[[2, 3, 4]])
+    assert tail.info == {
+        "id": "episode_10",
+        "states": [17, 18, 25],
+        "gui": [False, True, False],
+        "classes": [None, "crafting", None],
+        "pitch": [3, 4, 5],
+        "actions": [["c"], ["d"]],
+        "n": [3, 4],
+    }
+    assert tail.lines == [{"tick": t} for t in range(17, 26)]
+    assert clip.info["states"] == [10, 12, 17, 18, 25]
+    assert len(clip.lines) == 16
+    assert clip_tail(clip, 5) is clip and clip_tail(clip, 8) is clip
 
 
 def test_prefetch_preserves_order_and_never_reads_beyond_next():

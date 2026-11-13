@@ -38,7 +38,7 @@ Fresh runs use full BF16 parameter storage: all model and dual parameters, accum
 - $S$ — index shards; $b$ — `batch`; $b_\mu$ — `micro_batch`; $E$ — `epochs`; $M=\sum_s\lceil |I_s|/b\rceil$; $T=EM$ — optimizer steps of this cycle.
 - $w_{ppo},w_\Delta,w_M,w_P$ — positive loss weights; $\ell^{ppo},\ell^\Delta,\ell^M$ from block 12, $\ell^P$ from block 5.
 - $\phi,P,\pi$ without a cycle superscript are the current, changing modules inside training. All raw state references are re-encoded by the current $\phi$ on each use.
-- $L$ — `states` of `configs/datasets/perception-data.yaml`; $Y_t,C_t$ — the last $L$ latent and preceding-action rows ending at state $t$; $z_t=Y_t[0,-1]$.
+- $L$ — `min(perception.history, perception_data.states)`, shared with the sampler for stream restarts and raw-history reconstruction; $Y_t,C_t$ — the last $L$ latent and preceding-action rows ending at state $t$; $z_t=Y_t[0,-1]$.
 - Config `configs/training/rl/cycle.yaml` → frozen `RLCycleConfig`, fields in order: `sampling`, `ppo`, `rl_pairs`, `out_dir` (non-empty relative paths without `..`); `seed` (`integer` in $[0,2^{32}-1]$); `epochs`, `batch`, `micro_batch`, `items_per_shard`, `checkpoint_steps`, `keep_checkpoints` (`positive_int`); `retrain` (a YAML boolean, following `epochs` in the dataclass); `w_ppo`, `w_delta`, `w_metra`, `w_P`, `adam_eps`, `grad_clip` (`number` > 0); `groups` (the pretrain group mapping); `betas` (two `number`s in $[0,1)$, stored as a tuple); `warmup_steps` (`integer` ≥ 0); `lr_floor` (`number` in $[0,1]$); `device` (`training.devices.device`). Missing/unknown keys and violated constraints raise `ValueError`.
 
 ## Math

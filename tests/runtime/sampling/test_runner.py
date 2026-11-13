@@ -4,10 +4,38 @@ import json
 
 import pytest
 import torch
+import yaml
 
 from mcpref.runtime.mcts.tree import advance as real_advance
 from mcpref.runtime.sampling.runner import Sampler
 from mcpref.runtime.sampling.shards import load_state, load_step
+from runtime.sampling.helpers import modules
+
+
+def test_perception_history_caps_stream_and_rebuild_after_weight_update(site):
+    for relative, field, value in (
+        ("configs/models/perception.yaml", "history", 3),
+        ("configs/datasets/perception-data.yaml", "states", 6),
+    ):
+        path = site.root / relative
+        path.write_text(
+            yaml.safe_dump(yaml.safe_load(path.read_text()) | {field: value})
+        )
+    sampler = Sampler(site.cfg, site.env, site.modules)
+    assert sampler.states == sampler.stream.states == 3
+    assert site.length_checks[-1][0][0] == 6
+    sampler.reset()
+    for _ in range(3):
+        sampler.sample()
+    assert sampler.stream.ids == [6]
+    expected = torch.tensor([4.0, 5.0, 6.0], dtype=torch.float64)
+    torch.testing.assert_close(sampler.history.Y[0, :, 0], expected)
+    updated = modules(fingerprint="updated", offset=10.0)
+    restored = Sampler(site.cfg, site.env, updated)
+    restored.reset()
+    restored._prepare()
+    assert restored.stream.ids == [6]
+    torch.testing.assert_close(restored.history.Y[0, :, 0], expected + 10)
 
 
 def test_explicit_reset_protocol_and_run_file_precedes_env_reset(site):
