@@ -6,6 +6,7 @@ from mcpref.gui.mask import Masks
 from mcpref.models.perception.config import PerceptionConfig
 from mcpref.models.perception.loss import PhiLoss, latent_metric
 from mcpref.models.perception.phi import build_phi
+from mcpref.models.perception.precision import enable_fp8_mlp
 from mcpref.models.policy.config import PolicyConfig
 from mcpref.models.policy.loss import PolicyLoss
 from mcpref.models.policy.network import Policy
@@ -76,7 +77,12 @@ def build_modules(
     if paired:
         modules["P"] = Preference(preference, D)
         modules["P_loss"] = PreferenceLoss()
-    return {name: _bf16_parameters(module, target) for name, module in modules.items()}
+    modules = {
+        name: _bf16_parameters(module, target) for name, module in modules.items()
+    }
+    if perception.fp8_mlp:
+        enable_fp8_mlp(phi.backbone)
+    return modules
 
 
 def _bf16_parameters(module: torch.nn.Module, device: torch.device) -> torch.nn.Module:

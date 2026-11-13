@@ -19,6 +19,8 @@ Stage: block 13 of `specs/00-overview.md` — R1–R5 orchestration and the one 
 ## Precision
 The RL composition root also converts the separately constructed `MetraLoss` dual to bfloat16.
 
+The shared factory also applies perception `fp8_mlp` to Qwen text MLPs in both sampling and RL updates, with the scope and validation limits of `specs/perception.md`, Precision. PPO, factual-shift and METRA heads/losses retain their existing precision; weight-gradient GEMMs and stored training state remain BF16.
+
 Fresh runs use full BF16 parameter storage: all model and dual parameters, accumulated gradients, and AdamW `exp_avg`/`exp_avg_sq` tensors are bfloat16, with no FP32 master weights. Adam step counters retain the library FP32 dtype. Seeded initialization/scaling precedes conversion; internal Qwen stability operations and detached diagnostic reductions may use higher precision. This applies to joint training and frozen-perception retraining. New checkpoints preserve BF16 and resume in the same precision; conversion of legacy runs is outside this change.
 
 ## Notation

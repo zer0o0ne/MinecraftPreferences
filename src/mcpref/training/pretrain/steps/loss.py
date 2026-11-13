@@ -1,6 +1,7 @@
 """Original pretrain losses, ordinary observations and selected component work."""
 
 from collections.abc import Callable
+from contextlib import nullcontext
 from pathlib import Path
 
 import torch
@@ -135,20 +136,28 @@ def gradient_steps(
     for micro_index, ((paths, pairs), clips) in enumerate(
         zip(runs, prefetch_clips(read, batches))
     ):
-        loss, result = micro_loss(
-            modules, clips, pairs, factors, compile_tensors=selected is None
-        )
-        if selected is None:
-            loss.backward()
-        else:
-            groups, directory, progress = selected
-            loss.backward(retain_graph=True)
-            work_records.append(
-                collect_micro(result.weighted, modules, groups, directory, micro_index)
+        # Compiled MLP backward may consume buffers needed by repeated gradients.
+        with (
+            torch.compiler.set_stance("force_eager")
+            if selected is not None
+            else nullcontext()
+        ):
+            loss, result = micro_loss(
+                modules, clips, pairs, factors, compile_tensors=selected is None
             )
-            if progress is not None:
-                progress.update()
-                progress.refresh()
+            if selected is None:
+                loss.backward()
+            else:
+                groups, directory, progress = selected
+                loss.backward(retain_graph=True)
+                work_records.append(
+                    collect_micro(
+                        result.weighted, modules, groups, directory, micro_index
+                    )
+                )
+                if progress is not None:
+                    progress.update()
+                    progress.refresh()
         policy, state_rows = policy_observation(
             result.policy, cfg.calibration_bins, cfg.action_copy_eps
         )

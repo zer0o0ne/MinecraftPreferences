@@ -25,6 +25,7 @@ def test_starting_values_from_test_owned_config(repo, tmp_path):
     assert got == {
         "model": "Qwen/Qwen3.5-2B",
         "revision": "15852e8c16360a2fea060d615a32b45270f8a8fc",
+        "fp8_mlp": True,
         "seed": 0, "alpha": tuple(ALPHA), "head_layers": 1, "head_width": 1024,
         "c": 1.0, "beta": 1.0, "dual_init": 30.0, "dual_slack": 1.0e-3, "tau": 1.0,
         "min_pixels": 65536, "max_pixels": 16777216,
@@ -64,6 +65,8 @@ def test_reads_the_tiny_config(tmp_path):
 
 
 ACCEPTED = {  # boundaries inside the domain: field, value
+    "FP8 enabled": ("fp8_mlp", True),
+    "FP8 disabled": ("fp8_mlp", False),
     "seed 0": ("seed", 0),
     "seed 2^32 - 1": ("seed", 2**32 - 1),
     "head_layers 0": ("head_layers", 0),
@@ -96,6 +99,7 @@ POSITIVE_INTS = [
 NONNEG_INTS = ["head_layers", "decimals", "http_retries"]
 STRINGS = ["model", "revision", "no_items", "marker", "cursor_url"]
 BAD = {
+    **{f"fp8_mlp {v!r}": {"fp8_mlp": v} for v in (0, 1, "true", None)},
     **{f"{k} 0": {k: 0} for k in POSITIVE_NUMBERS},
     **{f"{k} negative": {k: -0.5} for k in POSITIVE_NUMBERS},
     **{f"{k} a string": {k: "1"} for k in POSITIVE_NUMBERS},

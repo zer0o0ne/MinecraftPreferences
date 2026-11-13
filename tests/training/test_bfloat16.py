@@ -16,6 +16,7 @@ from models.perception.world import (
 )
 from models.policy.policy_oracle import cfg_of as policy_config
 from models.preference.preference_oracle import cfg_of as preference_config
+from torchao.float8.float8_linear import Float8Linear
 
 from mcpref.diagnostics.producers.policy import on_ppo_observation, on_shift_observation
 from mcpref.models.factory import build_modules
@@ -25,7 +26,7 @@ from mcpref.runtime.sampling.models import decode_stream, encode_stream
 from mcpref.training.groups import check_groups
 from mcpref.training.optim import adamw, update
 from mcpref.training.pretrain.checkpoints import restore, write_checkpoint
-from mcpref.training.pretrain.steps.loss import step_gradients
+from mcpref.training.pretrain.steps.loss import gradient_steps, step_gradients
 from mcpref.training.rl import cycle
 from mcpref.training.rl.learning import loss as rl_loss
 from training.pretrain.steps.test_loss import CFG
@@ -34,15 +35,23 @@ from training.rl.learning.loss_fakes import ppo_config
 torch.set_num_threads(1)
 
 
-@pytest.fixture
-def setup(tmp_path, masks):
+@pytest.fixture(params=["bf16", "fp8-mlp", "fp8-aot"])
+def setup(tmp_path, masks, request):
     directory = tmp_path / "model"
     original = backbone(torch.float32)
     original.save_pretrained(directory)
     tokenizer().save_pretrained(directory)
-    perception = config(tmp_path, model=str(directory))
+    use_fp8 = request.param != "bf16"
+    perception = config(tmp_path, model=str(directory), fp8_mlp=use_fp8)
     policy, preference = policy_config(history=3), preference_config(history=3)
     modules = build_modules(perception, masks, policy, preference, True, "cpu", 1.0)
+    converted = [
+        m for m in modules["phi"].backbone.modules() if isinstance(m, Float8Linear)
+    ]
+    assert len(converted) == (6 if use_fp8 else 0)
+    if request.param == "fp8-aot":
+        for layer in modules["phi"].backbone.language_model.layers:
+            layer.mlp.compile(backend="aot_eager", fullgraph=True, dynamic=True)
     for name, value in original.named_buffers():
         got = dict(modules["phi"].backbone.named_buffers())[name]
         torch.testing.assert_close(got, value, rtol=0, atol=0)
@@ -107,6 +116,21 @@ def test_pretrain_step_checkpoint_and_stream(setup, tmp_path):
         )
 
     step()
+    opt.zero_grad(set_to_none=True)
+    gradient_steps(
+        items,
+        modules,
+        lambda p: clips[int(p)],
+        1,
+        2,
+        1,
+        0.3,
+        1.0,
+        1.0,
+        1,
+        cfg,
+        (groups, tmp_path / "gradient-work", None),
+    )
     update(cfg, opt, groups, 1, 3)
     assert_training_storage(modules, opt)
     path = tmp_path / "checkpoints"
@@ -171,7 +195,10 @@ def test_rl_builder_and_all_roles(setup, masks, monkeypatch):
         c[..., -1] = 1
         return LatentHistory(z, c)
 
-    monkeypatch.setattr(rl_loss, "encode_ref", encode)
+    monkeypatch.setattr(
+        "mcpref.training.rl.learning.encoding.encode_refs",
+        lambda refs, *args: [encode(ref, *args) for ref in refs],
+    )
     monkeypatch.setattr(
         rl_loss,
         "load_step",

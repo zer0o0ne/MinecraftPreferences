@@ -6,6 +6,7 @@ from pathlib import Path
 
 from mcpref.config import (
     SHA256,
+    boolean,
     config_mapping,
     integer,
     non_empty,
@@ -36,6 +37,7 @@ class PerceptionConfig:
 
     model: str
     revision: str
+    fp8_mlp: bool
     seed: int
     alpha: tuple[float, ...]
     head_layers: int
@@ -115,6 +117,7 @@ def load_config(path: Path) -> PerceptionConfig:
     read |= {k: integer(k, raw[k], 0, math.inf) for k in UNBOUNDED_INTS}
     read |= {
         "seed": integer("seed", raw["seed"], 0, 2**32 - 1),
+        "fp8_mlp": boolean("fp8_mlp", raw["fp8_mlp"]),
         "tau": nonnegative("tau", raw["tau"]),
         "alpha": all_positive("alpha", numbers("alpha", raw["alpha"], None)),
         "image_mean": numbers("image_mean", raw["image_mean"], 3),
