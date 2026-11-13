@@ -77,6 +77,7 @@ def test_micro_loss_prepares_once_and_matches_original_bitwise(tmp_path, monkeyp
         return x @ self.A.T + self.c
 
     phi.frames_z = MethodType(frames_z, phi)
+    phi.batch_frames_z = lambda states: [phi.frames_z(*state) for state in states]
     modules = fakes(noise=False, stateful=False)
     modules["phi"], modules["phi_loss"] = phi, PhiLoss(cfg).to(F64)
     cs, pairs = clips(), [(0, 1, {"p": 1.0, "inc": 0})]

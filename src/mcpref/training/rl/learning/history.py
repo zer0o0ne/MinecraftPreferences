@@ -25,12 +25,21 @@ def encode_raw(
     action_count: int,
 ) -> LatentHistory:
     """Encode independent stream segments and construct the final action-history tail."""
+    latents = [
+        phi.frames_z(frames, metas)
+        for frames, metas in raw_segments(raw, perception, states)
+    ]
+    return latent_history(raw, torch.cat(latents, dim=0), states, action_count)
+
+
+def raw_segments(raw: RawHistory, perception: PerceptionConfig, states: int) -> list:
+    """Keep stream restart boundaries and each segment's own meta origin."""
     boundaries = [0]
     boundaries += [
         i for i in range(1, len(raw.states)) if (raw.restart + i) % states == 0
     ]
     boundaries.append(len(raw.states))
-    latents = []
+    segments = []
     for start, stop in pairwise(boundaries):
         segment = raw.states[start:stop]
         first = segment[0].line
@@ -38,8 +47,14 @@ def encode_raw(
         metas = [
             meta_text(perception, observation.line, first) for observation in segment
         ]
-        latents.append(phi.frames_z(frames, metas))
-    z = torch.cat(latents, dim=0)
+        segments.append((frames, metas))
+    return segments
+
+
+def latent_history(
+    raw: RawHistory, z: Tensor, states: int, action_count: int
+) -> LatentHistory:
+    """Retain the action-aligned tail after joining independent stream segments."""
     tail = raw.actions[-states:]
     Y = z[-states:].unsqueeze(0)
     C = z.new_zeros((1, len(tail), action_count + 1))
@@ -57,11 +72,38 @@ def encode_ref(
     action_count: int,
 ) -> LatentHistory:
     """Validate a per-cycle episode reference and rebuild its full raw context."""
+    raw = read_ref(ref, sampling, states)
+    return encode_raw(phi, perception, raw, states, action_count)
+
+
+def read_ref(ref: StateRef, sampling: SamplingConfig, states: int) -> RawHistory:
     match = re.fullmatch(re.escape(sampling.out_dir) + r"#([0-9]{6,})", ref.episode)
     if match is None:
         raise ValueError(f"invalid sampling episode {ref.episode!r}")
-    raw = read_history(REPO / sampling.out_dir, ref.index, states)
-    return encode_raw(phi, perception, raw, states, action_count)
+    return read_history(REPO / sampling.out_dir, ref.index, states)
+
+
+def encode_refs(
+    refs: Sequence[StateRef],
+    phi: Phi,
+    perception: PerceptionConfig,
+    sampling: SamplingConfig,
+    states: int,
+    action_count: int,
+) -> list[LatentHistory]:
+    """Batch histories across refs, with separate rows for every stream restart."""
+    raws = [read_ref(ref, sampling, states) for ref in refs]
+    segments = [raw_segments(raw, perception, states) for raw in raws]
+    latents = [[] for _ in refs]
+    for part in range(max(map(len, segments))):
+        owners = [i for i, parts in enumerate(segments) if part < len(parts)]
+        encoded = phi.batch_frames_z([segments[i][part] for i in owners])
+        for i, z in zip(owners, encoded):
+            latents[i].append(z)
+    return [
+        latent_history(raw, torch.cat(z, dim=0), states, action_count)
+        for raw, z in zip(raws, latents)
+    ]
 
 
 def eval_encoder(

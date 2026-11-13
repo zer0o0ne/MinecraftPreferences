@@ -38,6 +38,9 @@ class Phi(nn.Module):
         ids = torch.tensor([float(frame[0, 0, 0]) - 1 for frame in frames], dtype=F64)
         return torch.stack((ids + 1, 0.5 * ids - 1), dim=-1) * self.scale
 
+    def batch_frames_z(self, states):
+        return [self.frames_z(*state) for state in states]
+
     def groups(self):
         return {name: [self.scale, *self.head.parameters()] if name == "phi_head" else []
                 for name in ["phi_vision", "phi_vision_no_decay", "phi_llm",
@@ -137,7 +140,10 @@ def install(monkeypatch, events):
         events.append(("encode", ref.index))
         return history(ref.index, phi)
 
-    monkeypatch.setattr("mcpref.training.rl.learning.loss.encode_ref", encoded)
+    monkeypatch.setattr(
+        "mcpref.training.rl.learning.encoding.encode_refs",
+        lambda refs, *args: [encoded(ref, *args) for ref in refs],
+    )
     monkeypatch.setattr("mcpref.training.rl.learning.loss.load_step", load_step)
 
 

@@ -2,6 +2,7 @@
 M-RoPE positions of a sequence."""
 
 from dataclasses import dataclass
+from itertools import accumulate
 
 import numpy as np
 import torch
@@ -76,3 +77,42 @@ def positions(
     return backbone.get_rope_index(
         input_ids=input_ids, mm_token_type_ids=mm_token_type_ids, image_grid_thw=grid
     )[0]
+
+
+def batch_inputs(
+    backbone: Qwen3_5Model,
+    tokenizer: PreTrainedTokenizerBase,
+    processor: Qwen2VLImageProcessor,
+    sp: Specials,
+    states: list[tuple[list[np.ndarray], list[str]]],
+    marker: str,
+) -> tuple[dict[str, Tensor], list[list[int]]]:
+    """Right-pad independent sequences; preserve each clip's M-RoPE and image order."""
+    ids, pixels, grids, pos, readouts = [], [], [], [], []
+    for frames, metas in states:
+        pixel, grid = image_inputs(processor, frames)
+        segments = [segment(tokenizer, sp, g, mu, marker) for g, mu in zip(grid, metas)]
+        sequence = [token for part in segments for token in part]
+        ids.append(torch.tensor(sequence, dtype=torch.int64))
+        pixels.append(pixel)
+        grids.append(grid)
+        pos.append(positions(backbone, sequence, grid, sp))
+        readouts.append([n - 1 for n in accumulate(map(len, segments))])
+    lengths = torch.tensor([len(row) for row in ids])
+    padded = torch.nn.utils.rnn.pad_sequence(
+        ids, batch_first=True, padding_value=sp.end
+    )
+    mask = torch.arange(padded.shape[1])[None, :] < lengths[:, None]
+    return {
+        "input_ids": padded,
+        "attention_mask": mask,
+        "pixel_values": torch.cat(pixels),
+        "image_grid_thw": torch.cat(grids),
+        "position_ids": torch.cat(
+            [
+                torch.nn.functional.pad(p, (0, padded.shape[1] - p.shape[-1]))
+                for p in pos
+            ],
+            dim=1,
+        ),
+    }, readouts

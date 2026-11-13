@@ -11,27 +11,16 @@ from mcpref.models.perception.config import PerceptionConfig
 from mcpref.models.perception.loss import latent_metric
 from mcpref.runtime.sampling.config import SamplingConfig
 from mcpref.runtime.sampling.shards import load_step
-from mcpref.training.rl.learning.history import encode_ref
-from mcpref.training.rl.pairs.types import StateRef
+from mcpref.training.rl.learning.encoding import (
+    micro_histories,
+    ppo_eligible,
+    state_ref,
+)
 from mcpref.training.rl.ppo.config import PpoConfig
 from mcpref.training.rl.ppo.loss import ppo_loss, shift_loss
 from mcpref.training.rl.ppo.reward import reward
 
 ROLES = ("ppo", "shift", "metra", "P")
-
-
-def state_ref(sampling: SamplingConfig, index: int) -> StateRef:
-    """The owning trajectory's episode identity of one global action/state index."""
-    cycle = index // sampling.steps
-    return StateRef(f"{sampling.out_dir}#{cycle:06d}", index)
-
-
-def ppo_eligible(item: dict, sampling: SamplingConfig, ppo: PpoConfig) -> bool:
-    kind, t = item["kind"], item["index"]
-    return (
-        kind == "pending"
-        or t + ppo.horizon <= (t // sampling.steps + 1) * sampling.steps
-    )
 
 
 def micro_loss(
@@ -54,31 +43,37 @@ def micro_loss(
     logged = {role: [] for role in ROLES}
     action_count = len(pi.names)
 
-    def encode(ref: StateRef):
-        return encode_ref(ref, phi, perception, sampling, states, action_count)
+    encoded, rewards = micro_histories(
+        items,
+        phi,
+        perception,
+        sampling,
+        states,
+        action_count,
+        ppo,
+        fixed_advantages is not None,
+    )
 
     for item in items:
         kind, t = item["kind"], item.get("index")
         if kind == "preference":
-            a = encode(StateRef(**item["a"]))
-            b = encode(StateRef(**item["b"]))
+            a, b = next(encoded), next(encoded)
             value = modules["P_loss"](P(a.Y, b.Y), [item["labels"]])[0]
             terms["P"].append(value)
             logged["P"].append(value.detach())
             continue
-        origin = encode(state_ref(sampling, t))
+        origin = next(encoded)
         record = load_step(REPO / sampling.out_dir, t)
         R = pi.readout(origin.Y, origin.C)[:, -1]
         eligible = ppo_eligible(item, sampling, ppo)
-        successor = encode(state_ref(sampling, t + 1)) if kind == "fresh" else None
+        successor = next(encoded) if kind == "fresh" else None
         if eligible:
             logits = pi.logits(R)
             if fixed_advantages is None:
-                with torch.no_grad():
-                    futures = [
-                        encode(state_ref(sampling, t + k)).Y
-                        for k in range(1 if successor is None else 2, ppo.horizon + 1)
-                    ]
+                futures = [
+                    next(rewards).Y
+                    for _ in range(1 if successor is None else 2, ppo.horizon + 1)
+                ]
                 if successor is not None:
                     futures = [successor.Y] + futures
                 advantage = reward(

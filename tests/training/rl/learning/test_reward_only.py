@@ -33,7 +33,10 @@ def observe_encoding(monkeypatch):
         )
         return value
 
-    monkeypatch.setattr("mcpref.training.rl.learning.loss.encode_ref", encoded)
+    monkeypatch.setattr(
+        "mcpref.training.rl.learning.encoding.encode_refs",
+        lambda refs, *args: [encoded(ref, *args) for ref in refs],
+    )
     monkeypatch.setattr("mcpref.training.rl.learning.loss.load_step", load_step)
     return records
 

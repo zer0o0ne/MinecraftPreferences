@@ -106,7 +106,7 @@ def grads(phi: Phi, Z: torch.Tensor) -> dict:
 
 
 def test_gradient_checkpointing(tmp_path, monkeypatch):
-    """Train mode: every decoder layer (2) and vision block (1) checkpointed per clip, with
+    """Train mode: every decoder layer (2) and vision block (1) checkpointed per batch, with
     use_reentrant=False; Z and every gradient equal to a run without checkpointing; the
     gradients reach the head, the vision tower and the language model."""
     calls = checkpoint_calls(monkeypatch)
@@ -114,11 +114,11 @@ def test_gradient_checkpointing(tmp_path, monkeypatch):
     cs = clips()
     phi.train()
     Z_on = phi(cs)
-    assert len(calls) == 6 and all(k == {"use_reentrant": False} for k in calls)
+    assert len(calls) == 3 and all(k == {"use_reentrant": False} for k in calls)
     g_on = grads(phi, Z_on)
     phi.backbone.gradient_checkpointing_disable()
     Z_off = phi(cs)
-    assert len(calls) == 6
+    assert len(calls) == 3
     g_off = grads(phi, Z_off)
     torch.testing.assert_close(Z_on, Z_off, rtol=0, atol=0)
     assert g_on.keys() == g_off.keys()

@@ -21,7 +21,13 @@ from mcpref.datasets.clips.io import Clip
 from mcpref.models.perception.config import PerceptionConfig
 from mcpref.models.perception.cursor import load_sprite
 from mcpref.models.perception.meta import clip_states
-from mcpref.models.perception.tokens import image_inputs, positions, segment, specials
+from mcpref.models.perception.tokens import (
+    batch_inputs,
+    image_inputs,
+    positions,
+    segment,
+    specials,
+)
 
 NO_DECAY = [
     r"bias",
@@ -82,7 +88,7 @@ def image_processor(
 
 
 class Phi(torch.nn.Module):
-    """(8): clips -> Z of shape (n, L, D), each clip in a forward of its own."""
+    """(8): clips -> Z of shape (n, L, D), with independent Qwen batch rows."""
 
     def __init__(
         self,
@@ -141,6 +147,30 @@ class Phi(torch.nn.Module):
         """(1)-(2): RGB frames and meta strings, once per clip."""
         return [clip_states(clip, self.cfg, self.sprite) for clip in clips]
 
+    def batch_frames_z(
+        self, states: list[tuple[list[np.ndarray], list[str]]]
+    ) -> list[Tensor]:
+        """Encode independent, possibly unequal-length streams in one Qwen call."""
+        if len(states) == 1:
+            return [self.frames_z(*states[0])]
+        inputs, readouts = batch_inputs(
+            self.backbone,
+            self.tokenizer,
+            self.processor,
+            self.sp,
+            states,
+            self.cfg.marker,
+        )
+        device = self.head[0].weight.device
+        with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
+            h = self.backbone(
+                **{name: value.to(device) for name, value in inputs.items()},
+                use_cache=False,
+                past_key_values=None,
+            ).last_hidden_state
+        selected = torch.cat([h[i, indices] for i, indices in enumerate(readouts)])
+        return list(self.head(selected).split([len(indices) for indices in readouts]))
+
     def clip_z(self, clip: Clip) -> Tensor:
         """(3)-(7) of one clip: z_s = head(h_{r_s}), shape (L, D)."""
         return self.frames_z(*self.prepare([clip])[0])
@@ -152,7 +182,7 @@ class Phi(torch.nn.Module):
     ) -> Tensor:
         """(8): Z, in the dtype of the head."""
         states = self.prepare(clips) if states is None else states
-        return torch.stack([self.frames_z(frames, metas) for frames, metas in states])
+        return torch.stack(self.batch_frames_z(states))
 
     def groups(self) -> dict[str, list[torch.nn.Parameter]]:
         """(12): the decayed and other parameters of B.visual, B.language_model and the

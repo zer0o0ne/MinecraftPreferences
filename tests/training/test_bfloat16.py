@@ -189,13 +189,13 @@ def test_rl_builder_and_all_roles(setup, masks, monkeypatch):
     mods = cycle.build_rl_modules(SimpleNamespace(device="cpu"), sampling, ppo_config())
     cfg, groups, opt = optimizer(mods)
 
-    def encode(ref, phi, *args):
-        z = phi([clips[ref.index % 2]])
-        c = z.new_zeros((1, 3, len(masks.names) + 1))
+    def encode(refs, phi, *args):
+        z = phi([clips[ref.index % 2] for ref in refs])
+        c = z.new_zeros((len(refs), 3, len(masks.names) + 1))
         c[..., -1] = 1
-        return LatentHistory(z, c)
+        return [LatentHistory(y.unsqueeze(0), a.unsqueeze(0)) for y, a in zip(z, c)]
 
-    monkeypatch.setattr(rl_loss, "encode_ref", encode)
+    monkeypatch.setattr("mcpref.training.rl.learning.encoding.encode_refs", encode)
     monkeypatch.setattr(
         rl_loss,
         "load_step",
@@ -235,7 +235,7 @@ def test_rl_builder_and_all_roles(setup, masks, monkeypatch):
         w_delta=1.0,
         w_metra=1.0,
         w_P=1.0,
-        micro_batch=1,
+        micro_batch=4,
         observations=observations,
     )
     assert all(value is not None for value in result.values())

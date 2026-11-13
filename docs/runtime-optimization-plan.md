@@ -391,7 +391,7 @@ These remain in scope but must not block the earlier increments:
 
 ## Current completion status
 
-Every actionable increment through PT-9a/PT-9b and DATA-5b is implemented or explicitly rejected by measurements. PT-9c remains blocked because RL item-level computation is not genuinely batched and no supporting memory evidence exists. Phase 6 packed clip storage and training-only trajectory payloads remain deferred pending their separately approved format/version/resume contracts; additional structural batching remains profiling-gated. DATA-1's optional cross-candidate batching is not adopted. The overall plan is therefore not complete.
+Every actionable increment through PT-9a/PT-9b and DATA-5b is implemented or explicitly rejected by measurements. PT-9c now batches Qwen perception across pretrain clips and RL histories, with bounded no-grad reward batches; policy/preference call order remains unchanged. CPU equivalence, BF16/FP8, backward and checkpoint tests pass. GPU throughput and peak-memory acceptance remain open for the user to measure on the Spark. Phase 6 packed clip storage and training-only trajectory payloads remain deferred pending their separately approved format/version/resume contracts; additional structural batching remains profiling-gated. DATA-1's optional cross-candidate batching is not adopted. The overall plan is therefore not complete.
 
 ## Final completion criteria
 
