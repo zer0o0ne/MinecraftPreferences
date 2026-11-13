@@ -195,10 +195,7 @@ def test_rl_builder_and_all_roles(setup, masks, monkeypatch):
         c[..., -1] = 1
         return LatentHistory(z, c)
 
-    monkeypatch.setattr(
-        "mcpref.training.rl.learning.encoding.encode_refs",
-        lambda refs, *args: [encode(ref, *args) for ref in refs],
-    )
+    monkeypatch.setattr(rl_loss, "encode_ref", encode)
     monkeypatch.setattr(
         rl_loss,
         "load_step",
