@@ -7,7 +7,7 @@ import numpy as np
 import torch
 
 from diagnostics.core.world import config, context
-from diagnostics.test_plot import make_records, write_records
+from diagnostics.test_plot import fake_render, make_records, write_records
 from mcpref.diagnostics.core.artifacts import GROUP_PANELS, write_record
 from mcpref.diagnostics.core.observations import (
     EpisodeArtifacts,
@@ -30,7 +30,10 @@ from mcpref.diagnostics.producers.policy import (
 from mcpref.diagnostics.producers.update import on_update_observation
 
 
-def test_full_plot_registry_and_special_source_curves(tmp_path):
+def test_full_plot_registry_and_special_source_curves(tmp_path, monkeypatch):
+    from mcpref.diagnostics import plot
+
+    monkeypatch.setattr(plot, "render", fake_render)
     ctx = context(
         "rl/000000/checkpoints/000000/losses.json",
         "policy",
@@ -159,13 +162,12 @@ def test_full_plot_registry_and_special_source_curves(tmp_path):
         *GROUP_PANELS,
     }
     for name in (
-        "policy-calibration__train__joint__reliability.svg",
-        "mcts-outcomes__train__joint__matched-reliability.svg",
-        "milestones__train__joint__km-stone_pickaxe.svg",
-        "update-health__train__joint__groups.svg",
+        "policy-calibration__train__joint__reliability.png",
+        "mcts-outcomes__train__joint__matched-reliability.png",
+        "milestones__train__joint__km-stone_pickaxe.png",
+        "update-health__train__joint__groups.png",
     ):
-        assert name in files
-        assert "<polyline" in (tmp_path / "plots" / name).read_text()
+        assert any(path.startswith(name.removesuffix(".png") + "__") for path in files)
     assert all(
         (tmp_path / "plots" / entry["file"]).is_file() for entry in index["plots"]
     )

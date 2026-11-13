@@ -42,7 +42,7 @@ PRETRAIN_PANELS = {
 PLOT_REGISTRY = tuple(
     {
         "group": "target-provenance",
-        "file": f"target-provenance__{facet}.svg",
+        "file": f"target-provenance__{facet}.png",
         "series": series,
         "x": "index",
     }
@@ -54,7 +54,7 @@ def pretrain_registry(facets: Sequence[tuple[str, str]]) -> list[dict]:
     return [
         {
             "group": "pretrain-preference",
-            "file": f"pretrain-preference__{split}__{condition}__{panel}.svg",
+            "file": f"pretrain-preference__{split}__{condition}__{panel}.png",
             "series": series,
             "x": "step",
         }
@@ -297,7 +297,7 @@ def group_registry(
     entries = [
         {
             "group": group,
-            "file": f"{group}__{split}__{condition}__{panel}.svg",
+            "file": f"{group}__{split}__{condition}__{panel}.png",
             "series": series,
             "x": "step",
         }
@@ -310,7 +310,7 @@ def group_registry(
             entries.append(
                 {
                     "group": group,
-                    "file": f"{prefix}__groups.svg",
+                    "file": f"{prefix}__groups.png",
                     "series": list(extra),
                     "x": "step",
                 }
@@ -320,13 +320,13 @@ def group_registry(
                 [
                     {
                         "group": group,
-                        "file": f"{prefix}__reliability.svg",
+                        "file": f"{prefix}__reliability.png",
                         "series": ["confidence", "accuracy"],
                         "x": "bin",
                     },
                     {
                         "group": group,
-                        "file": f"{prefix}__support.svg",
+                        "file": f"{prefix}__support.png",
                         "series": ["n"],
                         "x": "bin",
                     },
@@ -336,7 +336,7 @@ def group_registry(
             entries.append(
                 {
                     "group": group,
-                    "file": f"{prefix}__matched-reliability.svg",
+                    "file": f"{prefix}__matched-reliability.png",
                     "series": ["hit"],
                     "x": "matched_mass",
                 }
@@ -353,7 +353,7 @@ def group_registry(
                 entries.append(
                     {
                         "group": group,
-                        "file": f"{prefix}__km-{name}.svg",
+                        "file": f"{prefix}__km-{name}.png",
                         "series": ["survival"],
                         "x": f"km:{name}",
                     }

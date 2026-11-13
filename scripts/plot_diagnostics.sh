@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Plot accepted producer-owned metric records only; no producer or evaluation invocation.
+# View saved diagnostics and optional pretrain/RL logs; no model evaluation.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PATH="$HOME/.local/bin:$PATH"

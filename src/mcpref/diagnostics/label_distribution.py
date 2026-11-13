@@ -1,17 +1,19 @@
-"""Exact distribution and SVG histogram of corrected preference labels."""
+"""Exact distribution and Matplotlib histogram of corrected preference labels."""
 
 import argparse
-import html
 import json
 import sys
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
 
+from matplotlib.ticker import PercentFormatter
+
+from mcpref.diagnostics.charts import figure, save_png
 from mcpref.infrastructure.cli.failure import FAILURES, failed
 from mcpref.infrastructure.progress import shard_bar
 from mcpref.infrastructure.runs import files
-from mcpref.infrastructure.shards.store import complete_shards, shard_path, write_file
+from mcpref.infrastructure.shards.store import complete_shards, shard_path
 
 PROG = "mcpref.diagnostics.label_distribution"
 
@@ -44,54 +46,34 @@ def read_distribution(directory: Path) -> dict:
     }
 
 
-def bar_svg(label, count, share, x, y, width, height) -> list[str]:
-    text = html.escape(f"p={label}" if label != "incomparable" else label)
-    return [
-        f'<rect x="{x:.3f}" y="{y:.3f}" width="{width:.3f}" height="{height:.3f}" fill="#2563eb"/>',
-        f'<text x="{x + width / 2:.3f}" y="{y - 6:.3f}" text-anchor="middle" font-family="sans-serif" font-size="11">{count} ({share:.1%})</text>',
-        f'<text x="{x + width / 2:.3f}" y="{y + height + 22:.3f}" text-anchor="middle" font-family="sans-serif" font-size="12">{text}</text>',
-    ]
-
-
-def histogram(report: dict) -> str:
-    width, height, left, right, top, bottom = 960, 540, 70, 30, 60, 100
-    plot_width, plot_height = width - left - right, height - top - bottom
-    labels = [label for label in report["counts"] if label != "incomparable"]
-    labels.sort(key=float)
-    labels.append("incomparable")
-    labels = labels if report["pairs"] else []
-    peak = max(report["shares"].values(), default=1.0) or 1.0
-    slot = plot_width / max(len(labels), 1)
-    body = [
-        f'<rect x="{left}" y="{top}" width="{plot_width}" height="{plot_height}" fill="white" stroke="#94a3b8"/>',
-        '<text x="70" y="32" font-family="sans-serif" font-size="20">Final preference labels</text>',
-        f'<text x="20" y="{top + plot_height / 2}" transform="rotate(-90 20 {top + plot_height / 2})" text-anchor="middle" font-family="sans-serif" font-size="13">share of all pairs</text>',
-    ]
-    for index, label in enumerate(labels):
-        share = report["shares"][label]
-        bar_height = share / peak * plot_height
-        x = left + (index + 0.15) * slot
-        y = top + plot_height - bar_height
-        body.extend(
-            bar_svg(
-                label,
-                report["counts"][label],
-                share,
-                x,
-                y,
-                slot * 0.7,
-                bar_height,
-            )
-        )
-    if not report["pairs"]:
-        body.append(
-            f'<text x="{width / 2}" y="{height / 2}" text-anchor="middle" font-family="sans-serif" font-size="16">no pairs</text>'
-        )
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
-        + "".join(body)
-        + "</svg>\n"
+def histogram(report: dict):
+    labels = sorted(
+        (key for key in report["counts"] if key != "incomparable"), key=float
     )
+    labels = labels + ["incomparable"] if report["pairs"] else []
+    result = figure(f"Final preference labels | {report['pairs']:,} pairs", 1)
+    result.set_size_inches(10, max(4, 0.35 * len(labels) + 1.5))
+    axis = result.axes[0]
+    axis.set_xlabel("Share of all retained pairs")
+    axis.xaxis.set_major_formatter(PercentFormatter(xmax=1))
+    if not labels:
+        axis.text(0.5, 0.5, "No pairs", ha="center", transform=axis.transAxes)
+        return result
+    display = [f"p={key}" if key != "incomparable" else key for key in labels]
+    bars = axis.barh(
+        display, [report["shares"][key] for key in labels], color="#2463a7"
+    )
+    axis.bar_label(
+        bars,
+        labels=[
+            f"{report['counts'][key]:,} ({report['shares'][key]:.1%})" for key in labels
+        ],
+        padding=5,
+        fontsize=10,
+    )
+    axis.invert_yaxis()
+    axis.margins(x=0.28)
+    return result
 
 
 def main(argv: Sequence[str]) -> int:
@@ -102,7 +84,7 @@ def main(argv: Sequence[str]) -> int:
     try:
         report = read_distribution(args.labels_dir)
         files.write_json(args.out_dir / "distribution.json", report)
-        write_file(args.out_dir / "histogram.svg", histogram(report).encode())
+        save_png(histogram(report), args.out_dir / "histogram.png")
     except FAILURES as error:
         return failed(PROG, error)
     return 0

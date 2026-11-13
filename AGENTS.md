@@ -44,6 +44,7 @@ data/                                  gitignored datasets, checkpoints, logs an
 Code holds no numeric defaults; secrets come from environment variables. Shared code lives in a subpackage named after its purpose, never `utils`/`common`/`helpers`.
 
 ## Verification
+- The current session runs on a local macOS arm64 machine without a CUDA GPU. GPU-only tests run on the Spark.
 - The implementer runs the code. Add a regression test for every reproduced defect; tests check the contract with independent oracles rather than copying production logic.
 - Run Ruff on touched files, relevant tests for the change and touched interfaces, then the original failing scenario. For long training, exercise the failing transition with real artifacts rather than rerunning the whole training.
 - Run the full fast suite (`uv run pytest`) before completion. Run relevant slow/GPU tests when they cover the change; run the full slow suite on user request.

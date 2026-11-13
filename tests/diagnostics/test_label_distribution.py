@@ -2,7 +2,9 @@
 
 import json
 
-from mcpref.diagnostics.label_distribution import main
+from PIL import Image
+
+from mcpref.diagnostics.label_distribution import histogram, main
 from mcpref.infrastructure.runs.files import write_json
 from mcpref.infrastructure.shards.store import write_shard
 
@@ -36,9 +38,17 @@ def test_distribution_and_histogram_across_shards(tmp_path, capsys):
         "counts": {"0.5": 2, "0.75": 1, "1.0": 1, "incomparable": 1},
         "shares": {"0.5": 0.4, "0.75": 0.2, "1.0": 0.2, "incomparable": 0.2},
     }
-    svg = (out / "histogram.svg").read_text()
-    assert "p=0.5" in svg and "p=0.75" in svg and "p=1.0" in svg
-    assert "incomparable" in svg and "2 (40.0%)" in svg
+    image = Image.open(out / "histogram.png")
+    assert image.format == "PNG" and image.width >= 1000
+    result = histogram(report)
+    assert [label.get_text() for label in result.axes[0].get_yticklabels()] == [
+        "p=0.5",
+        "p=0.75",
+        "p=1.0",
+        "incomparable",
+    ]
+    assert [bar.get_width() for bar in result.axes[0].patches] == [0.4, 0.2, 0.2, 0.2]
+    result.clear()
     assert not list(out.rglob("*.part"))
     assert capsys.readouterr().out == ""
 
@@ -63,7 +73,10 @@ def test_empty_complete_dataset(tmp_path, capsys):
         "counts": {"incomparable": 0},
         "shares": {},
     }
-    assert "no pairs" in (out / "histogram.svg").read_text()
+    assert Image.open(out / "histogram.png").format == "PNG"
+    result = histogram({"pairs": 0, "counts": {}, "shares": {}})
+    assert result.axes[0].texts[0].get_text() == "No pairs"
+    result.clear()
     assert "label distribution: nothing to do" in capsys.readouterr().err
 
 
