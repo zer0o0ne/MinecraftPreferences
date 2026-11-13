@@ -120,3 +120,22 @@ def test_unchanged_inputs_pass(tmp_path):
     assert site.run().code == 0
     assert site.run().code == 0
     assert site.tree() == site.expected_tree()
+
+
+@pytest.mark.parametrize("rule", [None, "legacy-rule"])
+def test_old_verdict_rule_cannot_resume(tmp_path, rule):
+    site = make_site(tmp_path)
+    assert site.run().code == 0
+    path = site.out / "run.json"
+    head = json.loads(path.read_bytes())
+    if rule is None:
+        del head["verdict_rule"]
+    else:
+        head["verdict_rule"] = rule
+    path.write_bytes(json_bytes(head))
+    before = site.tree()
+    result = site.run()
+    assert result.code == 1
+    assert "verdict rule changed" in result.err
+    assert "scripts/relabel_preferences.py" in result.err
+    assert site.tree() == before

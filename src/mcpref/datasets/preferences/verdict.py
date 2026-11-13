@@ -20,6 +20,16 @@ def tilde(t: str, o: int, cfg: "AcyclicConfig") -> Fraction:
     return pi if o == 0 else 1 - pi
 
 
+def order_conflict(labels: Sequence[str]) -> bool:
+    """Eq. (1): same raw direction, with at least one non-slight answer."""
+    for direction in ("BETTER", "WORSE"):
+        slight = f"SLIGHTLY_{direction}"
+        family = {direction, f"MUCH_{direction}", slight}
+        if all(t in family for t in labels) and any(t != slight for t in labels):
+            return True
+    return False
+
+
 def verdict(a: dict, b: dict, labels: Sequence[str], cfg: "AcyclicConfig") -> Verdict:
     """(1): `dropped`, `incomparable` or `comparable`; the pair (u, v), else (a, b); w
     (None unless comparable). Request j of the 2s labels has order j // s."""
@@ -29,6 +39,8 @@ def verdict(a: dict, b: dict, labels: Sequence[str], cfg: "AcyclicConfig") -> Ve
     if n_v == 0:
         return "dropped", a, b, None
     if Fraction(n_r, n_v) > exact("refusal_share", cfg.refusal_share):
+        return "incomparable", a, b, None
+    if len(labels) == len(weighted) == 2 and order_conflict(labels):
         return "incomparable", a, b, None
     s = len(labels) // 2
     p = sum(tilde(t, j // s, cfg) for j, t in weighted) / (n_v - n_r)

@@ -34,8 +34,8 @@ HAND = [
     ([B, INVALID, NONE, W], 0.5, ("comparable", A, Bref, Fraction(4, 5))),
     # ... and in the share: 1/2 > 0.4 (1/4 if they counted)
     ([INC, INVALID, NONE, B], 0.4, ("incomparable", A, Bref, None)),
-    # both orders: 0.8 and 1 - 0.8; p = 1/2 exactly -> (a, b)
-    ([B, B], 0.5, ("comparable", A, Bref, Fraction(1, 2))),
+    # Raw BETTER in both orders contradicts the swapped presentation.
+    ([B, B], 0.5, ("incomparable", A, Bref, None)),
     # the spec's case: 1, 0.4 in order 0, 0.6, 0.8 in order 1: (1 + .4 + .4 + .2) / 4 = 1/2
     # exactly (0.49999999999999994 in float64)
     ([MB, SW, SB, B], 0.5, ("comparable", A, Bref, Fraction(1, 2))),

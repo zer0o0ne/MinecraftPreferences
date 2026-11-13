@@ -30,6 +30,18 @@ def verdict(a: dict, b: dict, labels: list, weights: dict, tau) -> tuple:
         return "dropped", a, b, None
     if Fraction(len(refusals), len(valid)) > exact(tau):
         return "incomparable", a, b, None
+    if s == 1 and len(valid) == 2 and not refusals:
+        grades = {
+            "MUCH_BETTER": 3,
+            "BETTER": 2,
+            "SLIGHTLY_BETTER": 1,
+            "SLIGHTLY_WORSE": -1,
+            "WORSE": -2,
+            "MUCH_WORSE": -3,
+        }
+        x, y = (grades.get(t, 0) for t in labels)
+        if x * y > 0 and max(abs(x), abs(y)) > 1:
+            return "incomparable", a, b, None
     pis = [exact(weights[t]) if j < s else 1 - exact(weights[t])
            for j, t in valid if weights[t] is not None]  # fmt: skip
     p = sum(pis, Fraction(0)) / len(pis)
@@ -93,6 +105,7 @@ def run_json(config: bytes, answers: list[bytes], pool: str, counts=None) -> byt
         "config": yaml.safe_load(config),
         "sha256": {"config": sha(config), "votes": sha(b"".join(answers))},
         "pair_clips": pool,
+        "verdict_rule": "two-order-conflict-v1",
     }
     if counts is not None:
         pairs = counts["comparable"] + counts["removed"] + counts["incomparable"]

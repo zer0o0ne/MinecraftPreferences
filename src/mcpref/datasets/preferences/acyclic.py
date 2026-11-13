@@ -29,6 +29,7 @@ from mcpref.infrastructure.shards.store import complete_shards, shard_path, writ
 
 PROG = "mcpref.datasets.preferences.acyclic"
 COUNTS = ("comparable", "removed", "incomparable", "dropped")
+VERDICT_RULE = "two-order-conflict-v1"
 
 
 @dataclass(frozen=True)
@@ -80,8 +81,18 @@ def header(cfg: AcyclicConfig, path: Path, votes_run: dict) -> dict:
     pair_clips = votes_run["sha256"]["pool"]
     out = REPO / cfg.out_dir / "run.json"
     files.check_fingerprints(out, sha | {"pair_clips": pair_clips}, cfg.out_dir)
+    if out.exists() and json.loads(out.read_text()).get("verdict_rule") != VERDICT_RULE:
+        raise RuntimeError(
+            f"verdict rule changed; rebuild {cfg.out_dir} in a new directory "
+            "with scripts/relabel_preferences.py"
+        )
     config = yaml.safe_load(path.read_text())
-    head = {"config": config, "sha256": sha, "pair_clips": pair_clips}
+    head = {
+        "config": config,
+        "sha256": sha,
+        "pair_clips": pair_clips,
+        "verdict_rule": VERDICT_RULE,
+    }
     files.write_json(out, head)
     return head
 
