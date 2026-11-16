@@ -4,7 +4,7 @@ extends:
   - "configs/training/shards.yaml"
 clips_dir: "data/perception"
 pair_clips_dir: "data/pair_clips"
-pair_labels_dir: "data/pair_labels"
+pair_labels_dir: "data/pair_labels_corrected"
 out_dir: "data/train_index"
 validation: "0.05"
 seed: 0
