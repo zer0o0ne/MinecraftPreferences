@@ -1,7 +1,7 @@
 # Shared pretraining/RL optimization. Each leaf removes the other loop's dual group.
 seed: 0
 epochs: 1
-batch: 128
+batch: 16
 micro_batch: 4
 gradient_diagnostics: false
 checkpoint_steps: 100
