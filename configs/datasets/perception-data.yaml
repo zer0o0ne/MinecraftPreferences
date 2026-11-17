@@ -34,7 +34,7 @@ gui_actions: "configs/datasets/vpt/gui-actions.yaml"
 overlay: "configs/gui/recognition/f3-overlay.yaml"
 classifier_config: "configs/gui/recognition/classifier.yaml"
 states: 4
-per_episode: 20
+per_episode: 40
 n_clips: 500000
 seed: 0
 workers: 4
