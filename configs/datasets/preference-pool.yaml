@@ -9,9 +9,9 @@ resetting_stats:
   - "minecraft.custom:minecraft.time_since_rest"
   - "minecraft.custom:minecraft.time_since_death"
 episodes: 10
-per_episode: 4
-n_clips: 10000
-partners: 100
+per_episode: 8
+n_clips: 125000
+partners: 20
 cycles: 0.5
 seed: 0
 workers: 4
