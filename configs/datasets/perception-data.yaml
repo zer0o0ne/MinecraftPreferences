@@ -33,9 +33,9 @@ screens: "configs/gui/screens.yaml"
 gui_actions: "configs/datasets/vpt/gui-actions.yaml"
 overlay: "configs/gui/recognition/f3-overlay.yaml"
 classifier_config: "configs/gui/recognition/classifier.yaml"
-states: 12
+states: 4
 per_episode: 20
-n_clips: 200000
+n_clips: 500000
 seed: 0
 workers: 4
 classifier_batch: 64

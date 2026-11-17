@@ -31,21 +31,21 @@ answer_line: "{token}: {description}"
 prefix: "Answer: "
 inventory_line: "Inventory: {items}\n\n"
 answers:
-  - token: "MUCH_BETTER"
+  - token: "A_IS_MUCH_BETTER_THAN_B"
     description: "A is much better than B"
-  - token: "BETTER"
+  - token: "A_IS_BETTER_THAN_B"
     description: "A is better than B"
-  - token: "SLIGHTLY_BETTER"
+  - token: "A_IS_SLIGHTLY_BETTER_THAN_B"
     description: "A is slightly better than B"
-  - token: "SLIGHTLY_WORSE"
+  - token: "A_IS_SLIGHTLY_WORSE_THAN_B"
     description: "A is slightly worse than B"
-  - token: "WORSE"
+  - token: "A_IS_WORSE_THAN_B"
     description: "A is worse than B"
-  - token: "MUCH_WORSE"
+  - token: "A_IS_MUCH_WORSE_THAN_B"
     description: "A is much worse than B"
   - token: "INCOMPARABLE"
     description: "A and B cannot be compared"
-frames: 6
-stride: 2
+frames: 4
+stride: 1
 samples: 1
 seed: 0
