@@ -41,7 +41,8 @@ def at(value: dict | None, path: tuple[str, ...]):
 def policy_coverage(observations: list[StepObservations]) -> dict:
     return {
         key: mean_nullable(
-            getattr(observation.policy, key) for observation in observations
+            getattr(observation.policy, key) if observation.policy is not None else None
+            for observation in observations
         )[1]
         for key in ("uniform", "copy_current", "zero_shift")
     }

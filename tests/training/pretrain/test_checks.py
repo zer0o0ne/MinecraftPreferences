@@ -51,6 +51,18 @@ def test_index_as_written(tmp_path):
     run_aborts(loop, "w/index/ is not complete")
 
 
+@pytest.mark.parametrize(
+    "change",
+    [drop("semantics"), setting("semantics", "old"), drop("sha256.clip_metadata")],
+)
+def test_occurrence_weighted_index_is_rejected_before_training(tmp_path, change):
+    loop = Loop(tmp_path).write()
+    index_edit(loop, change)
+    modules = loop.modules()
+    run_aborts(loop, f"{X} must be rebuilt for unique-clips-v1", modules)
+    assert all(module.calls == 0 for module in modules.values())
+
+
 def test_no_training_item(tmp_path):
     """N = counts.train.clips + counts.train.pairs = 0."""
     loop = Loop(tmp_path).write()
@@ -294,6 +306,14 @@ CHANGES = {  # a change of an input after X was built -> the fingerprint named
     "Q_l's pairs": (
         lambda r: append_space(r / "w/pair_labels/shards/000001/pairs.json"),
         "pair_labels",
+    ),
+    "C's clip metadata": (
+        lambda r: append_space(r / "w/clips/shards/000000/clips/u0/clip.json"),
+        "clip_metadata",
+    ),
+    "Q_c's endpoint metadata": (
+        lambda r: append_space(r / "w/pair_clips/shards/000000/clips/q1/clip.json"),
+        "clip_metadata",
     ),
 }
 

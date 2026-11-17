@@ -30,7 +30,7 @@ class Latents(torch.nn.Module):
         super().__init__()
         self.cfg, self.sprite = cfg, load_sprite(cfg)
         generator = torch.Generator().manual_seed(71)
-        z = torch.randn(2, 5, len(cfg.alpha), generator=generator)
+        z = torch.randn(4, 5, len(cfg.alpha), generator=generator)
         alpha = torch.tensor(cfg.alpha)
         self.Z = torch.nn.Parameter(0.1 * z / alpha)
 
@@ -61,7 +61,7 @@ def case(tmp_path):
         layers=("S", "X"),
     )
     masks = action_masks(tmp_path / "masks")
-    clips = random_clips(81, 2, 5)
+    clips = random_clips(81, 4, 5)
     for clip in clips:
         for old in clip.lines:
             values = line(hotbar=old["hotbar"])

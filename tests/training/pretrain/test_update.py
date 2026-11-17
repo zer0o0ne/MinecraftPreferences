@@ -100,13 +100,16 @@ def test_parameter_with_zero_gradient_decayed(tmp_path):
     k = fakes()["pi_loss"].k.detach().clone()
     decay = loop.config["groups"]["idle"]["weight_decay"]
     (i,) = indices("idle")
+    updates = 0
     for t in range(1, 11):
         (entry,) = loop.losses(t - 1)
-        k = k * (1 - entry["lr"]["idle"] * decay)
+        if entry["counts"]["clips"]:
+            k = k * (1 - entry["lr"]["idle"] * decay)
+            updates += 1
         ck = loop.checkpoint(t - 1)
         torch.testing.assert_close(ck["modules"]["pi_loss"]["k"], k, rtol=1e-12, atol=0)
         state = ck["optimizer"]["state"][i]
-        assert float(state["step"]) == t
+        assert float(state["step"]) == updates
         assert not state["exp_avg"].any() and not state["exp_avg_sq"].any()
 
 

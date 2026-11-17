@@ -18,7 +18,7 @@ from training.pretrain.loop_modules import PhiLoss, PiLoss, PLoss, fakes, shared
 from training.pretrain.loop_oracle import terms
 from training.pretrain.loop_world import clip, p, u
 
-M, K_TOT, R_TOT, W_PHI, W_PI, W_P = 5, 11, 3, 0.4, 0.7, 1.9
+M, K_TOT, R_TOT, W_PHI, W_PI, W_P = 5, 5, 3, 0.4, 0.7, 1.9
 MIXED = [u(0), p(0), u(1), p(1)]  # q1 in p(0) and p(1)
 REPEATS = [p(0), u(2), u(2), p(2)]  # u2 in two items; q0 in two pairs
 UNLABELED = [u(0), u(3), u(0)]
@@ -165,22 +165,25 @@ def test_calls_of_each_micro_batch_in_order():
     assert [c[2] for c in log if c[0] == "read"] == [x for run in expected for x in run]
     calls = [c for c in log if c[0] != "read"]
     for paths, run in zip(expected, runs):
-        names = ["phi", "phi_loss", "pi", "pi_loss"]
+        own = [it["clip"] for it in run if "clip" in it]
         pairs = [it for it in run if "clip" not in it]
+        names = ["phi"] + (["phi_loss", "pi", "pi_loss"] if own else [])
         names += ["P", "P_loss"] if pairs else []
         current, calls = calls[: len(names)], calls[len(names) :]
         assert [c[0] for c in current] == names
-        ids = [x.rsplit("/", 1)[1] for x in paths]
-        assert current[0][2]["ids"] == ids
-        assert current[2][2]["ids"] == ids and current[2][2]["Z"].equal(
-            current[1][2]["Z"]
-        )
+        by_name = {c[0]: c[2] for c in current}
+        assert by_name["phi"]["ids"] == [x.rsplit("/", 1)[1] for x in paths]
+        Z = fakes(noise=False)["phi"]([clip(path) for path in paths])
+        if own:
+            own_ids = [x.rsplit("/", 1)[1] for x in own]
+            assert by_name["pi"]["ids"] == by_name["phi_loss"]["ids"] == own_ids
+            assert by_name["pi"]["Z"].equal(Z[[paths.index(path) for path in own]])
         if pairs:
-            Z = current[1][2]["Z"]
             ia = [paths.index(it["a"]) for it in pairs]
             ib = [i + 1 for i in ia]
-            assert current[4][2]["Za"].equal(Z[ia]) and current[4][2]["Zb"].equal(Z[ib])
-            assert current[5][2]["labels"] == [it["labels"] for it in pairs]
+            assert by_name["P"]["Za"].equal(Z[ia])
+            assert by_name["P"]["Zb"].equal(Z[ib])
+            assert by_name["P_loss"]["labels"] == [it["labels"] for it in pairs]
     assert calls == []
 
 
@@ -229,9 +232,9 @@ def test_each_term_reaches_phi(live):
 
 def test_detached_observations_counts_and_bounded_contract():
     got = call(MIXED, fakes(noise=False, stateful=False), 2)
-    assert got["counts"] == {"items": 4, "clips": 6, "pairs": 2, "comparable": 2,
-                             "incomparable": 0, "sum_p": 1.0, "action_targets": 6,
-                             "shift_targets": 6, "phi_changed": 12, "phi_state_pairs": 12}  # fmt: skip
+    assert got["counts"] == {"items": 4, "clips": 2, "pairs": 2, "comparable": 2,
+                             "incomparable": 0, "sum_p": 1.0, "action_targets": 2,
+                             "shift_targets": 2, "phi_changed": 4, "phi_state_pairs": 4}  # fmt: skip
     observations = got["observations"]
     assert [f.name for f in dataclasses.fields(observations)] == [
         "preference",
@@ -266,8 +269,8 @@ def test_detached_observations_counts_and_bounded_contract():
         observations.policy.q_sum.dtype == torch.float64
         and observations.policy.q_sum.sum() == 1
     )
-    assert observations.policy.action_valid == observations.policy.shift_valid == 6
-    assert observations.phi.z_count == 18 and observations.phi.state_pairs == 12
+    assert observations.policy.action_valid == observations.policy.shift_valid == 2
+    assert observations.phi.z_count == 6 and observations.phi.state_pairs == 4
     assert not hasattr(observations.policy, "logits") and not hasattr(
         observations.phi, "Z"
     )
@@ -285,10 +288,10 @@ def override_policy_diagnostics(mods, q, current):
 
 def test_action_target_count_is_valid_rows_not_nonzero_elements():
     mods = fakes(noise=False, stateful=False)
-    q = torch.tensor([[[0.5, 0.5, 0.0]]], dtype=torch.float64).repeat(6, 1, 1)
+    q = torch.tensor([[[0.5, 0.5, 0.0]]], dtype=torch.float64).repeat(2, 1, 1)
     override_policy_diagnostics(mods, q, q.clone())
     got = call(MIXED, mods, 6)
-    assert (q > 0).sum() == 12 and got["counts"]["action_targets"] == 6
+    assert (q > 0).sum() == 4 and got["counts"]["action_targets"] == 2
     torch.testing.assert_close(
         got["observations"].policy.q_sum,
         torch.tensor([0.5, 0.5, 0.0], dtype=torch.float64),

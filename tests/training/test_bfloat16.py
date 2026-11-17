@@ -107,7 +107,11 @@ def assert_training_storage(modules, opt):
 def test_pretrain_step_checkpoint_and_stream(setup, tmp_path):
     modules, _, _, _, clips = setup
     cfg, groups, opt = optimizer(modules)
-    items = [{"a": "0", "b": "1", "labels": {"p": 0.75, "inc": 0}}]
+    items = [
+        {"clip": "0"},
+        {"clip": "1"},
+        {"a": "0", "b": "1", "labels": {"p": 0.75, "inc": 0}},
+    ]
 
     def step():
         opt.zero_grad(set_to_none=True)

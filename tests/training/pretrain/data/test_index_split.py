@@ -48,9 +48,8 @@ def test_shard_cut(make_site, size):
     """v = 0, N = 42 (30 clips, 12 pairs): ceil(N / B) shards of B items, the last one
     N - (n - 1) B; validation none."""
     world = random_world(4)
-    n = 12 + sum(len(r["clips"] or ()) for s in world.clips for r in s)
-    assert n == 42
     site = make_site(world=world, validation="0", items_per_shard=size)
+    n = sum(site.expected().counts["train"][k] for k in ("clips", "pairs"))
     assert site.run().code == 0
     train = items(site.out, "train")
     assert [len(s) for s in train] == [size] * (n // size) + [n % size] * (n % size > 0)

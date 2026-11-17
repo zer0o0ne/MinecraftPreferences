@@ -18,18 +18,23 @@ from training.schedule_oracle import epoch, mini_batches
 def terms(items, mods, read, m, k_tot, r_tot, w_phi, w_pi, w_P) -> tuple:
     """(1) over the clips K and the pairs R of `items`: (the loss, l_phi, l_pi, l_P or
     None), the calls in the order phi, l_phi, pi, l_pi, P, l_P."""
-    clips, at, labels = [], [], []
+    clips, at, labels, own = [], [], [], []
     for it in items:
         if "clip" in it:
+            own.append(len(clips))
             clips.append(read(it["clip"]))
         else:
             at.append((len(clips), len(clips) + 1))
             clips += [read(it["a"]), read(it["b"])]
             labels.append(it["labels"])
     Z = mods["phi"](clips)
-    l_phi = mods["phi_loss"](Z, clips)
-    l_pi = mods["pi_loss"](mods["pi"](Z, clips), Z, clips)
-    loss = m / k_tot * (w_phi * l_phi + w_pi * l_pi).sum()
+    l_phi = l_pi = None
+    loss = Z.new_zeros(())
+    if own:
+        standalone = [clips[i] for i in own]
+        l_phi = mods["phi_loss"](Z[own], standalone)
+        l_pi = mods["pi_loss"](mods["pi"](Z[own], standalone), Z[own], standalone)
+        loss = m / k_tot * (w_phi * l_phi + w_pi * l_pi).sum()
     l_P = None
     if labels:
         ia, ib = (list(x) for x in zip(*at))
@@ -44,14 +49,16 @@ def gradients(items, mods, read, m, k_tot, r_tot, w_phi, w_pi, w_P, micro) -> di
     for j in range(0, len(items), micro):
         loss, l_phi, l_pi, l_P = terms(items[j : j + micro], mods, read, m, k_tot, r_tot, w_phi, w_pi, w_P)  # fmt: skip
         loss.backward()
-        sums["phi"] += l_phi.detach().sum().item()
-        sums["pi"] += l_pi.detach().sum().item()
+        if l_phi is not None:
+            sums["phi"] += l_phi.detach().sum().item()
+            sums["pi"] += l_pi.detach().sum().item()
+            n_k += len(l_phi)
         sums["loss"] += loss.detach().item()
-        n_k += len(l_phi)
         if l_P is not None:
             sums["P"] += l_P.detach().sum().item()
             n_r += len(l_P)
-    return {"phi": sums["phi"] / n_k, "pi": sums["pi"] / n_k,
+    return {"phi": sums["phi"] / n_k if n_k else None,
+            "pi": sums["pi"] / n_k if n_k else None,
             "P": sums["P"] / n_r if n_r else None, "loss": sums["loss"]}  # fmt: skip
 
 
@@ -124,7 +131,7 @@ def train(world: World, cfg: dict, make=None) -> tuple[list[Step], list]:
     moments = [[None] * len(ps) for _, ps in groups]
     sizes, b = [len(s) for s in world.train], cfg["batch"]
     M = mini_batches(sizes, b)
-    T, k_tot, r_tot = cfg["epochs"] * M, world.n_u + 2 * world.n_r, world.n_r
+    T, k_tot, r_tot = cfg["epochs"] * M, world.n_u, world.n_r
     torch.manual_seed(cfg["seed"])
     g = np.random.Generator(np.random.PCG64([cfg["seed"], 3]))
     steps, states = [], []

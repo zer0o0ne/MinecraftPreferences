@@ -130,8 +130,12 @@ def content(path: str) -> tuple[bytes, dict, list]:
     (world states only; the states' lines 0..L-2 and L of the span, line L-1 cut)."""
     rng = np.random.default_rng(list(path.encode()))
     frames = rng.integers(0, 256, size=L * FRAME, dtype=np.uint8).tobytes()
-    info = {"id": path.rsplit("/", 1)[1], "a": rng.integers(0, ACTIONS, L).tolist(),
-            "relpath": "é"}  # fmt: skip
+    cid = path.rsplit("/", 1)[1]
+    episodes = {
+        i: r["relpath"] for s in CLIPS + PAIR_CLIPS for r in s for i in r["clips"] or ()
+    }
+    info = {"id": cid, "a": rng.integers(0, ACTIONS, L).tolist(),
+            "relpath": episodes.get(cid, "é")}  # fmt: skip
     w = float(rng.uniform(0.5, 1.5))
     n = rng.integers(1, 3, L - 1).tolist()
     first = int(rng.integers(0, 1000))
@@ -189,13 +193,21 @@ def write_inputs(repo: Path, pairs: bool) -> dict:
         write_pairs(repo / INDEX["pair_labels_dir"], PAIRS, labels_run)
         pairs_bytes = files_of(repo / "w/pair_labels/shards", "pairs.json")
         fp["pair_labels"] = labels_fingerprint(pairs_bytes)
-    return fp
+    paths = [u(i)["clip"] for i in range(5)]
+    if pairs:
+        paths += [p(j)[side] for j in range(4) for side in "ab"]
+    metadata = b"".join(
+        json.dumps([path, sha((repo / path / "clip.json").read_bytes())]).encode()
+        for path in dict.fromkeys(paths)
+    )
+    return fp | {"clip_metadata": sha(metadata)}
 
 
 def index_run(world: World, fingerprints: dict) -> dict:
     """{X}/run.json as train-index writes it once complete."""
     config = INDEX if world.pairs else INDEX | dict.fromkeys(["pair_clips_dir", "pair_labels_dir"])  # fmt: skip
-    return {"config": config, "sha256": {"config": sha(b"index"), **fingerprints},
+    return {"config": config, "semantics": "unique-clips-v1",
+            "sha256": {"config": sha(b"index"), **fingerprints},
             "states": L, "width": W, "height": H, "complete": True,
             "counts": world.counts()}  # fmt: skip
 

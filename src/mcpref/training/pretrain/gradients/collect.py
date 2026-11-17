@@ -62,10 +62,14 @@ def add_counts(target: dict, value: dict) -> None:
         target[key] += value[key]
 
 
-def micro_norms(params: dict, labelled: bool) -> dict:
+def micro_norms(params: dict, labelled: bool, own: bool) -> dict:
     return {
         "phi": {
-            group: {"phi": 0.0, "pi": 0.0, "P": 0.0 if labelled else None}
+            group: {
+                "phi": 0.0 if own else None,
+                "pi": 0.0 if own else None,
+                "P": 0.0 if labelled else None,
+            }
             for group in dict.fromkeys(group for _, group in params["phi"])
         },
         "P": (
@@ -79,12 +83,12 @@ def micro_norms(params: dict, labelled: bool) -> dict:
     }
 
 
-def micro_counts(norms: dict, labelled: bool) -> dict:
+def micro_counts(norms: dict, labelled: bool, own: bool) -> dict:
     return {
         "phi": {
             component: (
                 {group: zero_counts() for group in norms["phi"]}
-                if component != "P" or labelled
+                if (labelled if component == "P" else own)
                 else None
             )
             for component in ("phi", "pi", "P")
@@ -104,11 +108,10 @@ def collect_gradients(
     counts: dict,
     entries: dict,
     groups: Groups,
-    labelled: bool,
 ) -> None:
     for x, components in (("phi", ("phi", "pi", "P")), ("P", ("P",))):
         for component in components:
-            if component == "P" and not labelled:
+            if weighted[component] is None:
                 continue
             returned = torch.autograd.grad(
                 weighted[component],
@@ -155,9 +158,10 @@ def collect_micro(
     cuda_rng = torch.cuda.get_rng_state(device) if device.type == "cuda" else None
     try:
         labelled = weighted["P"] is not None
+        own = weighted["phi"] is not None
         params = {x: parameters(modules, groups, x) for x in ("phi", "P")}
-        norms = micro_norms(params, labelled)
-        counts = micro_counts(norms, labelled)
+        norms = micro_norms(params, labelled, own)
+        counts = micro_counts(norms, labelled, own)
         entries = {}
         with write_shard(directory, micro_batch) as staged:
             (staged / "tensors").mkdir()
@@ -170,7 +174,6 @@ def collect_micro(
                 counts,
                 entries,
                 groups,
-                labelled,
             )
             (staged / "manifest.json").write_bytes(json_bytes(entries))
         return {

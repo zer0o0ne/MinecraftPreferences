@@ -56,12 +56,12 @@ def test_stored_clip_suffix_trains_all_heads_with_aligned_targets(tmp_path, mask
         "P_loss": PreferenceLoss().double(),
     }
     loss, result = micro_loss(
-        modules, [tail, tail], [(0, 1, {"p": 0.5, "inc": 0})], (1, 1, 1, 1)
+        modules, [tail, tail, tail], [(1, 2, {"p": 0.5, "inc": 0})], (1, 1, 1, 1)
     )
-    assert result.phi["z_norm"].shape == (2, 3)
-    assert result.phi["changed"].shape == (2, 2)
+    assert result.phi["z_norm"].shape == (1, 3)
+    assert result.phi["changed"].shape == (1, 2)
     target = result.policy[1]
-    assert target.shape == (2, 1, len(masks.names))
+    assert target.shape == (1, 1, len(masks.names))
     assert target[..., masks.names.index("jump")].eq(1).all()
     loss.backward()
     for name in ("phi", "pi", "P"):

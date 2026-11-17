@@ -12,7 +12,7 @@ from mcpref.training.pretrain.references.reference import (
     write_global_fit,
 )
 from training.pretrain.loop_run import Loop
-from training.pretrain.loop_world import World, p
+from training.pretrain.loop_world import World, p, u
 from training.pretrain.references.reference_oracle import (
     count_item_reads,
     full_world,
@@ -62,7 +62,9 @@ def test_loop_degenerate_global_fits(
         {**p(i), "labels": {"p": value, "inc": int(value is None)}}
         for i, value in enumerate(labels)
     ]
-    loop = Loop(tmp_path, world=World(train=[items], validation=[items[:1]])).write()
+    loop = Loop(
+        tmp_path, world=World(train=[[u(0), *items]], validation=[items[:1]])
+    ).write()
     loop.run()
     got = load_global_fit(loop.out)
     incomparable = sum(value is None for value in labels)

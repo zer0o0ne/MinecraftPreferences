@@ -34,7 +34,7 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 | $\pi$ policy | last $L_\pi$ latent states and the actions executed in their intervals | the logits over $A$; $\widehat{\Delta z}(a)$ of a given action $a$ (`specs/policy.md`) | pretraining loop (action + shift regression), joint RL loop (PPO + factual-shift regression) |
 
 ## Pretraining (VPT dataset)
-- **One loop** ([U] 2026-10-20; blocks 29, 7): P1, P4 and P5 are trained together on unlabeled clips (losses of φ and π) mixed in their natural proportion with labeled pairs of P2, P3 (losses of φ and π on each clip of the pair, plus P's loss); the gradients of π's and P's losses flow into φ; P5 with the one-interval delay of Q MCTS-10. With `retrain: true`, a second resumable phase then freezes φ and retrains π and P on the same items and fixed labels for the same number of epochs with a fresh heads-only AdamW.
+- **One loop** (blocks 29, 7): P1 and P5 use one standalone item per unique clip in the union of ordinary clips and labeled-pair endpoints. P4 uses each original labeled pair of P2, P3 once for preference loss only. These two item populations are mixed in their natural proportion, each item once per epoch, with separate population normalizations; the comparison graph's vertex degree does not weight the own φ/π objectives. Both π's and P's losses flow into φ, and every pair keeps its two histories together. P5 retains the one-interval delay of Q MCTS-10. With `retrain: true`, a second resumable phase freezes φ and retrains π and P with the same item routing and fixed labels for the same number of epochs and a fresh heads-only AdamW.
 - **P1 Perception** (block 2, `specs/perception.md`). Clips of $L$ consecutive states, with the number $n$ of legal actions of every interval (Q G-12, PER-9); $\phi$ over each clip as one stream. Loss per pair of neighbouring states, averaged over the clip: METRA's perception loss without the skill — maximise $d_\alpha(z_t, z_{t+1})$ subject to $d_\alpha^2 \le n^2$ via METRA's dual variable and slack — on the pairs whose meta or pixels changed (Q PER-8), plus $\beta \max(0, \lVert z \rVert_2^2 - c^2)$ for both $z_t, z_{t+1}$. Large $\alpha_i$ allow long chains along coordinate $i$ inside the ball.
 - **P2 VLM labels** (blocks 23, 4). Recording sessions of the VPT dataset, each one world, reconstructed from line 0 of every episode; clips of up to $e$ episodes of a drawn session; inside each session a random comparison graph (random partners, connected, cycles topped up). `Qwen3-VL-30B-A3B-Instruct-FP8`, served on an NVIDIA DGX Spark (`specs/vlm-client.md`), gets each state as its last screenshots plus its inventory and grades the first against the second in six steps (much worse … much better) or refuses; both orders, several samples (`specs/preference-pool.md`, `specs/vlm-labels.md`).
 - **P3 Correction** (block 3). Each grade has a weight in $[0, 1]$; a comparison with a share of refusals above a threshold is incomparable, else its weight $w \ge 0.5$ is the mean grade weight, its arc from the preferred clip with cost $w - 0.5$; $C$ = Eades' acyclic subgraph of the whole graph, removed arcs put back when they close no cycle; arcs still removed become incomparable (`specs/acyclic.md`).
@@ -53,9 +53,11 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 
 ## Data flow
 ```
-VPT dataset ─perception-data→ clips ─────────────────────────────────────────────┐
+VPT dataset ─perception-data→ ordinary clips ────────────────────────────────────┐
 VPT dataset ─preference-pool→ pair clips ─P2 (VLM)→ labels ─P3 (C)→ pair labels ─┤
-                                                                                 └─ train-index → pretraining loop → φ0, P0, π0
+                              └─ labeled-pair endpoint clips ──────────────────┤
+                           train-index: unique clip union + unchanged pairs ←──┘
+                                      └─ one mixed pretraining loop → φ0, P0, π0
 (φ, P, π, M, T) + env ─R1→ trajectory τ, trees ─R3 pair production→ fixed pairs
        └──────────────────────→ joint METRA + preference + PPO/shift loop → (φ', P', π') ─R5→ M' ─→ R1 …
 ```
@@ -72,7 +74,7 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 4 | vlm-labels — prompt, both orders, samples, parsed answers | P2 | 0, 23 | `specs/vlm-labels.md` |
 | 5 | preference — $P$ (S and X transformer layers over two latent histories, tied linear head) and its loss | P4, R1, R3 | 2, 7 | `specs/preference.md` |
 | 6 | policy — $\pi$ (causal transformer over latents and executed actions; logits; the shift of a given action) and the P5 loss; `main` of the pretraining loop | P5, R1, R2, R4 | 2, 5, 7, 26 | `specs/policy.md` |
-| 7 | pretrain — one loop training φ, π and P; per-step/window/reference and selected gradient-flow diagnostics (pretrain-diagnostics) | P1, P4, P5 | 29 | G |
+| 7 | pretrain — one loop: unique-clip φ/π objectives plus pair-only preferences; per-step/window/reference and selected gradient-flow diagnostics (pretrain-diagnostics) | P1, P4, P5 | 29 | G |
 | 8 | mcts — search, decision, tree storage | R1 | 5, 6 | `specs/mcts.md` |
 | 9 | env-sampling — environment loop and trajectory record | R1 | 2, 5, 6, 7, 8, 14 | `specs/env-sampling.md` |
 | 12 | ppo — independent $H$-step preference advantages, clipped policy loss, factual-shift regression and METRA perception loss; EBU deferred | R2, R4 | 2, 5, 6, 8, 9 | `specs/ppo.md`, EBU |
@@ -93,7 +95,7 @@ Each goes through the block cycle; split or merge when its spec is clarified.
 | 26 | action-mask — the mask of $A$ per state from the GUI flag, the screen class, the pitch and the hotbar slot; block 21 drops what it forbids | P5, R1 | 15, 21 | `specs/action-mask.md` |
 | 27 | shards — on-disk shards of every dataset: atomic, durable, in order (AGENTS.md Code, Data) | all data stages | — | `specs/shards.md` |
 | 28 | gui-classifier — the pipeline's screen classifier: variant (d) of block 18 from its templates and thresholds; latency budget | P1, P2 data, R1 (env) | 18 | GX |
-| 29 | train-index — shuffled index shards: references to unlabeled clips and labeled pairs, train / validation split by groups of episodes linked by pairs | P1, P4, P5 data | 25, 23, 3 | — |
+| 29 | train-index — shuffled unique clip union and original labeled pairs; train / validation split by episode components of the comparison graph | P1, P4, P5 data | 25, 23, 3 | — |
 | 30 | runs — the run files of the blocks: completeness of another block's output, fingerprints, JSON files, file hashes | all | 27 | — |
 | 31 | engine — MineStudio simulator install on the Spark (apt, engine jar with LWJGL 3.2.3 arm64, Python deps), `check_sim.sh` | R1 | S, 27 | `specs/engine.md` |
 | 32 | rl-preference-pairs — fresh-trajectory/History pair sampling, self-label correction, fixed preference pairs and deferred persistent-memory publication | R3, R5 | 2, 3, 5, 9 | `specs/rl-preference-pairs.md` |
@@ -115,7 +117,7 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `infrastructure/shards` → every block that builds or reads a dataset → `specs/shards.md`
 - `infrastructure/runs` → every block with a run.json → `specs/runs.md`
 - `infrastructure/progress.py` → shared resumable-shard progress reporting
-- `training/pretrain` → pretraining → `specs/train-index.md`, `specs/pretrain.md`, `specs/pretrain-diagnostics.md`
+- `training/pretrain` → unique-clip indexing and joint clip/pair pretraining → `specs/train-index.md`, `specs/pretrain.md`, `specs/pretrain-diagnostics.md`
 - `datasets/pool` → P2 data → `specs/preference-pool.md`
 - `datasets/preferences` → P2, P3 labels and correction → `specs/vlm-labels.md`, `specs/acyclic.md`
 - `models/preference` → P4 (later R1, R3) → `specs/preference.md`

@@ -159,6 +159,23 @@ class Site:
         """{out_dir}/run.json after (R') or, complete, after (W)."""
         c = read(self.at("clips_dir") / "run.json")
         value = oracle.run_json(self.path.read_bytes(), self.fingerprints(), c)
+        u = oracle.unlabeled(self.world.clips, self.config["clips_dir"])
+        r = (
+            oracle.labeled(self.world.pairs, self.config["pair_clips_dir"])
+            if self.pairs_on
+            else []
+        )
+        paths = list(
+            dict.fromkeys(
+                [item["clip"] for item, _ in u]
+                + [item[side] for item, _, _ in r for side in ("a", "b")]
+            )
+        )
+        encoded = [
+            json.dumps([p, oracle.sha((self.repo / p / "clip.json").read_bytes())])
+            for p in paths
+        ]
+        value["sha256"]["clip_metadata"] = oracle.sha("".join(encoded).encode())
         if complete:
             value |= {"complete": True, "counts": self.expected().counts}
         return json_bytes(value)

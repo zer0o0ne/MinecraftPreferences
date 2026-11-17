@@ -29,10 +29,14 @@ from mcpref.infrastructure.runs.files import (
 )
 from mcpref.infrastructure.shards.store import complete_shards, write_shard
 from mcpref.training.pretrain.data.items import PARTS, read_inputs, split
+from mcpref.training.pretrain.data.semantics import (
+    INDEX_SEMANTICS,
+    validate_destination,
+)
 
 PROG = "mcpref.training.pretrain.data.index"
 PAIR_DIRS = ("pair_clips_dir", "pair_labels_dir")
-FINGERPRINTS = ("config", "clips", "pair_clips", "pair_labels")
+FINGERPRINTS = ("config", "clips", "pair_clips", "pair_labels", "clip_metadata")
 
 
 @dataclass(frozen=True)
@@ -99,6 +103,7 @@ def header(
     check_fingerprints(REPO / cfg.out_dir / "run.json", sha, cfg.out_dir)
     run = {
         "config": yaml.safe_load(path.read_text()),
+        "semantics": INDEX_SEMANTICS,
         "sha256": sha,
         "states": c["config.states"],
         "width": c["config.width"],
@@ -128,6 +133,7 @@ def write_parts(out: Path, shuffled: list[list[dict]], B: int) -> None:
 
 def run(cfg: TrainIndexConfig, path: Path) -> None:
     """Behaviour: (R), (I), (1)-(3), (R'), (W) in order; run.json complete at last."""
+    validate_destination(REPO / cfg.out_dir, cfg.out_dir)
     fields, labels = checks(cfg)
     entries, fingerprints = read_inputs(cfg, fields)
     shuffled, counts = split(cfg, entries)

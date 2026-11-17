@@ -129,6 +129,18 @@ def expected(clips: list, pairs: list | None, config: dict) -> Expected:
     shards (pairs None: no pairs)."""
     u = unlabeled(clips, config["clips_dir"])
     r = labeled(pairs, config["pair_clips_dir"]) if pairs is not None else []
+    candidates = u + [
+        ({"clip": item[side]}, e)
+        for item, a, b in r
+        for side, e in (("a", a), ("b", b))
+    ]
+    # These fixtures use a fixed-length consecutive history starting at the id's tick.
+    identities, u = set(), []
+    for item, e in candidates:
+        identity = (e, int(item["clip"].rsplit("_", 1)[1]))
+        if identity not in identities:
+            identities.add(identity)
+            u.append((item, e))
     eps = episodes(u, r)
     group = groups(eps, r)
     g = np.random.Generator(np.random.PCG64([config["seed"], 2]))
@@ -170,6 +182,7 @@ def run_json(config_bytes: bytes, fingerprints: dict, clips_run: dict) -> dict:
     sha256 = {"config": sha(config_bytes), **fingerprints}
     return {
         "config": yaml.safe_load(config_bytes),
+        "semantics": "unique-clips-v1",
         "sha256": sha256,
         "states": clips_run["config"]["states"],
         "width": clips_run["config"]["width"],

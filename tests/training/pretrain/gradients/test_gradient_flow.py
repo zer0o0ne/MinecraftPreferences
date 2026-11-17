@@ -456,7 +456,7 @@ def test_gradient_progress_totals_and_selection_reuse(tmp_path):
         return values
 
     assert totals("pretrain gradient flow collect") == [2, 1, 2]
-    assert totals("pretrain gradient flow reduce") == [20, 15, 20]
+    assert totals("pretrain gradient flow reduce") == [15, 10, 15]
     assert totals("pretrain gradient flow pairs") == [2, 2, 2]
     (loop.out / "model.pt").unlink()
     mods = loop.modules()

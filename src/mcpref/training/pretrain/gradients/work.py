@@ -47,6 +47,8 @@ def load_vector(
     shape = None
     for index, manifest in enumerate(manifests):
         for identifier, entry in manifest.items():
+            if (entry["x"], entry["parameter"]) == (x, parameter):
+                shape = entry["shape"]
             if (entry["x"], entry["component"], entry["parameter"]) != (
                 x,
                 component,

@@ -4,6 +4,7 @@ block must ignore; a hand-built world and random ones; edits of their JSON files
 
 import json
 import random
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -181,10 +182,25 @@ def write_clips(directory: Path, shards: list, run: dict) -> None:
         shard = directory / "shards" / k
         write_json(shard / "records.json", records)
         write_json(shard / "state.json", {"generator": {}, "clips": 0})
-        for i in [i for r in records for i in r["clips"] or ()]:
-            write_json(shard / "clips" / i / "clip.json", {"id": i})
-            (shard / "clips" / i / "frames.yuv").write_bytes(b"")
-            (shard / "clips" / i / "lines.jsonl").write_bytes(b"")
+        for r in records:
+            for i in r["clips"] or ():
+                start = int(re.search(r"\d+$", i).group())
+                n = run["config"]["states"]
+                info = {
+                    "id": i,
+                    "subset": r["subset"],
+                    "relpath": r["relpath"],
+                    "version": r["relpath"].split("/")[0],
+                    "states": list(range(start, start + n)),
+                    "actions": [{}] * (n - 1),
+                    "n": [1] * (n - 1),
+                    "gui": [False] * n,
+                    "classes": [None] * n,
+                    "pitch": [0] * n,
+                }
+                write_json(shard / "clips" / i / "clip.json", info)
+                (shard / "clips" / i / "frames.yuv").write_bytes(b"")
+                (shard / "clips" / i / "lines.jsonl").write_bytes(b"")
 
 
 def write_labels(directory: Path, shards: list, run: dict) -> None:

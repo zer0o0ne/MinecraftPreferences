@@ -2,6 +2,7 @@
 
 import inspect
 import math
+from dataclasses import replace
 
 import pytest
 import torch
@@ -192,6 +193,77 @@ def test_window_null_loss_coverage_and_unavailable_updates():
     update = got["updates"]["groups"]["g"]
     assert update == {"mean_norm": None, "mean_relative": None, "norm_steps": 0, "relative_steps": 0,
                       "unavailable": {"zero_decay_factor": 1}}  # fmt: skip
+
+
+def pair_only_record(step: int) -> tuple[dict, StepObservations]:
+    entry, observations = record(step, rows([0.5], [0.5], [0.0], [0]))
+    for name in ("phi", "pi"):
+        entry[name] = None
+        entry["components"][name] = None
+    for name in (
+        "clips",
+        "action_targets",
+        "shift_targets",
+        "phi_changed",
+        "phi_state_pairs",
+    ):
+        entry["counts"][name] = 0
+    return entry, replace(
+        observations, policy=None, phi=PhiObservations(0, 0, 0, 0, 0, 0, 0)
+    )
+
+
+def test_pair_only_window_has_no_own_loss_baselines_or_target_counts():
+    acc = accumulator()
+    for step in (1, 2):
+        acc.add(*pair_only_record(step))
+    (got,) = acc.drain()
+    for name in ("phi", "pi"):
+        assert got["losses"][name] is None
+        assert got["coverage"]["losses"][name] == 0
+        assert all(
+            value is None for value in got["losses"]["components"][name].values()
+        )
+        assert set(got["coverage"]["losses"]["components"][name].values()) == {0}
+    assert got["counts"]["pairs"] == 2
+    assert all(
+        got["counts"][key] == 0
+        for key in (
+            "clips",
+            "action_targets",
+            "shift_targets",
+            "phi_changed",
+            "phi_state_pairs",
+        )
+    )
+    assert got["coverage"]["pi"] == {"uniform": 0, "copy_current": 0, "zero_shift": 0}
+    assert all(
+        got["pi"][key] is None
+        for key in (
+            "uniform",
+            "copy_current",
+            "zero_shift",
+            "empirical_constant_oracle",
+        )
+    )
+    assert got["pi"]["action"]["count"] == 0
+    assert got["phi"]["d_alpha_mean"] is got["phi"]["z_norm_mean"] is None
+
+
+def test_mixed_window_excludes_pair_only_steps_from_own_loss_means():
+    acc = accumulator()
+    acc.add(*pair_only_record(1))
+    acc.add(*record(2, None))
+    (got,) = acc.drain()
+    assert got["losses"]["phi"] == 1.0 and got["losses"]["pi"] == 2.0
+    assert got["coverage"]["losses"]["phi"] == got["coverage"]["losses"]["pi"] == 1
+    assert got["coverage"]["pi"] == {"uniform": 1, "copy_current": 1, "zero_shift": 1}
+    assert got["counts"]["clips"] == 1 and got["counts"]["pairs"] == 1
+    assert got["counts"]["action_targets"] == got["counts"]["shift_targets"] == 3
+    assert got["pi"]["action"]["count"] == 3
+    assert got["pi"]["uniform"] == pytest.approx(math.log(2))
+    assert got["pi"]["copy_current"] == 0.4
+    assert got["phi"]["d_alpha_mean"] == 1.0
 
 
 def test_inactive_gradient_means_exclude_steps():

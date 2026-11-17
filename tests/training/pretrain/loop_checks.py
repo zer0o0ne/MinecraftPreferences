@@ -25,7 +25,10 @@ def assert_entry(got: dict, want: dict) -> None:
                          "outputs", "phi_stats", "gradients", "updates", "baselines"]  # fmt: skip
     assert got["step"] == want["step"] and type(got["step"]) is int
     for k in ("phi", "pi", "loss"):
-        assert got[k] == pytest.approx(want[k], rel=1e-9, abs=1e-12), k
+        if want[k] is None:
+            assert got[k] is None, k
+        else:
+            assert got[k] == pytest.approx(want[k], rel=1e-9, abs=1e-12), k
     assert (got["P"] is None) == (want["P"] is None)
     if want["P"] is not None:
         assert got["P"] == pytest.approx(want["P"], rel=1e-9)

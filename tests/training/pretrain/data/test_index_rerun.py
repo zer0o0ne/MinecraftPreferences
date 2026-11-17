@@ -44,7 +44,7 @@ def test_bars_of_a_run(make_site):
     r = site.run()
     assert r.code == 0 and r.stdout == "", r.err
     assert_progress(r.err)
-    assert screen(r.err) == [INPUTS, Bar("index shards", 7, 7, "item")]
+    assert screen(r.err) == [INPUTS, Bar("index shards", 10, 10, "item")]
     assert {b.n for b in states(r.err, "index shards")} <= {0, *cuts(site)}
 
 
@@ -61,7 +61,7 @@ def test_run_json_after_the_checks(make_site):
     """(R'): run.json written before the first shard, without `complete` and `counts`."""
     site = make_site()
     r = site.run(interrupting("index shards", 1))
-    assert assert_aborted(r.code, r.err) == [INPUTS, Bar("index shards", 3, 7, "item")]
+    assert assert_aborted(r.code, r.err) == [INPUTS, Bar("index shards", 3, 10, "item")]
     assert (site.out / "run.json").read_bytes() == site.expected_run(complete=False)
 
 

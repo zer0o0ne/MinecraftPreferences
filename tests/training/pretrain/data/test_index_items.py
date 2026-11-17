@@ -24,6 +24,11 @@ R = [  # R of HAND, its Q_c clips at w/pair_clips
     {"a": "w/pair_clips/shards/000000/clips/b_90",
      "b": "w/pair_clips/shards/000000/clips/b_0", "labels": LABELS[2]},
 ]  # fmt: skip
+ENDPOINTS = [
+    {"clip": "w/pair_clips/shards/000000/clips/d_3"},
+    {"clip": "w/pair_clips/shards/000001/clips/e_5"},
+    {"clip": "w/pair_clips/shards/000000/clips/b_90"},
+]
 ZERO = {"clips": 0, "pairs": 0, "episodes": 0}
 
 
@@ -42,9 +47,9 @@ def test_items_of_unlabeled_clips_and_pairs(make_site):
     r = site.run()
     assert r.code == 0, r.err
     [shard] = items(site.out, "train")
-    assert sorted(shard, key=key) == sorted(U + R, key=key)
+    assert sorted(shard, key=key) == sorted(U + ENDPOINTS + R, key=key)
     assert items(site.out, "validation") == []
-    assert counts(site) == {"train": {"clips": 4, "pairs": 3, "episodes": 5},
+    assert counts(site) == {"train": {"clips": 7, "pairs": 3, "episodes": 5},
                             "validation": ZERO}  # fmt: skip
 
 
@@ -70,7 +75,7 @@ def test_item_paths_from_the_config_strings(make_site):
     site.write()
     assert site.run().code == 0
     [shard] = items(site.out, "train")
-    assert sorted(shard, key=key) == sorted(U + R, key=key)
+    assert sorted(shard, key=key) == sorted(U + ENDPOINTS + R, key=key)
 
 
 def episode_parts(site, world) -> dict:
@@ -154,4 +159,5 @@ def test_pretrain_resolves_inherited_shard_size_from_stored_config(make_site):
         cfg = SimpleNamespace(
             batch=2, epochs=1, index_dir="w/index", perception=str(perception)
         )
-        assert part(cfg, run).sizes == [4, 3]
+        assert part(cfg, run).sizes == [4, 4, 2]
+        assert part(cfg, run).k_tot == 7

@@ -86,7 +86,7 @@ class PhiObservations:
 @dataclass(frozen=True)
 class StepObservations:
     preference: PreferenceRows | None
-    policy: PolicyObservations
+    policy: PolicyObservations | None
     phi: PhiObservations
     raw_policy: tuple = ()
 
@@ -129,13 +129,16 @@ def action_suite(
 
 
 def policy_suite(
-    observations: Sequence[PolicyObservations],
+    observations: Sequence[PolicyObservations | None],
     *,
     calibration_bins: int,
     copy_eps: float,
     full: bool,
 ) -> dict:
     """(16): step action rows or a pooled policy suite."""
+    observations = [
+        observation for observation in observations if observation is not None
+    ]
     action = action_suite(observations, calibration_bins, full)
     if not full:
         return action

@@ -20,8 +20,8 @@ from mcpref.models.policy.targets import next_actions
 @dataclass(frozen=True)
 class MicroObservations:
     preference: PreferenceRows | None
-    policy: dict[str, Tensor | int]
-    phi: dict[str, Tensor | int]
+    policy: dict[str, Tensor | int] | None
+    phi: dict[str, Tensor | int] | None
     state_rows: int
     raw_policy: dict = field(default_factory=dict)
 
@@ -194,6 +194,8 @@ POLICY_SCALARS = (
 
 
 def finish_policy(micro: list[MicroObservations]) -> list[PolicyObservations]:
+    if not micro:
+        return []
     actions = micro[0].policy["q_sum"].numel()
     bins = micro[0].policy["calibration_count"].numel()
     packed = []
@@ -251,6 +253,8 @@ def finish_policy(micro: list[MicroObservations]) -> list[PolicyObservations]:
 
 
 def finish_phi(micro: list[MicroObservations]) -> list[PhiObservations]:
+    if not micro:
+        return []
     keys = ("d_sum", "d_changed_sum", "changed", "z_norm_sum", "hinge_active")
     rows = (
         torch.stack([torch.stack([item.phi[key] for key in keys]) for item in micro])
@@ -290,7 +294,11 @@ def step_preferences(micro: list[MicroObservations]) -> PreferenceRows | None:
     )
 
 
-def step_policy(micro: list[MicroObservations], clips: int) -> PolicyObservations:
+def step_policy(
+    micro: list[MicroObservations], clips: int
+) -> PolicyObservations | None:
+    if not micro:
+        return None
     first = micro[0]
     denominator = clips * first.state_rows
     q_sum = (
@@ -344,14 +352,15 @@ def step_phi(micro: list[MicroObservations]) -> PhiObservations:
 def step_observation(micro: list[MicroObservations], clips: int) -> StepObservations:
     """Bounded per-step sufficient statistics; q_sum has the weights of (16)."""
     preference = step_preferences(micro)
-    policies, phis = finish_policy(micro), finish_phi(micro)
+    own = [item for item in micro if item.policy is not None]
+    policies, phis = finish_policy(own), finish_phi(own)
     finished = [
         MicroObservations(None, policy, phi, item.state_rows, item.raw_policy)
-        for item, policy, phi in zip(micro, policies, phis)
+        for item, policy, phi in zip(own, policies, phis)
     ]
     return StepObservations(
         preference,
         step_policy(finished, clips),
         step_phi(finished),
-        tuple(item.raw_policy for item in micro),
+        tuple(item.raw_policy for item in own if item.raw_policy),
     )

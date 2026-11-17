@@ -35,19 +35,21 @@ def clips() -> list:
     return out
 
 
-def original_loss(modules: dict, clips: list, pairs: list) -> tuple:
-    """The pre-PT-1 call path, with independent preparation in phi and its loss."""
+def reference_loss(modules: dict, clips: list, pairs: list) -> tuple:
+    """Prepare own clips independently of encoding, under the separated objective."""
     k_factor, w_phi, w_pi, r_factor = FACTORS
     Z = modules["phi"](clips)
-    phi_terms, diagnostics = modules["phi_loss"].terms(Z, clips)
-    pi_out = modules["pi"](Z, clips)
-    pi_terms, _, _ = modules["pi_loss"].terms(pi_out, Z, clips)
+    own = list(range(2, len(clips)))
+    own_clips = clips[2:]
+    phi_terms, diagnostics = modules["phi_loss"].terms(Z[own], own_clips)
+    pi_out = modules["pi"](Z[own], own_clips)
+    pi_terms, _, _ = modules["pi_loss"].terms(pi_out, Z[own], own_clips)
     loss = k_factor * (w_phi * phi_terms["total"] + w_pi * pi_terms["total"]).sum()
     if pairs:
         i_a, i_b, labels = (list(x) for x in zip(*pairs))
         out = modules["P"](Z[i_a], Z[i_b])
         loss = loss + r_factor * modules["P_loss"].terms(out, labels)["total"].sum()
-    return loss, Z, diagnostics
+    return loss, Z[own], diagnostics
 
 
 def gradients(modules: dict) -> dict[str, torch.Tensor]:
@@ -59,7 +61,9 @@ def gradients(modules: dict) -> dict[str, torch.Tensor]:
     }
 
 
-def test_micro_loss_prepares_once_and_matches_original_bitwise(tmp_path, monkeypatch):
+def test_micro_loss_prepares_once_and_matches_separate_preparation(
+    tmp_path, monkeypatch
+):
     cfg = config(tmp_path, alpha=[1.0, 2.0])
     phi = Phi(backbone(), tokenizer(), cfg).to(F64)
     phi.A = torch.nn.Parameter(
@@ -80,9 +84,9 @@ def test_micro_loss_prepares_once_and_matches_original_bitwise(tmp_path, monkeyp
     phi.batch_frames_z = lambda states: [phi.frames_z(*state) for state in states]
     modules = fakes(noise=False, stateful=False)
     modules["phi"], modules["phi_loss"] = phi, PhiLoss(cfg).to(F64)
-    cs, pairs = clips(), [(0, 1, {"p": 1.0, "inc": 0})]
+    cs, pairs = clips() + clips(), [(0, 1, {"p": 1.0, "inc": 0})]
 
-    expected_loss, expected_Z, expected_diagnostics = original_loss(modules, cs, pairs)
+    expected_loss, expected_Z, expected_diagnostics = reference_loss(modules, cs, pairs)
     expected_loss.backward()
     expected_gradients = gradients(modules)
     for module in modules.values():
@@ -116,14 +120,15 @@ def test_micro_loss_prepares_once_and_matches_original_bitwise(tmp_path, monkeyp
     loss.backward()
 
     assert calls == cs
-    assert len(model_inputs) == len(changed_inputs) == len(cs)
-    for clip, model, changed in zip(cs, model_inputs, changed_inputs):
+    assert len(model_inputs) == len(cs)
+    assert len(changed_inputs) == len(cs[2:])
+    for clip, model, changed in zip(cs[2:], model_inputs[2:], changed_inputs):
         assert model[0] is changed[0] and model[1] is changed[1]
         for frame, expected in zip(model[0], oracle.frames(clip)):
             np.testing.assert_array_equal(frame, expected)
         assert model[1] == oracle.metas(clip, values(tmp_path, alpha=[1.0, 2.0]))
     assert result.phi["changed"].tolist() == [
-        oracle.chi(c, values(tmp_path)) for c in cs
+        oracle.chi(c, values(tmp_path)) for c in cs[2:]
     ]
 
     assert loss.equal(expected_loss)
@@ -133,4 +138,6 @@ def test_micro_loss_prepares_once_and_matches_original_bitwise(tmp_path, monkeyp
     actual_gradients = gradients(modules)
     assert actual_gradients.keys() == expected_gradients.keys()
     for key, expected in expected_gradients.items():
-        torch.testing.assert_close(actual_gradients[key], expected, rtol=0, atol=0)
+        torch.testing.assert_close(
+            actual_gradients[key], expected, rtol=1e-14, atol=1e-15
+        )

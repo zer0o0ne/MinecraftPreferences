@@ -1,25 +1,24 @@
 """(R) of specs/pretrain.md: index, inputs' fingerprints and run.json checks."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import yaml
 
 from mcpref.config import REPO, config_sha256, resolve_config
 from mcpref.gui.mask import load_config as load_mask_config
-from mcpref.infrastructure.progress import shard_bar
 from mcpref.infrastructure.runs.files import (
     check_fingerprints,
     clip_fields,
-    fingerprint,
     finished_run,
     sha256,
     write_json,
 )
-from mcpref.infrastructure.shards.store import complete_shards
 from mcpref.training.checkpoints import Modules
 from mcpref.training.pretrain.config import CONFIGS, PretrainConfig
 from mcpref.training.pretrain.data.index import FINGERPRINTS
-from mcpref.training.pretrain.data.items import PAIRS, RECORDS
+from mcpref.training.pretrain.data.items import read_inputs
+from mcpref.training.pretrain.data.semantics import validate_index
 
 MODULES = ("phi", "phi_loss", "pi", "pi_loss", "P", "P_loss")
 
@@ -27,6 +26,7 @@ MODULES = ("phi", "phi_loss", "pi", "pi_loss", "P", "P_loss")
 def index_run(cfg: PretrainConfig) -> dict:
     """(R) 1, 2: {X}/run.json complete, N >= 1."""
     run = finished_run(REPO / cfg.index_dir, cfg.index_dir, "complete")
+    validate_index(run, cfg.index_dir)
     if run["counts"]["train"]["clips"] + run["counts"]["train"]["pairs"] < 1:
         raise RuntimeError(f"{cfg.index_dir} has no training item")
     return run
@@ -49,11 +49,7 @@ def check_inputs(cfg: PretrainConfig, run: dict) -> None:
     paired = c["pair_clips_dir"] is not None
     clips = [c["clips_dir"], *([c["pair_clips_dir"]] if paired else [])]
     fields = [clip_fields(finished_run(REPO / d, d, "clips")) for d in clips]
-    datasets = [(d, RECORDS, f) for d, f in zip(clips, fields)]
-    datasets += [(c["pair_labels_dir"], PAIRS, None)] if paired else []
-    n = sum(complete_shards(REPO / d / "shards") for d, _, _ in datasets)
-    with shard_bar("pretrain inputs", n, 0, n, 0, "shard") as update:
-        found = [fingerprint(d, file, f, update) for d, file, f in datasets]
+    _, found = read_inputs(SimpleNamespace(**c), fields, desc="pretrain inputs")
     for name, value in zip(FINGERPRINTS[1:], found):
         if run["sha256"][name] != value:
             raise RuntimeError(f"{name} changed since {cfg.index_dir} was built")

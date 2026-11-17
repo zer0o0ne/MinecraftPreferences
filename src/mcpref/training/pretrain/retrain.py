@@ -117,7 +117,13 @@ def retrain(cfg: PretrainConfig, modules: dict, data: Part) -> None:
                     )
                     prune(directory, j, cfg.keep_checkpoints)
                     j, losses = j + 1, []
-                bar.set_postfix({key: entry[key] for key in ("phi", "pi", "P", "loss")})
+                bar.set_postfix(
+                    {
+                        key: entry[key]
+                        for key in ("phi", "pi", "P", "loss")
+                        if entry[key] is not None
+                    }
+                )
                 bar.update()
     write_model(root / "model.pt", modules)
     write_json(marker, {"complete": True, "steps": data.total})

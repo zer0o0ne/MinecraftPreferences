@@ -1,4 +1,4 @@
-"""Original pretrain losses, ordinary observations and selected component work."""
+"""Pretrain item losses, ordinary observations and selected component work."""
 
 from collections.abc import Callable
 from contextlib import closing, nullcontext
@@ -42,8 +42,12 @@ def clips_and_pairs(items: list[dict]) -> tuple[list[str], Pairs]:
 
 def component_means(totals: dict, clips: int, pairs: int) -> dict:
     return {
-        "phi": {key: value / clips for key, value in totals["phi"].items()},
-        "pi": {key: value / clips for key, value in totals["pi"].items()},
+        "phi": {key: value / clips for key, value in totals["phi"].items()}
+        if clips
+        else None,
+        "pi": {key: value / clips for key, value in totals["pi"].items()}
+        if clips
+        else None,
         "P": (
             {key: value / pairs for key, value in totals["P"].items()}
             if pairs
@@ -67,8 +71,10 @@ def step_counts(
         "comparable": comparable,
         "incomparable": pairs - comparable,
         "sum_p": sum_p if comparable else None,
-        "action_targets": observations.policy.action_valid,
-        "shift_targets": observations.policy.shift_valid,
+        "action_targets": observations.policy.action_valid
+        if observations.policy
+        else 0,
+        "shift_targets": observations.policy.shift_valid if observations.policy else 0,
         "phi_changed": observations.phi.changed,
         "phi_state_pairs": observations.phi.state_pairs,
     }
@@ -76,15 +82,15 @@ def step_counts(
 
 def logging_row(result: MicroResult, loss: torch.Tensor) -> list[torch.Tensor]:
     zero = loss.detach().new_zeros(())
-    preference = result.components["P"]
     return [
         *result.sums,
         loss.detach(),
-        *(result.components["phi"][key] for key in COMPONENT_KEYS["phi"]),
-        *(result.components["pi"][key] for key in COMPONENT_KEYS["pi"]),
         *(
-            preference[key] if preference is not None else zero
-            for key in COMPONENT_KEYS["P"]
+            result.components[name][key]
+            if result.components[name] is not None
+            else zero
+            for name, keys in COMPONENT_KEYS.items()
+            for key in keys
         ),
     ]
 
@@ -163,27 +169,31 @@ def gradient_steps(
                         progress.update()
                         progress.refresh()
             with phase("diagnostics.observations"):
-                policy, state_rows = policy_observation(
-                    result.policy, cfg.calibration_bins, cfg.action_copy_eps
-                )
+                own_clips = [clips[i] for i in result.clip_indices]
+                policy, state_rows, raw_policy = None, 0, {}
+                if result.policy is not None:
+                    policy, state_rows = policy_observation(
+                        result.policy, cfg.calibration_bins, cfg.action_copy_eps
+                    )
+                    raw_policy = raw_policy_observation(
+                        result.policy,
+                        own_clips,
+                        getattr(modules["pi_loss"], "masks", None),
+                    )
                 micro.append(
                     MicroObservations(
                         preference_observation(result.preference, deferred=True),
                         policy,
-                        phi_observation(result.phi),
+                        phi_observation(result.phi) if result.phi is not None else None,
                         state_rows,
-                        raw_policy_observation(
-                            result.policy,
-                            clips,
-                            getattr(modules["pi_loss"], "masks", None),
-                        ),
+                        raw_policy,
                     )
                 )
                 scalar_rows.append(logging_row(result, loss))
                 p_present.append(result.components["P"] is not None)
                 sum_p += sum(pair[2]["p"] for pair in pairs if pair[2]["inc"] == 0)
-                n_k, n_r = n_k + len(paths), n_r + len(pairs)
-            del clips, loss, result
+                n_k, n_r = n_k + len(own_clips), n_r + len(pairs)
+            del clips, own_clips, loss, result
     with phase("diagnostics.reduce"):
         totals, component_totals, dual_lambda = finish_scalars(
             scalar_rows, p_present, modules["phi_loss"].log_lambda.exp().detach()
@@ -191,8 +201,8 @@ def gradient_steps(
         phi, pi, P, loss = totals
         observations = step_observation(micro, n_k)
     logged = {
-        "phi": phi / n_k,
-        "pi": pi / n_k,
+        "phi": phi / n_k if n_k else None,
+        "pi": pi / n_k if n_k else None,
         "P": P / n_r if n_r else None,
         "loss": loss,
         "counts": step_counts(items, n_k, n_r, sum_p, observations),

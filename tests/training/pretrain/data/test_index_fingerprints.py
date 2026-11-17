@@ -45,6 +45,7 @@ def test_clips_fingerprint_by_hand(make_site):
         "clips": hashlib.sha256(data).hexdigest(),
         "pair_clips": None,
         "pair_labels": None,
+        "clip_metadata": json.loads(site.expected_run())["sha256"]["clip_metadata"],
     }
 
 

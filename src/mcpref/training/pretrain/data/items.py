@@ -17,6 +17,7 @@ from mcpref.infrastructure.runs.files import fingerprint, new_hash, shard_files
 from mcpref.infrastructure.shards.store import complete_shards, shard_path
 from mcpref.models.perception.config import load_config as load_perception_config
 from mcpref.training.pretrain.config import PretrainConfig
+from mcpref.training.pretrain.data.canonical import CanonicalClips
 from mcpref.training.schedule import n_batches
 
 if TYPE_CHECKING:
@@ -36,15 +37,15 @@ class Part:
 
 
 def part(cfg: PretrainConfig, run: dict) -> Part:
-    """Notation: |I_s| from N and B_X, M, K_tot = N_U + 2 N_R, R_tot = N_R, T = E M."""
-    n_u, n_r = run["counts"]["train"]["clips"], run["counts"]["train"]["pairs"]
+    """Notation: |I_s| from N and B_X, M, K_tot = N_C, R_tot = N_R, T = E M."""
+    n_c, n_r = run["counts"]["train"]["clips"], run["counts"]["train"]["pairs"]
     stored = resolve_config(run["config"], REPO / cfg.index_dir / "run.json")
-    b_x, n = stored["items_per_shard"], n_u + n_r
+    b_x, n = stored["items_per_shard"], n_c + n_r
     s = -(-n // b_x)
     sizes = [b_x] * (s - 1) + [n - (s - 1) * b_x]
     m = n_batches(sizes, cfg.batch)
 
-    return Part(sizes, m, n_u + 2 * n_r, n_r, cfg.epochs * m, clip_reader(cfg, run))
+    return Part(sizes, m, n_c, n_r, cfg.epochs * m, clip_reader(cfg, run))
 
 
 def clip_reader(cfg: PretrainConfig, run: dict) -> Callable[[str], Clip]:
@@ -107,32 +108,40 @@ def labeled(directory: str, pairs: list[dict]) -> list[Entry]:
 
 
 def read_inputs(
-    cfg: "TrainIndexConfig", fields: list[dict]
+    cfg: "TrainIndexConfig", fields: list[dict], desc: str = "index inputs"
 ) -> tuple[list[Entry], list[str | None]]:
-    """(I), (4): the shards of C, Q_c, Q_l one at a time (bar `index inputs`); U's then
-    R's entries; the fingerprints of C, Q_c (from `fields`), Q_l (None if no pairs)."""
+    """Unique U/endpoint clips, original pairs, source and clip-metadata fingerprints."""
     paired = cfg.pair_clips_dir is not None
     dirs = [
         cfg.clips_dir,
         *([cfg.pair_clips_dir, cfg.pair_labels_dir] if paired else []),
     ]
     n = [complete_shards(REPO / d / "shards") for d in dirs]
-    entries, clips = [], new_hash(fields[0])
-    with shard_bar("index inputs", sum(n), 0, sum(n), 0, "shard") as update:
+    entries, clips, canonical = [], new_hash(fields[0]), CanonicalClips()
+    with shard_bar(desc, sum(n), 0, sum(n), 0, "shard") as update:
         for k, data in shard_files(dirs[0], RECORDS, n[0], clips, update):
-            entries += unlabeled(cfg.clips_dir, k, json.loads(data))
+            for item, (episode,) in unlabeled(cfg.clips_dir, k, json.loads(data)):
+                canonical.add(item["clip"], episode)
         fingerprints = [clips.hexdigest()]
         if paired:
             fingerprints.append(fingerprint(dirs[1], RECORDS, fields[1], update))
             labels = new_hash(None)
             for _, data in shard_files(dirs[2], PAIRS, n[2], labels, update):
-                entries += labeled(cfg.pair_clips_dir, json.loads(data))
+                pairs = labeled(cfg.pair_clips_dir, json.loads(data))
+                for item, episodes in pairs:
+                    for side, episode in zip(("a", "b"), episodes):
+                        canonical.add(item[side], episode)
+                entries += pairs
             fingerprints.append(labels.hexdigest())
-    return entries, fingerprints + [None] * (3 - len(fingerprints))
+    fingerprints += [None] * (3 - len(fingerprints))
+    return canonical.entries + entries, [
+        *fingerprints,
+        canonical.fingerprint.hexdigest(),
+    ]
 
 
 def counts(items: list[list[dict]], parts: list[int]) -> dict:
-    """(W) `counts`: per part, its unlabeled items, labeled items and episodes."""
+    """(W) `counts`: per part, its canonical clips, labeled pairs and episodes."""
     return {
         PARTS[x]: {
             "clips": sum("clip" in item for item in items[x]),
