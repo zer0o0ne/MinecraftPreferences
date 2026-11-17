@@ -132,6 +132,8 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `runtime/engine` → R1 (simulator install and check) → `specs/engine.md`
 - `runtime/env` → R1 → `specs/env.md`
 - `runtime/sampling` → R1 → `specs/env-sampling.md`
+- `runtime/play` → pretrained+MCTS or R1–R5 in one live world → `specs/runtime-play.md`; `scripts/play.sh`, mode/duration/device/run directory in `configs/runtime/play.yaml`
+- `runtime/video` → selected MP4 exports of either gameplay mode → `specs/gameplay-video.md`; `scripts/export_gameplay.sh`, all paths/selection/encoding settings in `configs/runtime/video.yaml`
 - `training/rl/pairs` → R3, R5 → `specs/rl-preference-pairs.md`
 - `training/rl` → R1–R5 → `specs/rl-cycle.md`
 - `diagnostics` → diagnostics of pretraining and RL → `specs/rl-diagnostics.md`

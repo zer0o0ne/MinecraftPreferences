@@ -212,6 +212,7 @@ class Sampler:
         """(3)-(8): sample n actions, publish their shard, then update run.json."""
         if not self._reset_done:
             raise RuntimeError("Sampler.reset must be called before sample")
+        self._inventories = []
         out = REPO / self.cfg.out_dir
         k = complete_shards(out / "shards")
         start = self.next_step

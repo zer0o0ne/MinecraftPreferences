@@ -37,6 +37,8 @@ Stage: block 9 of `specs/00-overview.md` — R1: the environment loop and trajec
 (8) Progress [U,A]: one `tqdm` bar on stderr per `sample`, description `env sampling`, unit `step`, total $n$, initial 0 also when repeating a partial trajectory. Advance after each complete step record is written; no per-item lines or stdout output.
 
 ## Interface
+
+`specs/runtime-play.md` provides the common launcher: it owns one live `Env`, either calls this sampler repeatedly with fixed pretrained weights or delegates sampling to successive RL cycles. Its effective sampling config redirects outputs and diagnostics under one run directory; the original config and pretraining checkpoint remain unchanged.
 - `src/mcpref/runtime/sampling/config.py`: `SamplingConfig`; `def load_config(path: Path) -> SamplingConfig`.
 - `src/mcpref/runtime/sampling/models.py`: `@dataclass(frozen=True) class SamplingModules` (`phi: Phi`, `pi: Policy`, `P: Preference`, `fingerprint: str`); `def load_pretrained(cfg: SamplingConfig) -> SamplingModules`; `def encode_stream(stream: PhiStream) -> dict`; `def decode_stream(phi: Phi, states: int, value: dict, device: torch.device) -> PhiStream`.
 - `src/mcpref/runtime/sampling/runner.py`: `class Sampler`; `__init__(cfg: SamplingConfig, env: Env, modules: SamplingModules | None = None)` (`None` calls `load_pretrained`); `reset() -> None`; `sample() -> Path` — one trajectory shard of (2)–(8), returning its complete directory.
@@ -47,6 +49,7 @@ Stage: block 9 of `specs/00-overview.md` — R1: the environment loop and trajec
 - Consumes: pretrain `model.pt` or supplied current modules, the `Env` and its externally matching world, all named configs. Produces `{out_dir}/run.json` and `{out_dir}/shards/<name(k)>/` for R2–R4 and block 13.
 
 ## Datasets
+- `specs/gameplay-video.md` reads immutable completed trajectory shards for selected MP4 exports. This reader may run alongside a single append-only sampler, fixing availability from an initial directory listing and never opening staged shards. No sampling artifacts or observation cadence change.
 - `run.json`: top-level `config` (the mapping as written), `sha256`, `models`, `counts`. The ordered `sha256` keys are `config`, `pretrain_config`, `pretrain_model`, `env`, `mcts`, `perception_data`, `perception`, `action_mask`, `policy`, `preference`, `engine`, `classifier`, `clips`, `vpt_actions`, `gui_screens`; transitive paths come from the loaded configs. `models` maps each published shard name to its supplied/pretrain model fingerprint. Static fingerprints are checked by `check_fingerprints` before a rerun.
 - `run.json` is created by `write_json` before the first environment reset and rewritten by `write_json` after each published shard. On continuation, `complete_shards` repairs `counts` to {`trajectories`: $k$, `steps`: $kn$} and `models` is rebuilt from each shard's `state.pt`, one at a time, before sampling resumes.
 - Each shard holds exactly one trajectory of $n$ steps. Every `torch.save` receives the primitive mapping below; every `torch.load` uses `map_location="cpu", weights_only=True`. Serialized tensors are CPU; decoded histories, trees and cache tensors move to the model device, while stream grids remain on the CPU.

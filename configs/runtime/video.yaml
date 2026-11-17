@@ -1,0 +1,12 @@
+# All paths, selection and encoding settings belong here; specs/gameplay-video.md.
+sampling_dir: data/runtime/play/sampling
+output: data/runtime/play/videos/latest.mp4
+# Range [start_step, stop_step): set both integers and last_steps: null.
+start_step: null
+stop_step: null
+last_steps: 300
+# Playback speed is independent of the agent interval.
+fps: 10
+ffmpeg: ffmpeg
+crf: 18
+preset: veryfast
