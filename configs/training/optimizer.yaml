@@ -11,10 +11,10 @@ groups:
   phi_vision_no_decay: {lr: 1.0e-5, weight_decay: 0.0}
   phi_llm: {lr: 1.0e-5, weight_decay: 0.01}
   phi_llm_no_decay: {lr: 1.0e-5, weight_decay: 0.0}
-  phi_head: {lr: 1.0e-4, weight_decay: 0.01}
-  phi_head_no_decay: {lr: 1.0e-4, weight_decay: 0.0}
-  phi_dual: {lr: 1.0e-4, weight_decay: 0.0}
-  metra_dual: {lr: 1.0e-4, weight_decay: 0.0}
+  phi_head: {lr: 1.0e-5, weight_decay: 0.01}
+  phi_head_no_decay: {lr: 1.0e-5, weight_decay: 0.0}
+  phi_dual: {lr: 1.0e-5, weight_decay: 0.0}
+  metra_dual: {lr: 1.0e-5, weight_decay: 0.0}
   pi: {lr: 3.0e-5, weight_decay: 0.01}
   pi_no_decay: {lr: 3.0e-5, weight_decay: 0.0}
   P: {lr: 3.0e-5, weight_decay: 0.01}
