@@ -11,9 +11,9 @@ import yaml
 from mcpref.config import REPO, config_sha256
 from mcpref.infrastructure.runs.files import check_fingerprints, sha256, write_json
 from mcpref.infrastructure.shards.store import complete_shards, shard_path
+from mcpref.runtime.sampling.checkpoints import checkpoint_path
 from mcpref.runtime.sampling.config import SamplingConfig
 from mcpref.runtime.sampling.files import config_paths
-from mcpref.training.pretrain.config import load_config as load_pretrain_config
 from mcpref.training.rl.config import RLCycleConfig
 from mcpref.training.rl.pairs.config import load_config as load_pairs_config
 from mcpref.training.rl.pairs.files import write_json_shard
@@ -43,8 +43,7 @@ def initial_model(cfg: RLCycleConfig, sampling: SamplingConfig, cycle: int) -> P
     """Pretrain weights for cycle 0, otherwise the previous cycle's final weights."""
     if cycle:
         return REPO / cfg.out_dir / f"{cycle - 1:06d}" / "model.pt"
-    pretrain = load_pretrain_config(REPO / sampling.pretrain)
-    return REPO / pretrain.out_dir / "model.pt"
+    return checkpoint_path(sampling)
 
 
 def initial_optimizer(cfg: RLCycleConfig, cycle: int) -> Path | None:

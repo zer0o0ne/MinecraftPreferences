@@ -17,6 +17,7 @@ from mcpref.models.perception.config import load_config as load_perception_confi
 from mcpref.models.policy.config import load_config as load_policy_config
 from mcpref.models.preference.config import load_config as load_preference_config
 from mcpref.runtime.env.wrapper import Env
+from mcpref.runtime.sampling.checkpoints import load_weights
 from mcpref.runtime.sampling.config import load_config as load_sampling_config
 from mcpref.runtime.sampling.models import SamplingModules
 from mcpref.runtime.sampling.runner import Sampler
@@ -78,7 +79,7 @@ def build_rl_modules(cfg: RLCycleConfig, sampling, ppo) -> dict[str, torch.nn.Mo
 
 def load_model(path: Path, modules: dict[str, torch.nn.Module], names) -> None:
     """Load exactly the named CPU state_dict entries into existing modules."""
-    weights = torch.load(path, map_location="cpu", weights_only=True)
+    weights = load_weights(path)
     for name in names:
         modules[name].load_state_dict(weights[name])
 

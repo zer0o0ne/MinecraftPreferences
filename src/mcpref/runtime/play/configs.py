@@ -8,9 +8,10 @@ import yaml
 
 from mcpref.config import REPO, read_yaml
 from mcpref.diagnostics.core.config import load_config as load_diagnostics
-from mcpref.infrastructure.runs.files import finished_run
 from mcpref.infrastructure.shards.store import write_file
+from mcpref.runtime.play.checkpoints import snapshot
 from mcpref.runtime.play.config import PlayConfig
+from mcpref.runtime.sampling.checkpoints import checkpoint_path
 from mcpref.runtime.sampling.config import load_config as load_sampling
 from mcpref.training.pretrain.config import load_config as load_pretrain
 from mcpref.training.rl.config import load_config as load_rl
@@ -54,6 +55,7 @@ def _rl(cfg: PlayConfig, root: Path, sampling: str) -> str:
 
 def materialize(cfg: PlayConfig, root: Path) -> PlayConfig:
     sampling = read_yaml(REPO / cfg.sampling)
+    source = checkpoint_path(load_sampling(REPO / cfg.sampling))
     pretrain = read_yaml(REPO / sampling["pretrain"])
     diagnostics = read_yaml(REPO / pretrain["diagnostics"])
     base = root.relative_to(REPO.resolve()).as_posix()
@@ -63,10 +65,8 @@ def materialize(cfg: PlayConfig, root: Path) -> PlayConfig:
     pretrain |= {"diagnostics": diag_path, "device": cfg.device}
     pretrain_path = _save(root, "pretrain", pretrain)
     load_pretrain(REPO / pretrain_path)
-    model_dir = REPO / pretrain["out_dir"]
-    finished_run(model_dir, str(model_dir), "complete")
-    if not (model_dir / "model.pt").is_file():
-        raise FileNotFoundError(model_dir / "model.pt")
+    snapshot(source, root / "checkpoint")
+    sampling["checkpoint_dir"] = f"{base}/checkpoint"
     sampling |= {"out_dir": f"{base}/sampling", "pretrain": pretrain_path}
     sampling_path = _save(root, "sampling", sampling)
     load_sampling(REPO / sampling_path)

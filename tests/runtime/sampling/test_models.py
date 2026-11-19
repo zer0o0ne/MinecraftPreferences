@@ -58,7 +58,9 @@ def test_pretrained_loading_eval_fingerprint_and_explicit_cpu_load(site, monkeyp
         return {}
 
     monkeypatch.setattr("mcpref.runtime.sampling.models.build_modules", build)
-    monkeypatch.setattr("mcpref.runtime.sampling.models.finished_run", finished_run)
+    monkeypatch.setattr(
+        "mcpref.runtime.sampling.checkpoints.finished_run", finished_run
+    )
     monkeypatch.setattr("mcpref.runtime.sampling.models.torch.load", load)
     got = load_pretrained(site.cfg)
     assert complete == [

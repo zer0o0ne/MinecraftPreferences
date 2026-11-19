@@ -181,6 +181,7 @@ class Site:
         )
         self.mapping = {
             "pretrain": "configs/training/pretrain/config.yaml",
+            "checkpoint_dir": "data/pretrain-scaled-init",
             "env": "configs/runtime/env.yaml",
             "mcts": "configs/runtime/mcts.yaml",
             "perception_data": "configs/datasets/perception-data.yaml",

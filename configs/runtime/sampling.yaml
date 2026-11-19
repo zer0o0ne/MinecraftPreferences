@@ -1,5 +1,8 @@
 # specs/env-sampling.md: SamplingConfig. Paths relative to the repository root.
 pretrain: "configs/training/pretrain/config.yaml"
+# A completed run with model.pt, or one published checkpoint directory with checkpoint.pt.
+# Example for ongoing training: data/pretrain/checkpoints/000055 (not .part).
+checkpoint_dir: "data/pretrain"
 env: "configs/runtime/env.yaml"
 mcts: "configs/runtime/mcts.yaml"
 perception_data: "configs/datasets/perception-data.yaml"

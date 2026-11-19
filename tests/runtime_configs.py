@@ -139,6 +139,7 @@ def write_repository(
     }  # fmt: skip
     docs["env-sampling"] = {
         "pretrain": paths["pretrain"], "env": paths["env"], "mcts": paths["mcts"],
+        "checkpoint_dir": "data/pretrain-scaled-init",
         "perception_data": paths["perception-data"], "out_dir": "data/sampling",
         "steps": steps, "seed": 7, "safety_limit": 25.0,
     }  # fmt: skip

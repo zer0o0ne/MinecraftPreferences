@@ -9,7 +9,7 @@ from transformers import DynamicCache
 from mcpref.config import REPO
 from mcpref.gui.mask import load_config as load_mask_config
 from mcpref.gui.mask import load_masks
-from mcpref.infrastructure.runs.files import finished_run, sha256
+from mcpref.infrastructure.runs.files import sha256
 from mcpref.models.factory import build_modules
 from mcpref.models.perception.config import load_config as load_perception_config
 from mcpref.models.perception.phi import Phi
@@ -18,6 +18,7 @@ from mcpref.models.policy.config import load_config as load_policy_config
 from mcpref.models.policy.network import Policy
 from mcpref.models.preference.config import load_config as load_preference_config
 from mcpref.models.preference.network import Preference
+from mcpref.runtime.sampling.checkpoints import checkpoint_path, load_weights
 from mcpref.runtime.sampling.codecs import _cpu
 from mcpref.runtime.sampling.config import SamplingConfig
 from mcpref.training.pretrain.config import load_config as load_pretrain_config
@@ -34,9 +35,9 @@ class SamplingModules:
 
 
 def load_pretrained(cfg: SamplingConfig) -> SamplingModules:
-    """(1): completed pretrain modules on its device, CPU-loaded weights, eval mode."""
+    """(1): selected initial weights on the configured device, in eval mode."""
     pretrain = load_pretrain_config(REPO / cfg.pretrain)
-    finished_run(REPO / pretrain.out_dir, pretrain.out_dir, "complete")
+    path = checkpoint_path(cfg)
     perception = load_perception_config(REPO / pretrain.perception)
     masks = load_masks(load_mask_config(REPO / pretrain.action_mask))
     policy = load_policy_config(REPO / pretrain.policy)
@@ -50,8 +51,7 @@ def load_pretrained(cfg: SamplingConfig) -> SamplingModules:
         device=pretrain.device,
         latent_init_scale=pretrain.latent_init_scale,
     )
-    path = REPO / pretrain.out_dir / "model.pt"
-    weights = torch.load(path, map_location="cpu", weights_only=True)
+    weights = load_weights(path)
     for name in ("phi", "pi", "P"):
         built[name].load_state_dict(weights[name])
         built[name].eval()

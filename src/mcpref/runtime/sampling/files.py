@@ -11,6 +11,7 @@ from mcpref.gui.mask import load_config as load_mask_config
 from mcpref.infrastructure.runs.files import check_fingerprints, sha256, write_json
 from mcpref.infrastructure.shards.store import complete_shards, name, shard_path
 from mcpref.runtime.env.config import load_config as load_env_config
+from mcpref.runtime.sampling.checkpoints import checkpoint_path
 from mcpref.runtime.sampling.config import SamplingConfig
 from mcpref.training.pretrain.config import load_config as load_pretrain_config
 
@@ -24,7 +25,7 @@ def config_paths(cfg: SamplingConfig, path: Path) -> dict[str, Path]:
     return {
         "config": path,
         "pretrain_config": REPO / cfg.pretrain,
-        "pretrain_model": REPO / pretrain.out_dir / "model.pt",
+        "pretrain_model": checkpoint_path(cfg),
         "env": REPO / cfg.env,
         "mcts": REPO / cfg.mcts,
         "perception_data": REPO / cfg.perception_data,

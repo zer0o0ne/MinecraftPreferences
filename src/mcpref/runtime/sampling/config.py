@@ -15,7 +15,7 @@ from mcpref.config import (
 from mcpref.datasets.clips.config import load_config as load_clips_config
 from mcpref.runtime.env.config import load_config as load_env_config
 
-PATHS = ("pretrain", "env", "mcts", "perception_data", "out_dir")
+PATHS = ("pretrain", "checkpoint_dir", "env", "mcts", "perception_data", "out_dir")
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,7 @@ class SamplingConfig:
     """Notation: dependent paths, trajectory length, decision RNG and time margin."""
 
     pretrain: str
+    checkpoint_dir: str
     env: str
     mcts: str
     perception_data: str

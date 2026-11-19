@@ -8,11 +8,12 @@ import yaml
 from mcpref.runtime.sampling.config import SamplingConfig, load_config
 
 FIELDS = [
-    "pretrain", "env", "mcts", "perception_data", "out_dir", "steps", "seed",
+    "pretrain", "checkpoint_dir", "env", "mcts", "perception_data", "out_dir", "steps", "seed",
     "safety_limit",
 ]  # fmt: skip
 VALID = {
     "pretrain": "configs/training/pretrain/config.yaml",
+    "checkpoint_dir": "data/pretrain",
     "env": "configs/runtime/env.yaml",
     "mcts": "configs/runtime/mcts.yaml",
     "perception_data": "configs/datasets/perception-data.yaml",
@@ -51,7 +52,7 @@ def test_safety_budget_boundary(tmp_path):
         load(tmp_path, safety_limit=300)
 
 
-PATHS = ("pretrain", "env", "mcts", "perception_data", "out_dir")
+PATHS = ("pretrain", "checkpoint_dir", "env", "mcts", "perception_data", "out_dir")
 BAD = {
     "missing": {"steps": None},
     "unknown": {"extra": 1},
