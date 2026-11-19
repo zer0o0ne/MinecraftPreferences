@@ -8,6 +8,6 @@ c_puct: 1.25
 discount: 0.99
 temperature: 1.0
 min_p: 0.5
-epsilon: 0.05
+epsilon: 0.01
 latency_ms: 150.0
 latency_fail_ms: 300.0
