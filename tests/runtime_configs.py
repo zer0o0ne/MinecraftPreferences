@@ -80,6 +80,7 @@ def write_repository(
             "action_mask": paths["action-mask"],
             "clips": paths["clips"],
             "cursor_scale": 20 / 3,
+            "stagnation_limit": 3,
         },
         "clips": {"delta": delta, "actions": "configs/datasets/vpt/actions.yaml"},
         "mcts": MCTS_STARTING | (mcts or {}),

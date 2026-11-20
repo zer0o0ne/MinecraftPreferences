@@ -38,6 +38,11 @@ def continuation(index: int = 2, held_action: int | None = None) -> EnvContinuat
         },
         cursor=(12.5, 34.25),
         held_action=held_action,
+        stagnation={
+            "last": held_action,
+            "count": index,
+            "baseline": {"facts": {}, "stats": {}, "progress": {}},
+        },
     )
 
 

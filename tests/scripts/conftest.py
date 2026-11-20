@@ -13,7 +13,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 DIRS = ("repo/scripts", "repo/configs", "home/.local/bin", "sysbin", "ctl", "cwd")
 STEPS = ["config", "arch", "driver", "docker", "uv", "python", "engine-deps", "sync",
-         "ffmpeg", "vlm", "engine"]  # fmt: skip
+         "ffmpeg", "vlm", "engine", "engine-telemetry"]  # fmt: skip
 NVIDIA_SMI_ARGS = ("--query-gpu=driver_version", "--format=csv,noheader")
 # Step (7) of specs/vpt-gui-frames.md: the nine packages, in the order of its dpkg-query
 # call; `apt-get install` and `apt-mark hold` may take them in any order (see `canonical`).
@@ -21,7 +21,7 @@ DEBS = ("ffmpeg", "libavcodec60", "libavdevice60", "libavfilter9", "libavformat6
         "libavutil58", "libpostproc57", "libswresample4", "libswscale7")  # fmt: skip
 DPKG_QUERY = ("dpkg-query", "-W", r"-f=${db:Status-Status} ${Version}\n", *DEBS)
 # Step (5a) of specs/engine.md: the six packages, in the order of its dpkg-query call.
-ENGINE_DEBS = ("openjdk-8-jre", "xvfb", "libgl1-mesa-dri", "libglx-mesa0", "build-essential",
+ENGINE_DEBS = ("openjdk-8-jre", "openjdk-8-jdk-headless", "xvfb", "libgl1-mesa-dri", "libglx-mesa0", "build-essential",
                "libx11-dev")  # fmt: skip
 ENGINE_QUERY = ("dpkg-query", "-W", r"-f=${db:Status-Status}\n", *ENGINE_DEBS)
 JAVA_VERSION = ("java", "-version")
@@ -287,7 +287,7 @@ class Spark:
     def expected(
         self,
         uv_calls: list,
-        last: str = "engine",
+        last: str = "engine-telemetry",
         ffmpeg: list | None = None,
         engine: list | None = None,
     ) -> list:
@@ -307,6 +307,14 @@ class Spark:
             "ffmpeg": [DPKG_QUERY] if ffmpeg is None else ffmpeg,
             "vlm": [self.vlm_server("prepare")],
             "engine": [self.engine_prepare()],
+            "engine-telemetry": [
+                tuple(
+                    "mcpref.runtime.engine.telemetry"
+                    if x == "mcpref.runtime.engine.prepare"
+                    else x
+                    for x in self.engine_prepare()
+                )
+            ],
         }
         steps = STEPS[: STEPS.index(last) + 1]
         return [e for s in steps for e in [("==", s), *calls[s]]]

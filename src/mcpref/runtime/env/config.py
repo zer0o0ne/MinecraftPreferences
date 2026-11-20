@@ -3,7 +3,14 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from mcpref.config import config_mapping, positive, read_yaml, relative, repo_path
+from mcpref.config import (
+    config_mapping,
+    positive,
+    positive_int,
+    read_yaml,
+    relative,
+    repo_path,
+)
 from mcpref.datasets.clips.config import load_config as load_clips_config
 
 PATHS = ("engine", "classifier", "action_mask", "clips")
@@ -18,6 +25,7 @@ class EnvConfig:
     action_mask: str
     clips: str
     cursor_scale: float
+    stagnation_limit: int
 
 
 def load_config(path: Path) -> EnvConfig:
@@ -26,7 +34,13 @@ def load_config(path: Path) -> EnvConfig:
     for name in PATHS:
         relative(name, raw[name])
     cfg = EnvConfig(
-        **raw | {"cursor_scale": positive("cursor_scale", raw["cursor_scale"])}
+        **raw
+        | {
+            "cursor_scale": positive("cursor_scale", raw["cursor_scale"]),
+            "stagnation_limit": positive_int(
+                "stagnation_limit", raw["stagnation_limit"]
+            ),
+        }
     )
     if load_clips_config(repo_path("clips", cfg.clips)).delta < 5:
         raise ValueError("delta must be >= 5")

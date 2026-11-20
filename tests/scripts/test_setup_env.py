@@ -43,6 +43,7 @@ NOT_PINNED = {
 # line `installed` per package.
 NOT_INSTALLED = {
     "openjdk-8-jre unknown": {"openjdk-8-jre": None},
+    "jdk compiler missing": {"openjdk-8-jdk-headless": None},
     "xvfb removed": {"xvfb": ("config-files", "2:21.1.12-1ubuntu1")},
     "libx11-dev half-installed": {"libx11-dev": ("half-installed", "2:1.8.7-1build1")},
     "build-essential not installed": {"build-essential": ("not-installed", "")},
@@ -185,7 +186,8 @@ def test_failed_download_fails_uv_step(spark):
 @pytest.mark.parametrize(
     "step, command",
     [("python", "python"), ("sync", "sync"), ("vlm", "run"),
-     ("engine", "mcpref.runtime.engine.prepare")],
+     ("engine", "mcpref.runtime.engine.prepare"),
+     ("engine-telemetry", "mcpref.runtime.engine.telemetry")],
 )  # fmt: skip
 def test_failed_uv_command_fails_its_step(spark, step, command):
     spark.fail = command

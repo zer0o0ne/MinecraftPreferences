@@ -17,6 +17,7 @@ from mcpref.runtime.engine.config import load_config as load_engine_config
 from mcpref.runtime.engine.config import use_engine
 from mcpref.runtime.env.actions import LONG, click, completed, escape, hold, immediate
 from mcpref.runtime.env.config import EnvConfig
+from mcpref.runtime.env.stagnation import Stagnation
 from mcpref.runtime.env.state import (
     EnvContinuation,
     EnvState,
@@ -52,10 +53,12 @@ class Env:
         self.hotbar, self.cursor = 0, CENTRE
         self._raw, self._previous_gui, self._state = None, False, None
         self._held_action = None
+        self._stagnation = Stagnation(cfg.stagnation_limit)
 
     def _accept(self, result: tuple) -> tuple:
         """(4), (8): check and track a raw result, re-centring on GUI transitions."""
         check_episode(result)
+        self._stagnation.observe(result[4])
         before = False if self._raw is None else bool(self._raw[4]["isGuiOpen"])
         after = bool(result[4]["isGuiOpen"])
         self._previous_gui = before
@@ -87,7 +90,7 @@ class Env:
                 bar.update()
         return self._valid_state(None)
 
-    def _valid_state(self, cause: str | None) -> EnvState:
+    def _valid_state(self, cause: str | None, executed: int | None = None) -> EnvState:
         """(4), (5): close other/pause before constructing and returning the mask."""
         parts = observation(
             self._raw[0],
@@ -110,7 +113,13 @@ class Env:
                 None,
                 self.gamma,
             )
+        previous = self._state
         self._state = convert(parts, self.masks, self.hotbar)
+        changed = previous is not None and (
+            previous.hotbar != self.hotbar or previous.cls != self._state.cls
+        )
+        self._stagnation.finish(executed, changed)
+        self._stagnation.mask(self._state.mask)
         return self._state
 
     def _apply(self, q: dict, action: str, tick: int, finished: bool) -> None:
@@ -155,7 +164,7 @@ class Env:
                 self.hotbar = int(name.removeprefix("hotbar_")) - 1
             tick += 1
         self._held_action = action if name in LONG and not finished else None
-        return self._valid_state(name)
+        return self._valid_state(name, action)
 
     def continuation(self) -> EnvContinuation:
         """(11): independent raw completion baselines, cursor and unfinished hold."""
@@ -169,6 +178,7 @@ class Env:
             },
             self.cursor,
             self._held_action,
+            self._stagnation.save(),
         )
 
     def restore(self, state: EnvState, continuation: EnvContinuation) -> None:
@@ -179,6 +189,7 @@ class Env:
         self.hotbar = state.hotbar
         self.cursor = continuation.cursor
         self._held_action = continuation.held_action
+        self._stagnation.restore(continuation.stagnation)
 
     def close(self) -> None:
         """(1): delegate to MinecraftSim.close."""

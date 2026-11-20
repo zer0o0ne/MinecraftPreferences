@@ -31,6 +31,7 @@ def fresh_env(world):
             "configs/gui/action-mask.yaml",
             "configs/datasets/clips.yaml",
             20 / 3,
+            3,
         )
     )
 
@@ -90,6 +91,7 @@ def test_continuation_public_interface():
         "info",
         "cursor",
         "held_action",
+        "stagnation",
     ]
     assert list(inspect.signature(Env.continuation).parameters) == ["self"]
     assert list(inspect.signature(Env.restore).parameters) == [

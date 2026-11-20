@@ -27,17 +27,18 @@ class EnvContinuation:
     info: Mapping
     cursor: tuple[float, float]
     held_action: int | None
+    stagnation: Mapping
 
 
 def inventory(info: Mapping) -> list[dict]:
-    """(3): non-air slot entries in slot-index order, without the minecraft prefix."""
+    """(3): nonempty slot entries in slot-index order, without the minecraft prefix."""
     from minestudio.simulator.minerl.herobraine.hero.mc import strip_item_prefix
 
     out = []
     for slot in sorted(info["inventory"]):
         item = info["inventory"][slot]
         kind = strip_item_prefix(item["type"])
-        if kind != "air":
+        if kind not in {"air", "none"} and item["quantity"] > 0:
             out.append({"type": kind, "quantity": item["quantity"]})
     return out
 

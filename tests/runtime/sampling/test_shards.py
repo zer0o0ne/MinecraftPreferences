@@ -176,6 +176,11 @@ def test_state_round_trip_restores_tree_links_stream_and_fields(tmp_path):
         },
         "cursor": (12.5, 34.25),
         "held_action": 1,
+        "stagnation": {
+            "last": 1,
+            "count": 2,
+            "baseline": {"facts": {}, "stats": {}, "progress": {}},
+        },
     }
     got = load_state(out, phi, 2, torch.device("cpu"))
     assert got.next_step == 2 and got.fingerprint == "fake-model"

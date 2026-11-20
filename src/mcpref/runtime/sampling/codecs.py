@@ -5,6 +5,7 @@ import copy
 import torch
 from torch import Tensor
 
+from mcpref.runtime.env.stagnation import copy_state
 from mcpref.runtime.env.state import EnvContinuation, EnvState
 from mcpref.runtime.mcts.tree import LatentHistory, Node, Tree
 
@@ -45,6 +46,7 @@ def _encode_continuation(continuation: EnvContinuation) -> dict:
         },
         "cursor": tuple(float(value) for value in continuation.cursor),
         "held_action": continuation.held_action,
+        "stagnation": copy_state(continuation.stagnation),
     }
 
 
@@ -59,6 +61,7 @@ def _decode_continuation(value: dict) -> EnvContinuation:
         },
         (float(value["cursor"][0]), float(value["cursor"][1])),
         value["held_action"],
+        copy_state(value["stagnation"]),
     )
 
 

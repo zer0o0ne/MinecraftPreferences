@@ -56,6 +56,7 @@ def raw(
     terminated: bool = False,
     truncated: bool = False,
     error: str | None = None,
+    **extra,
 ) -> tuple:
     info = {
         "player_pos": pos or {"x": 1, "y": 2, "z": 3, "yaw": 4, "pitch": 5},
@@ -64,7 +65,9 @@ def raw(
         "custom": custom or {},
         "mine_block": mine_block or {},
         "use_item": use_item or {},
+        "action_progress": idle_progress(),
     }
+    info.update(extra)
     if error is not None:
         info["error"] = error
     return {"image": frame}, 17.0, terminated, truncated, info
@@ -134,3 +137,18 @@ def assert_actions(fake: FakeSimulator, wanted: list[dict]) -> None:
                 assert got[key] == expected_action[key], key
     assert len(set(fake.action_ids)) == len(fake.actions)
     assert len(set(fake.camera_ids)) == len(fake.actions)
+
+
+def idle_progress():
+    return {
+        "version": 1,
+        "mining": {"active": False, "target": [0, 0, 0], "progress": 0.0},
+        "item_use": {
+            "active": False,
+            "elapsed": 0,
+            "remaining": 0,
+            "action": "NONE",
+            "duration": 0,
+            "charge_duration": 0,
+        },
+    }

@@ -72,6 +72,7 @@ def test_no_jar_mutation(ready):
             "configs/gui/action-mask.yaml",
             "configs/datasets/clips.yaml",
             20 / 3,
+            3,
         )
     )
     try:

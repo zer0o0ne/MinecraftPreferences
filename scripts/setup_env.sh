@@ -39,7 +39,7 @@ step python
 uv python install "$python_version"
 
 step engine-deps
-engine_debs=(openjdk-8-jre xvfb libgl1-mesa-dri libglx-mesa0 build-essential libx11-dev)
+engine_debs=(openjdk-8-jre openjdk-8-jdk-headless xvfb libgl1-mesa-dri libglx-mesa0 build-essential libx11-dev)
 expected=$(printf 'installed%.0s\n' "${engine_debs[@]}")
 if [[ $(dpkg-query -W -f='${db:Status-Status}\n' "${engine_debs[@]}") != "$expected" ]]; then
   sudo apt-get update
@@ -67,3 +67,6 @@ uv run --locked python -m mcpref.integrations.vlm.server prepare configs/integra
 
 step engine
 uv run --locked python -m mcpref.runtime.engine.prepare configs/runtime/engine.yaml
+
+step engine-telemetry
+uv run --locked python -m mcpref.runtime.engine.telemetry configs/runtime/engine.yaml

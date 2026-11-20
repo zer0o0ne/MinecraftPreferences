@@ -5,6 +5,7 @@ import dataclasses
 import numpy as np
 import pytest
 
+from mcpref.models.perception.meta import inventory_text
 from mcpref.runtime.env.state import EnvState
 from runtime.env.fake_simulator import FRAME, raw
 
@@ -58,6 +59,36 @@ def test_raw_reset_conversion_inventory_and_slot_order(world):
     )
     assert (state.gui, state.cls, state.hotbar) == (False, None, 0)
     assert world.classifier.calls == []
+
+
+@pytest.mark.parametrize("kind", ["none", "minecraft:none", "air", "minecraft:air"])
+def test_empty_simulator_inventory_has_empty_perception_text(world, kind):
+    world.fake.reset_raw = raw(
+        inventory={slot: {"type": kind, "quantity": 0} for slot in range(36)}
+    )
+    state = world.reset()
+    assert state.line["inventory"] == []
+    assert (
+        inventory_text(state.line, "Inventory: {items}\n", "{quantity} {type}", "empty")
+        == "Inventory: empty\n"
+    )
+
+
+def test_inventory_omits_empty_slots_and_keeps_nonempty_slot_order(world):
+    world.fake.reset_raw = raw(
+        inventory={
+            5: {"type": "minecraft:dirt", "quantity": 2},
+            2: {"type": "minecraft:oak_log", "quantity": 0},
+            1: {"type": "minecraft:oak_log", "quantity": 1},
+            0: {"type": "none", "quantity": 0},
+            4: {"type": "minecraft:none", "quantity": 0},
+            3: {"type": "minecraft:air", "quantity": 0},
+        }
+    )
+    assert world.reset().line["inventory"] == [
+        {"type": "oak_log", "quantity": 1},
+        {"type": "dirt", "quantity": 2},
+    ]
 
 
 def test_raw_step_returns_last_tick_and_ignores_reward(ready):

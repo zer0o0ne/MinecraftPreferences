@@ -16,6 +16,7 @@ FIELDS = {
     "action_mask": "configs/gui/action-mask.yaml",
     "clips": "configs/datasets/clips.yaml",
     "cursor_scale": 6.666666666666667,
+    "stagnation_limit": 3,
 }
 
 
@@ -109,3 +110,9 @@ def test_delta_five_is_accepted(env_root, tmp_path):
         "delta: 5\nactions: configs/datasets/vpt/actions.yaml\n"
     )
     assert load_config(write(tmp_path)) == EnvConfig(**FIELDS)
+
+
+@pytest.mark.parametrize("value", [0, -1, 1.5, True, False, "3", None])
+def test_stagnation_limit_positive_integer(tmp_path, value):
+    with pytest.raises(ValueError):
+        load_config(write(tmp_path, stagnation_limit=value))

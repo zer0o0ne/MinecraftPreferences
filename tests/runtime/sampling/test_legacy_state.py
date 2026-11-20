@@ -18,6 +18,13 @@ MISSING_FIELDS = [
     "env.info.use_item",
     "env.cursor",
     "env.held_action",
+    "env.stagnation",
+    "env.stagnation.last",
+    "env.stagnation.count",
+    "env.stagnation.baseline",
+    "env.stagnation.baseline.facts",
+    "env.stagnation.baseline.stats",
+    "env.stagnation.baseline.progress",
     *(f"stream.cache.0.{name}" for name in sorted(CACHE_FIELDS)),
 ]
 

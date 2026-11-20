@@ -126,6 +126,7 @@ def world(env_root, monkeypatch):
             "configs/gui/action-mask.yaml",
             "configs/datasets/clips.yaml",
             20 / 3,
+            3,
         )
         env = Env(cfg)
         yield World(env, fake, classifier, root, events, humans)
