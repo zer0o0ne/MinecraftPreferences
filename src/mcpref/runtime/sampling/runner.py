@@ -65,7 +65,7 @@ class Sampler:
         weight = self.modules.phi.head[0].weight
         self.device = weight.device
         self.alpha = torch.tensor(
-            perception.alpha, dtype=weight.dtype, device=self.device
+            perception.alpha, dtype=torch.float64, device=self.device
         )
         self.actions = len(self.modules.pi.names)
         self.stream = PhiStream(self.modules.phi, self.states)
@@ -148,7 +148,7 @@ class Sampler:
         if self.tree is None:
             self.tree = Tree(self.history)
         elif self._changed:
-            self.tree.base = self.history
+            self.tree.base = self.history.to(torch.float64)
         self._changed = False
 
     def observe(self, record) -> None:

@@ -9,6 +9,7 @@ from mcpref.runtime.mcts.search import Decision, decide
 from mcpref.runtime.mcts.tree import Tree
 from runtime.mcts.helpers import (
     FakePolicy,
+    FakePreference,
     UnexpectedCalls,
     config,
     latent_history,
@@ -71,10 +72,11 @@ def test_all_zero_visit_weights_fall_back_to_uniform_children():
     assert rng.random() == oracle_rng.random()
 
 
-class ClockPreference:
+class ClockPreference(FakePreference):
     history = 1000
 
     def __init__(self, clock, elapsed=0.0):
+        super().__init__()
         self.clock, self.elapsed, self.calls = clock, elapsed, 0
 
     def __call__(self, Ya, Yb):

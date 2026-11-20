@@ -15,6 +15,12 @@ class LatentHistory:
     Y: Tensor
     C: Tensor
 
+    def to(self, dtype: torch.dtype) -> LatentHistory:
+        """Convert history at the tree/model boundary without changing its device."""
+        if self.Y.dtype == self.C.dtype == dtype:
+            return self
+        return LatentHistory(self.Y.to(dtype=dtype), self.C.to(dtype=dtype))
+
 
 @dataclass
 class Node:
@@ -32,6 +38,11 @@ class Node:
     value: float | None = None
     policy: list[float] | None = None
 
+    def __post_init__(self) -> None:
+        self.z, self.x = self.z.double(), self.x.double()
+        if self.shift is not None:
+            self.shift = self.shift.double()
+
 
 @dataclass(init=False)
 class Tree:
@@ -41,6 +52,7 @@ class Tree:
     base: LatentHistory
 
     def __init__(self, real: LatentHistory) -> None:
+        real = real.to(torch.float64)
         z = real.Y[0, -1]
         self.root = Node(z, z, None, None, None, None, value=0.0)
         self.base = real
@@ -93,6 +105,7 @@ def model_history(tree: Tree, node: Node, L_pi: int, L_P: int) -> LatentHistory:
 
 def quantize(delta: Tensor, alpha: Tensor, epsilon: float) -> Tensor:
     """Q_epsilon: nearest-even rounding in alpha-scaled coordinates."""
+    alpha, delta = alpha.double(), delta.double()
     scaled = alpha * delta
     return torch.round(scaled / epsilon, decimals=0) * epsilon / alpha
 
@@ -107,6 +120,7 @@ def advance(
     tree: Tree, action: int, real: LatentHistory, alpha: Tensor, epsilon: float
 ) -> Tree:
     """(7): reuse the first exact-state match, or rebase to the real observation."""
+    real = real.to(torch.float64)
     children = sorted(tree.root.children, key=lambda child: child.action != action)
     z = real.Y[0, -1]
     for child in children:

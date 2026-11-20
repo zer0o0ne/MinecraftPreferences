@@ -33,7 +33,7 @@ def test_decision_latency(tmp_path):
         ).alpha
         masks = load_masks(load_mask_config(root / "configs/gui/action-mask.yaml"))
     cuda = torch.device("cuda")
-    alpha = torch.tensor(alpha_values, device=cuda, dtype=torch.float32)
+    alpha = torch.tensor(alpha_values, device=cuda, dtype=torch.float64)
     D = len(alpha_values)
     policy = load_policy_config(root / "configs/models/policy.yaml")
     pi = Policy(policy, D, masks.names).to(cuda).eval()

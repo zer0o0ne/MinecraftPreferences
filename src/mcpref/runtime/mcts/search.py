@@ -33,7 +33,9 @@ def leaf_value(
         return 0.0
     if node.value is None:
         assert H is not None
-        s, t = P(H.Y, H.Y[:, :-1])
+        Y = H.Y.to(dtype=P.embed.weight.dtype)
+        s, t = P(Y, Y[:, :-1])
+        s, t = s.double(), t.double()
         value = (torch.sigmoid(t) + min_p) * (2 * torch.sigmoid(s) - 1)
         node.value = value.item()
     return node.value
@@ -49,8 +51,11 @@ def expand(
     H: LatentHistory,
 ) -> None:
     """(3): expand the highest-probability allowed actions in probability/index order."""
-    R = pi.readout(H.Y, H.C)
-    probabilities = torch.softmax(pi.logits(R[:, -1]), dim=-1, dtype=None)[0].tolist()
+    inputs = H.to(pi.embed.weight.dtype)
+    R = pi.readout(inputs.Y, inputs.C)
+    probabilities = torch.softmax(pi.logits(R[:, -1]), dim=-1, dtype=torch.float64)[
+        0
+    ].tolist()
     node.policy = probabilities
     if node is tree.root:
         tree.root_policy = probabilities
@@ -60,7 +65,7 @@ def expand(
     indices = torch.tensor(actions, dtype=torch.long).to(
         device=R.device, non_blocking=True
     )
-    deltas = pi.shift(R[:, -1].expand(len(actions), -1), indices)
+    deltas = pi.shift(R[:, -1].expand(len(actions), -1), indices).double()
     shifts = quantize(deltas, alpha, cfg.epsilon)
     working, exact = node.z + shifts, node.x + deltas
     for i, action in enumerate(actions):

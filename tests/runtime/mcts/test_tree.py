@@ -44,13 +44,13 @@ def test_quantize_positive_negative_halves_and_metadata():
     assert_values(actual, expected)
 
 
-@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32, torch.float64])
 def test_quantize_shape_dtype_and_device(dtype):
     delta = torch.tensor([[[0.06, -0.06], [0.14, -0.14]]], dtype=dtype)
     actual = quantize(delta, torch.tensor([1.0, 2.0], dtype=dtype), 0.1)
-    expected = torch.tensor([[[0.1, -0.05], [0.1, -0.15]]], dtype=dtype)
+    expected = torch.tensor([[[0.1, -0.05], [0.1, -0.15]]], dtype=torch.float64)
     assert actual.shape == delta.shape
-    assert actual.dtype == delta.dtype
+    assert actual.dtype == torch.float64
     assert actual.device == delta.device
     assert_values(actual, expected)
 

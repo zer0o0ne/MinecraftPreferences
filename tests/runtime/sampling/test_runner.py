@@ -165,7 +165,7 @@ def test_each_step_tree_is_an_independent_primitive_snapshot(site):
     assert second.tree["root"]["z"][0].item() == 1.0
 
 
-def test_alpha_comes_from_perception_config_in_phi_dtype_and_device(site, monkeypatch):
+def test_alpha_comes_from_perception_config_in_fp64_on_phi_device(site, monkeypatch):
     from mcpref.runtime.mcts.search import decide as mcts_decide
 
     seen = []
@@ -181,5 +181,5 @@ def test_alpha_comes_from_perception_config_in_phi_dtype_and_device(site, monkey
     assert len(seen) == 2
     for alpha in seen:
         torch.testing.assert_close(alpha, torch.tensor([1.0, 2.0], dtype=torch.float64))
-        assert alpha.dtype == site.modules.phi.weight.dtype
+        assert alpha.dtype == torch.float64
         assert alpha.device == site.modules.phi.weight.device

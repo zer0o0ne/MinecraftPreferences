@@ -1,5 +1,7 @@
 """Small contract fakes and constructors for the black-box MCTS tests."""
 
+from types import SimpleNamespace
+
 import torch
 
 from mcpref.runtime.mcts.config import MctsConfig
@@ -80,6 +82,7 @@ class FakePolicy:
         self, logits=None, shifts=None, *, logits_fn=None, shift_fn=None, history=1000
     ):
         self.logits_values = logits
+        self.embed = SimpleNamespace(weight=torch.empty(0, dtype=torch.float64))
         self.shift_values = shifts
         self.logits_fn = logits_fn
         self.shift_fn = shift_fn
@@ -115,6 +118,7 @@ class FakePolicy:
 class FakePreference:
     def __init__(self, logits=(0.0, 0.0), *, logits_fn=None, history=1000):
         self.logits = logits
+        self.embed = SimpleNamespace(weight=torch.empty(0, dtype=torch.float64))
         self.logits_fn = logits_fn
         self.history = history
         self.calls = []

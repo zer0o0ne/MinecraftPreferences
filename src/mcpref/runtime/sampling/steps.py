@@ -49,7 +49,7 @@ def _complete(sampler: Sampler, pending: Pending) -> StepRecord:
     close, start = preferences(
         sampler.modules.P, sampler.history, pending.origin, pending.start
     )
-    delta = _cpu(sampler.history.Y[0, -1] - pending.z)
+    delta = _cpu(sampler.history.Y[0, -1].double() - pending.z.double())
     return StepRecord(
         pending.index,
         pending.before,
