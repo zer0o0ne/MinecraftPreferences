@@ -1,7 +1,7 @@
 # specs/runtime-play.md. Paths are relative to the repository root.
 mode: pretrained # pretrained: fixed weights + MCTS; rl: MCTS + training
 trajectories: 1 # Each trajectory contains sampling.steps environment actions.
-out_dir: data/runtime/play # Must not exist; choose a new directory for a new world.
+out_dir: data/runtime/first_play_no_mcts # Must not exist; choose a new directory for a new world.
 device: cuda
 sampling: configs/runtime/sampling.yaml
 rl_cycle: configs/training/rl/cycle.yaml
