@@ -125,23 +125,16 @@ class DiagnosticRun:
         directory = self.out_dir / "outbox" / channel
         return directory.exists() and any(directory.glob("*.json"))
 
-    def event_ids(self, channel: str) -> list[str]:
-        return list(
-            dict.fromkeys(value["event"]["id"] for _, value in self.outbox(channel))
-        )
-
     def accepted(self, kind: str, event_id: str) -> MetricRecord | None:
         if kind not in self._ids:
             self._ids[kind] = {
-                record["id"] for record in iter_records(self.out_dir, kind)
+                record["id"]: record["index"]
+                for record in iter_records(self.out_dir, kind)
             }
         if event_id not in self._ids[kind]:
             return None
-        return next(
-            record
-            for record in iter_records(self.out_dir, kind)
-            if record["id"] == event_id
-        )
+        path = self.out_dir / kind / name(self._ids[kind][event_id]) / "metrics.json"
+        return json.loads(path.read_bytes())
 
     def remove(self, paths: Sequence[Path]) -> None:
         for path in paths:
@@ -159,14 +152,32 @@ class DiagnosticRun:
         remove: bool = True,
     ) -> bool:
         entries = self.entries(channel, event_id)
-        if not entries:
+        accepted = self._consume(channel, event_id, entries, join)
+        if accepted is None:
             return False
+        self.state["sha256"]["inputs"][channel] = self.identity(channel)
+        if save:
+            self.save()
+        if remove:
+            self.remove([path for path, _ in entries])
+        return accepted
+
+    def _consume(
+        self,
+        channel: str,
+        event_id: str,
+        entries: list[tuple[Path, dict]],
+        join: Join | None,
+    ) -> bool | None:
+        """Publish one event; None means its source was never published."""
+        if not entries:
+            return None
         sources = entries[0][1]["source"]
         if any(entry["source"] != sources for _, entry in entries):
             raise RuntimeError(f"{event_id} outbox sources differ")
         if any(not (REPO / source).is_file() for source in sources):
             self.remove([path for path, _ in entries])
-            return False
+            return None
         state = self.state["channels"][channel]
         already = any(event["id"] == event_id for event in state["events"])
         new_records = 0
@@ -181,7 +192,7 @@ class DiagnosticRun:
                 continue
             index = complete_records(self.out_dir, pending["kind"])
             write_record(self.out_dir, pending["kind"], index, pending)
-            self._ids[pending["kind"]].add(pending["id"])
+            self._ids[pending["kind"]][pending["id"]] = index
             new_records += 1
         if not already:
             state["events"].append({"id": event_id, "source": sources})
@@ -189,16 +200,26 @@ class DiagnosticRun:
         state["next"] = max(state["next"], entries[0][1]["event"]["next"])
         state["complete"] = False
         self.state["complete"] = False
-        self.state["sha256"]["inputs"][channel] = self.identity(channel)
-        if save:
-            self.save()
-        if remove:
-            self.remove([path for path, _ in entries])
         return not already
 
-    def recover(self, channel: str, *, join: Join | None = None) -> None:
-        for event_id in self.event_ids(channel):
-            self.accept(channel, event_id, join=join)
+    def recover(
+        self, channel: str, *, join: Join | None = None, bar: tqdm | None = None
+    ) -> None:
+        events: dict[str, list[Path]] = {}
+        for path, value in self.outbox(channel):
+            events.setdefault(value["event"]["id"], []).append(path)
+        consumed = []
+        for event_id, paths in events.items():
+            entries = [(path, json.loads(path.read_bytes())) for path in paths]
+            accepted = self._consume(channel, event_id, entries, join)
+            if accepted is not None:
+                consumed.extend(paths)
+            if accepted and bar is not None:
+                bar.update()
+        if consumed:
+            self.state["sha256"]["inputs"][channel] = self.identity(channel)
+            self.save()
+            self.remove(consumed)
 
     def finish(self, channel: str, *, source_complete: bool, done: bool) -> None:
         state = self.state["channels"][channel]

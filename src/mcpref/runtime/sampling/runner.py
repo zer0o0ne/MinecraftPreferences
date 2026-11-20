@@ -230,8 +230,12 @@ class Sampler:
                 step(self, staged, local, bar)
             self.observe_milestones(k)
         self.run.published(k, self.next_step, self.modules.fingerprint)
-        self.diagnostics.recover("mcts")
-        self.diagnostics.recover("milestones")
+        with diagnostic_bar(
+            "diagnostics mcts", self.next_step - start, 0, "step_record"
+        ) as bar:
+            self.diagnostics.recover("mcts", bar=bar)
+        with diagnostic_bar("diagnostics milestones", 1, 0, "episode") as bar:
+            self.diagnostics.recover("milestones", bar=bar)
         state = self.diagnostics.state["channels"]["mcts"]
         self.diagnostics.finish(
             "mcts", source_complete=True, done=state["next"] >= self.next_step
@@ -241,12 +245,4 @@ class Sampler:
             source_complete=True,
             done=self.diagnostics.state["channels"]["milestones"]["next"] >= k + 1,
         )
-        with diagnostic_bar(
-            "diagnostics mcts", self.next_step - start, 0, "step_record"
-        ) as bar:
-            if bar is not None:
-                bar.update(self.next_step - start)
-        with diagnostic_bar("diagnostics milestones", 1, 0, "episode") as bar:
-            if bar is not None:
-                bar.update()
         return shard_path(out / "shards", k)

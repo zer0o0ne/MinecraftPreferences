@@ -32,6 +32,8 @@ data/runtime/play/          # configured out_dir
 
 For 1000 actions from ongoing pretraining, set `checkpoint_dir: data/pretrain/checkpoints/000055` (replace with an existing published checkpoint directory) and `steps: 1000` in `configs/runtime/sampling.yaml`. Keep `mode: pretrained` and `trajectories: 1` in `configs/runtime/play.yaml`, choose an unused `out_dir`, and run `bash scripts/play.sh`. The checkpoint directory number is a shard index, not an optimizer step. MCTS parameters come from the sampling config's `mcts` path. To export the whole trajectory afterward, set the video config's `sampling_dir` to `<out_dir>/sampling`, `last_steps: 1000`, both range fields to null, and a new output filename, then run `bash scripts/export_gameplay.sh`.
 
+The `env sampling` bar counts completed action records. Final state/shard publication and diagnostics follow; the `diagnostics mcts` and `diagnostics milestones` bars advance during their actual publication. The game is complete when the top-level `run.json` has `status: complete`. A published `sampling/shards/000000` directory (without `.part`) is already available for video export while diagnostics finish.
+
 ## Separate video command
 - `bash scripts/export_gameplay.sh` reads `configs/runtime/video.yaml`; the only optional CLI argument is a different config path. Remove the former source/output positional arguments and range flags.
 - The video config contains `sampling_dir`, `output`, `start_step`, `stop_step`, `last_steps`, `fps`, `ffmpeg`, `crf`, and `preset`. Specify either integer `start_step` and `stop_step` with `last_steps: null`, or positive integer `last_steps` with both range fields null. Paths may be absolute or repository-relative.
