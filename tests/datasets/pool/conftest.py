@@ -5,7 +5,7 @@ variables unset."""
 
 import pytest
 from progress_bars import tqdm_defaults
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 
 from datasets.clips.conftest import PROXY_VARS
 from datasets.pool.pool_site import PoolSite

@@ -12,7 +12,7 @@ import yaml
 import mcpref
 import mcpref.datasets.clips.collect
 from mcpref import config
-from mcpref.training.pretrain.config import PretrainConfig, load_config
+from mcpref.training.pretrain.classical.config import PretrainConfig, load_config
 
 PATHS = [
     "index_dir",

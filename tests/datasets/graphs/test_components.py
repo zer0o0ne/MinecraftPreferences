@@ -6,7 +6,7 @@ list(range(n))."""
 
 import numpy as np
 import pytest
-from training.pretrain.data.index_oracle import groups
+from training.pretrain.classical.data.index_oracle import groups
 
 from datasets.pool.graph_oracle import components as by_smallest
 from mcpref.datasets.graphs.components import components

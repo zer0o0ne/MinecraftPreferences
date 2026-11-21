@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from progress_bars import tqdm_defaults
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 
 from mcpref.datasets.vpt.actions import WORLD_ACTIONS
 from mcpref.runtime.env.config import EnvConfig

@@ -1,5 +1,8 @@
 # Preference pool
 Status: approved (2026-10-20); clarified after the refactor and the review 2026-10-21: modules `data/pool/episode.py` and `data/pool/shards.py`, the client of (H), the result of `components`, exact values, reuses `exact` and `json_bytes`, approved; 2026-10-21: `cycles`, `tick_slack` representable as a float, approved; 2026-11-06: starting-value reconciliation, approved
+
+The standard collection script now selects candidates exclusively from the completed shared dataset, as defined in [continuous data](continuous-data.md). The legacy downloading pool below remains available for archived datasets.
+
 Stage: data of P2 (`specs/00-overview.md`, block 23); the producer of $Q_c$ of `specs/train-index.md`
 
 ## Sources
@@ -100,7 +103,7 @@ Applied with the approval of this spec and of `specs/vlm-labels.md`, `specs/acyc
 - `specs/pretrain.md`:
   - Status gains `; 2026-10-20: \`fingerprint\`, \`new_hash\`, \`shard_files\`, \`clip_fields\`, \`relative\` moved (\`specs/preference-pool.md\`), approved`.
   - Config: `` by `relative` of `training/pretrain/data/index.py` `` → `` by `relative` of `mcpref.config` ``.
-  - Interface: `` `src/mcpref/training/pretrain/data/items.py` gains `def fingerprint( `` → `` `src/mcpref/infrastructure/runs/files.py` holds (moved from `training/pretrain/data/items.py`, `specs/preference-pool.md`) `def fingerprint( ``; `` `file` = `records.json` (with the clip-defining `fields`) or `pairs.json` (`fields` None) `` → `` `file` — any file name of the dataset's shards (`records.json` with the clip-defining `fields`; `pairs.json`, `comparisons.json`, `answers.json` with `fields` None) ``; `` used by (R) 5 and by the producer of $Q_\ell$ (`pair_clips`). `` → `` used by (R) 5, train-index and blocks vlm-labels and acyclic. ``.
+  - Interface: `` `src/mcpref/training/pretrain/classical/data/items.py` gains `def fingerprint( `` → `` `src/mcpref/infrastructure/runs/files.py` holds (moved from `training/pretrain/data/items.py`, `specs/preference-pool.md`) `def fingerprint( ``; `` `file` = `records.json` (with the clip-defining `fields`) or `pairs.json` (`fields` None) `` → `` `file` — any file name of the dataset's shards (`records.json` with the clip-defining `fields`; `pairs.json`, `comparisons.json`, `answers.json` with `fields` None) ``; `` used by (R) 5 and by the producer of $Q_\ell$ (`pair_clips`). `` → `` used by (R) 5, train-index and blocks vlm-labels and acyclic. ``.
 - Code moved unchanged (behaviour and signatures kept; importers updated): `shard_files`, `new_hash`, `fingerprint` (`training/pretrain/data/items.py`) and `HASHED`, `CLIP_FIELDS`, `ABSENT`, `clip_fields` (`training/pretrain/data/index.py`) → `infrastructure/runs/files.py`; `relative` (`training/pretrain/data/index.py`) → `mcpref/config.py`; `components` (`training/pretrain/data/items.py`) → `data/graphs/components.py` (annotation generalised to `Hashable`). Prerequisite: the pretrain cycle (`specs/pretrain.md`) committed; the moves land in the commit of this block.
 
 ## Library mapping

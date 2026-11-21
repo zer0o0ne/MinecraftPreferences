@@ -8,7 +8,7 @@ import pytest
 import torch
 from models.perception.world import STARTING as PERCEPTION_STARTING
 from runtime_configs import write_repository
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 
 from mcpref.gui.mask import load_config as load_mask_config
 from mcpref.gui.mask import load_masks, state_mask

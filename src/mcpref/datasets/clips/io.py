@@ -22,9 +22,13 @@ class Clip:
 
 def read_clip(path: Path, states: int, width: int, height: int) -> Clip:
     """Notation: the clip at the resolved `path`; frames of shape (L, W H 3 / 2)."""
+    info = json.loads((path / "clip.json").read_bytes())
+    if "format" in info:
+        from mcpref.datasets.continuous.views.reader import read_reference
+
+        return read_reference(path, width, height)
     frames = np.fromfile(path / "frames.yuv", dtype=np.uint8)
     frames = frames.reshape(states, width * height * 3 // 2)
-    info = json.loads((path / "clip.json").read_bytes())
     pieces = (path / "lines.jsonl").read_bytes().split(b"\n")[:-1]
     lines = [json.loads(piece.decode("utf-8")) for piece in pieces]
     return Clip(frames, width, height, info, lines)

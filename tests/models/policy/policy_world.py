@@ -10,8 +10,8 @@ from mcpref.datasets.clips.io import Clip
 
 def action_masks(root):
     """Masks loaded entirely from test-owned action-mask and GUI catalogue configs."""
-    from training.pretrain.data.index_run import repo_root
-    from training.pretrain.loop_configs import (
+    from training.pretrain.classical.data.index_run import repo_root
+    from training.pretrain.classical.loop_configs import (
         MODULE_CONFIGS,
         write_action_mask_catalogue,
         write_module_configs,

@@ -6,7 +6,7 @@ proxy and TQDM_* variables unset."""
 import pytest
 from datasets.clips.conftest import PROXY_VARS
 from progress_bars import tqdm_defaults
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 
 from runtime.engine.engine_world import VARS
 from runtime.engine.prepare_site import Site

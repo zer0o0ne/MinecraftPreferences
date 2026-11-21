@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import yaml
 from progress_bars import tqdm_defaults
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 
 import mcpref.integrations.vlm.client
 from datasets.preferences.config_files import ACYCLIC, DIAGNOSTICS, TINY, write_config

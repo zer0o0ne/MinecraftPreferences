@@ -13,6 +13,7 @@ from mcpref.datasets.vpt.actions import (
     riding_lines,
     segments,
 )
+from mcpref.datasets.vpt.video.sequence import RowView
 from mcpref.gui.actions import GuiActions
 
 
@@ -43,7 +44,7 @@ def world_segments(
     lines: Sequence[Mapping], kappa: Sequence[int], r_min: int
 ) -> list[Segment]:
     """Notation S: `segments` of the kept lines, first and last position mapped to kappa."""
-    segs = segments([lines[k] for k in kappa], r_min)
+    segs = segments(RowView(lines, kappa), r_min)
     return [Segment(s.action, kappa[s.first], kappa[s.last]) for s in segs]
 
 

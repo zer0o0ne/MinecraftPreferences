@@ -26,10 +26,10 @@ from mcpref.runtime.sampling.models import decode_stream, encode_stream
 from mcpref.training.groups import check_groups
 from mcpref.training.optim import adamw, update
 from mcpref.training.pretrain.checkpoints import restore, write_checkpoint
-from mcpref.training.pretrain.steps.loss import gradient_steps, step_gradients
+from mcpref.training.pretrain.classical.steps.loss import gradient_steps, step_gradients
 from mcpref.training.rl import cycle
 from mcpref.training.rl.learning import loss as rl_loss
-from training.pretrain.steps.test_loss import CFG
+from training.pretrain.classical.steps.test_loss import CFG
 from training.rl.learning.loss_fakes import ppo_config
 
 torch.set_num_threads(1)

@@ -20,7 +20,7 @@ from mcpref.runtime.sampling.config import load_config as load_sampling_config
 from mcpref.training.checkpoints import prune, write_model
 from mcpref.training.groups import check_groups
 from mcpref.training.optim import adamw, update
-from mcpref.training.pretrain.config import load_config as load_pretrain_config
+from mcpref.training.pretrain.modes import load_classical_config as load_pretrain_config
 from mcpref.training.rl.config import RLCycleConfig
 from mcpref.training.rl.learning.checkpoints import STATEFUL, restore, write_checkpoint
 from mcpref.training.rl.learning.history import encode_ref

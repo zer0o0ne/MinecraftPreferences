@@ -8,7 +8,7 @@ import json
 import numpy as np
 import yaml
 from progress_bars import Bar
-from training.pretrain.data.index_oracle import (
+from training.pretrain.classical.data.index_oracle import (
     clips_fingerprint,
     json_bytes,
     name,

@@ -9,9 +9,9 @@ from datasets.clips.collect_gamma import Classifier
 from datasets.pool.pool_world import chain
 from mcpref.datasets.clips.collect import collect as perception_collect
 from mcpref.datasets.clips.collect import load_config as load_perception
-from mcpref.training.pretrain.data.index import main
+from mcpref.training.pretrain.classical.data.index import main
 
-PREFIX = "mcpref.training.pretrain.data.index: RuntimeError: "
+PREFIX = "mcpref.training.pretrain.classical.data.index: RuntimeError: "
 
 
 def last_line(site, capfd, gid: str) -> str:

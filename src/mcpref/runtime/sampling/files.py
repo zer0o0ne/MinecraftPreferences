@@ -13,7 +13,8 @@ from mcpref.infrastructure.shards.store import complete_shards, name, shard_path
 from mcpref.runtime.env.config import load_config as load_env_config
 from mcpref.runtime.sampling.checkpoints import checkpoint_path
 from mcpref.runtime.sampling.config import SamplingConfig
-from mcpref.training.pretrain.config import load_config as load_pretrain_config
+from mcpref.training.pretrain.modes import classical_config_path
+from mcpref.training.pretrain.modes import load_classical_config as load_pretrain_config
 
 
 def config_paths(cfg: SamplingConfig, path: Path) -> dict[str, Path]:
@@ -22,7 +23,7 @@ def config_paths(cfg: SamplingConfig, path: Path) -> dict[str, Path]:
     env = load_env_config(REPO / cfg.env)
     clips = load_clips_config(REPO / env.clips)
     mask = load_mask_config(REPO / pretrain.action_mask)
-    return {
+    paths = {
         "config": path,
         "pretrain_config": REPO / cfg.pretrain,
         "pretrain_model": checkpoint_path(cfg),
@@ -39,6 +40,10 @@ def config_paths(cfg: SamplingConfig, path: Path) -> dict[str, Path]:
         "vpt_actions": clips.actions,
         "gui_screens": REPO / mask.screens,
     }
+    selected = classical_config_path(REPO / cfg.pretrain)
+    if selected != REPO / cfg.pretrain:
+        paths["pretrain_mode_config"] = selected
+    return paths
 
 
 class SamplingRun:

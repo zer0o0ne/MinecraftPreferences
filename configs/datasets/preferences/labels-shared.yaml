@@ -1,0 +1,6 @@
+extends:
+  - configs/datasets/preferences/labels.yaml
+pool_dir: data/pair_clips_shared
+out_dir: data/pair_votes_shared
+diagnostics: configs/diagnostics-shared.yaml
+acyclic: configs/datasets/preferences/acyclic-shared.yaml

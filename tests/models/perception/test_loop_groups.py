@@ -5,9 +5,9 @@ tests/training/pretrain/loop_starting.py). The run is stopped by C's missing `cl
 so reaching it shows that (R) 4 passed."""
 
 from progress_bars import screen
-from training.pretrain.data.index_world import drop, edit
-from training.pretrain.loop_run import Loop, aborted
-from training.pretrain.loop_starting import starting, starting_groups
+from training.pretrain.classical.data.index_world import drop, edit
+from training.pretrain.classical.loop_run import Loop, aborted
+from training.pretrain.classical.loop_starting import starting, starting_groups
 
 from mcpref.models.perception.loss import PhiLoss
 from mcpref.models.perception.phi import Phi

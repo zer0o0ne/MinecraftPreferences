@@ -9,11 +9,15 @@ import pytest
 
 CFG = {"driver_min": "575.64.05", "python_version": "3.10.18", "uv_version": "0.13.2"}
 RUN = (f"uv@{CFG['uv_version']}", "run", "--locked", "python", "-m")
-POOL = (*RUN, "mcpref.datasets.pool.run", "configs/datasets/preference-pool.yaml")
+POOL = (
+    *RUN,
+    "mcpref.datasets.continuous.views.pool",
+    "configs/datasets/preference-pool-shared.yaml",
+)
 LABELS = (
     *RUN,
     "mcpref.datasets.preferences.labels",
-    "configs/datasets/preferences/labels.yaml",
+    "configs/datasets/preferences/labels-shared.yaml",
 )
 
 

@@ -2,7 +2,7 @@
 
 import pytest
 import torch
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 
 from runtime.sampling.helpers import FakeStream, Site
 

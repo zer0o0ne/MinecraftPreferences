@@ -21,7 +21,7 @@ from mcpref.models.preference.network import Preference
 from mcpref.runtime.sampling.checkpoints import checkpoint_path, load_weights
 from mcpref.runtime.sampling.codecs import _cpu
 from mcpref.runtime.sampling.config import SamplingConfig
-from mcpref.training.pretrain.config import load_config as load_pretrain_config
+from mcpref.training.pretrain.modes import load_classical_config as load_pretrain_config
 
 
 @dataclass(frozen=True)

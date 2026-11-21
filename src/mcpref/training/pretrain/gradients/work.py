@@ -42,9 +42,9 @@ def load_vector(
     parameter: str,
     progress=None,
     counts: dict | None = None,
+    shape: tuple | None = None,
 ) -> Tensor:
     total = None
-    shape = None
     for index, manifest in enumerate(manifests):
         for identifier, entry in manifest.items():
             if (entry["x"], entry["parameter"]) == (x, parameter):
@@ -150,7 +150,14 @@ def reduce_work_with_progress(directory: Path, groups: Groups, progress) -> dict
                 counts[x][component].setdefault(group, zero_counts())
             vectors = {
                 component: load_vector(
-                    directory, manifests, x, component, parameter_name, progress, counts
+                    directory,
+                    manifests,
+                    x,
+                    component,
+                    parameter_name,
+                    progress,
+                    counts,
+                    tuple(parameter.shape),
                 )
                 for component in components
             }

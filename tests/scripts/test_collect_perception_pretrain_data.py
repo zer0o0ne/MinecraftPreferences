@@ -9,7 +9,7 @@ import pytest
 CFG = {"driver_min": "575.64.05", "python_version": "3.10.18", "uv_version": "0.13.2"}
 RUN = (f"uv@{CFG['uv_version']}", "run", "--locked", "python", "-m")
 TEXTURES = (*RUN, "mcpref.gui.textures", "configs/gui/screens.yaml")
-COLLECT = (*RUN, "mcpref.datasets.clips.run", "configs/datasets/perception-data.yaml")
+COLLECT = (*RUN, "mcpref.datasets.continuous.run", "configs/datasets/continuous.yaml")
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ def test_failing_main_fails_the_script(spark):
     """main fails (set -e of the preamble): the script fails."""
     uv = spark.bin / "uv"
     uv.write_text(
-        uv.read_text() + '[ "${5-}" != mcpref.datasets.clips.run ] || exit 1\n'
+        uv.read_text() + '[ "${5-}" != mcpref.datasets.continuous.run ] || exit 1\n'
     )
     result = spark.run()
     assert result.returncode != 0 and result.events == [TEXTURES, COLLECT]

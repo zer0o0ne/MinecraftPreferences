@@ -9,13 +9,13 @@ import json
 import pytest
 import yaml
 from progress_bars import assert_aborted, tqdm_defaults
-from training.pretrain.data.index_oracle import clips_fingerprint
-from training.pretrain.data.index_run import repo_root
-from training.pretrain.data.index_world import clips_run, record, write_clips
+from training.pretrain.classical.data.index_oracle import clips_fingerprint
+from training.pretrain.classical.data.index_run import repo_root
+from training.pretrain.classical.data.index_world import clips_run, record, write_clips
 
 from datasets.preferences.acyclic_site import make_site, shard_files
 from datasets.preferences.acyclic_world import HAND, sha, votes_run
-from mcpref.training.pretrain.data.index import main as train_index
+from mcpref.training.pretrain.classical.data.index import main as train_index
 
 INDEX = {"clips_dir": "w/clips", "pair_clips_dir": "w/pair_clips",
          "pair_labels_dir": "w/labels", "out_dir": "w/index", "validation": "0.3",
@@ -80,4 +80,7 @@ def test_train_index_aborts_on_other_clips(tmp_path):
     code, err = run_index(site)
     assert_aborted(code, err)
     message = "RuntimeError: w/labels labels other clips than w/pair_clips"
-    assert err.splitlines()[-1] == f"mcpref.training.pretrain.data.index: {message}"
+    assert (
+        err.splitlines()[-1]
+        == f"mcpref.training.pretrain.classical.data.index: {message}"
+    )

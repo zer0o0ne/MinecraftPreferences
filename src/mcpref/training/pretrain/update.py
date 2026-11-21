@@ -9,8 +9,12 @@ from torch import Tensor
 from mcpref.infrastructure.profiling.scopes import measured
 from mcpref.training.groups import Groups
 from mcpref.training.optim import iter_update_terms
-from mcpref.training.pretrain.config import PretrainConfig
-from mcpref.training.pretrain.gradients.work import dot, load_vector, work_manifests
+from mcpref.training.pretrain.config import TrainingConfig
+from mcpref.training.pretrain.gradients.work import (
+    dot,
+    load_vector,
+    work_manifests,
+)
 
 
 def squared_norm(value: Tensor) -> float:
@@ -73,7 +77,7 @@ def update_result(squared: dict) -> dict:
 
 @measured("diagnostics.updates")
 def update_stats(
-    cfg: PretrainConfig,
+    cfg: TrainingConfig,
     optimizer: torch.optim.AdamW,
     groups: Groups,
     lr: dict,
@@ -91,7 +95,7 @@ def update_stats(
 
 
 def update_and_align(
-    cfg: PretrainConfig,
+    cfg: TrainingConfig,
     optimizer: torch.optim.AdamW,
     groups: Groups,
     lr: dict,
@@ -103,6 +107,11 @@ def update_and_align(
     squared = {group: [0.0, 0.0, False] for group in groups}
     alignment = {"phi": {}, "P": {}}
     unavailable_groups = set()
+    shapes = {
+        groups.parameter_names[id(p)]: tuple(p.shape)
+        for parameters in groups.values()
+        for p in parameters
+    }
     for term in iter_update_terms(cfg, optimizer, groups, lr):
         values = squared[term.group]
         if term.unavailable is not None:
@@ -114,7 +123,15 @@ def update_and_align(
         x = "P" if term.parameter.startswith("P.") else "phi"
         if not term.parameter.startswith(("phi.", "phi_loss.", "P.")):
             continue
-        vector = load_vector(work, manifests, x, "P", term.parameter, progress)
+        vector = load_vector(
+            work,
+            manifests,
+            x,
+            "P",
+            term.parameter,
+            progress,
+            shape=shapes[term.parameter],
+        )
         unavailable = term.unavailable
         value = None if unavailable else dot(vector, term.delta.detach().cpu())
         if value is not None and not math.isfinite(value):

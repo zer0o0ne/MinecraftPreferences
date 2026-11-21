@@ -1,0 +1,4 @@
+# Draw candidates from existing grid histories only; no source downloads.
+dataset: data/pretraining
+pool: configs/datasets/preference-pool.yaml
+out_dir: data/pair_clips_shared

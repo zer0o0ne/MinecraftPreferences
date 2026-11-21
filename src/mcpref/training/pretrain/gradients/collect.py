@@ -36,6 +36,7 @@ def parameters(
     return [
         (parameter, owner[id(parameter)])
         for name in names
+        if name in modules
         for _, parameter in modules[name].named_parameters()
         if parameter.requires_grad
     ]
@@ -111,7 +112,7 @@ def collect_gradients(
 ) -> None:
     for x, components in (("phi", ("phi", "pi", "P")), ("P", ("P",))):
         for component in components:
-            if weighted[component] is None:
+            if weighted[component] is None or not params[x]:
                 continue
             returned = torch.autograd.grad(
                 weighted[component],
@@ -158,7 +159,7 @@ def collect_micro(
     cuda_rng = torch.cuda.get_rng_state(device) if device.type == "cuda" else None
     try:
         labelled = weighted["P"] is not None
-        own = weighted["phi"] is not None
+        own = weighted["phi"] is not None or weighted["pi"] is not None
         params = {x: parameters(modules, groups, x) for x in ("phi", "P")}
         norms = micro_norms(params, labelled, own)
         counts = micro_counts(norms, labelled, own)

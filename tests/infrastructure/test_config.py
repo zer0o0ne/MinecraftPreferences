@@ -49,7 +49,9 @@ def test_extends_deep_merges_in_order_and_remove_preserves_order(tmp_path, monke
 
 
 def test_starting_configs_resolve_to_their_previous_values():
-    pretrain = config.read_yaml(config.REPO / "configs/training/pretrain/config.yaml")
+    pretrain = config.read_yaml(
+        config.REPO / "configs/training/pretrain/classical.yaml"
+    )
     rl = config.read_yaml(config.REPO / "configs/training/rl/cycle.yaml")
     assert "phi_dual" in pretrain["groups"] and "metra_dual" not in pretrain["groups"]
     assert "metra_dual" in rl["groups"] and "phi_dual" not in rl["groups"]
@@ -63,7 +65,7 @@ def test_starting_configs_resolve_to_their_previous_values():
     assert rl["gradient_diagnostics"] is False
     assert pretrain["w_P"] == rl["w_P"] == 1.0
     pretrain_raw = yaml.safe_load(
-        (config.REPO / "configs/training/pretrain/config.yaml").read_text()
+        (config.REPO / "configs/training/pretrain/base.yaml").read_text()
     )
     rl_raw = yaml.safe_load(
         (config.REPO / "configs/training/rl/cycle.yaml").read_text()

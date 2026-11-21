@@ -23,7 +23,7 @@ from datasets.preferences.acyclic_world import (
 )
 from datasets.preferences.config_files import DIAGNOSTICS
 from datasets.preferences.test_acyclic import pair
-from training.pretrain.data.index_run import interrupting, repo_root
+from training.pretrain.classical.data.index_run import interrupting, repo_root
 
 from mcpref.datasets.preferences import acyclic
 from mcpref.diagnostics.label_distribution import read_distribution

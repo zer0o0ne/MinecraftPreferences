@@ -5,7 +5,7 @@ import json
 import pytest
 
 from mcpref.training.rl.learning.retrain import retrain as run_retrain
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 from training.rl.learning.loop_world import run_train, write_unit_world
 from training.rl.learning.loss_fakes import history, install, modules
 from training.rl.learning.test_gradient_diagnostics_disabled import assert_same_training

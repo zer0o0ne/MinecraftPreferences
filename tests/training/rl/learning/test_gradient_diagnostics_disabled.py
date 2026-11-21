@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from mcpref.training.rl.learning.checkpoints import write_checkpoint
-from training.pretrain.references.test_reference_resume import nested_equal
+from training.pretrain.classical.references.test_reference_resume import nested_equal
 from training.rl.learning.loop_world import (
     checkpoints,
     install_steps,

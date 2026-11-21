@@ -2,7 +2,7 @@
 
 import tqdm
 from progress_bars import Bar, assert_bars, screen, states
-from training.pretrain.data.index_run import interrupting
+from training.pretrain.classical.data.index_run import interrupting
 
 from datasets.preferences.acyclic_site import make_site
 from datasets.preferences.acyclic_world import HAND, MB, comparison, votes_run

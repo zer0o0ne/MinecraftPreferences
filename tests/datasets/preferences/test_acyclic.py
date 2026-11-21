@@ -7,7 +7,7 @@ import json
 from fractions import Fraction
 
 import pytest
-from training.pretrain.data.index_run import interrupting
+from training.pretrain.classical.data.index_run import interrupting
 
 from datasets.graphs.feedback_oracle import igraph_eades
 from datasets.preferences.acyclic_oracle import end

@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from training.pretrain.loop_oracle import Moments, adamw
+from training.pretrain.classical.loop_oracle import Moments, adamw
 from training.rl.learning.helpers import GROUPS
 from training.rl.learning.loop_world import (
     checkpoints,

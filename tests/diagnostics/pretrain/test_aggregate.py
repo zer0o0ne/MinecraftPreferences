@@ -313,7 +313,7 @@ def test_constructor_has_no_hidden_diagnostic_defaults():
 
 
 def test_loop_forwards_global_strata_and_every_diagnostic_config_value(tmp_path):
-    from training.pretrain.loop_run import Loop
+    from training.pretrain.classical.loop_run import Loop
 
     loop = Loop(tmp_path).write()
     real = WindowAccumulator.__init__
@@ -328,7 +328,7 @@ def test_loop_forwards_global_strata_and_every_diagnostic_config_value(tmp_path)
     args, kwargs = calls[0]
     cfg = loop.config
     assert args == (cfg["diagnostic_window"],)
-    from mcpref.training.pretrain.references.reference import load_global_fit
+    from mcpref.training.pretrain.classical.references.reference import load_global_fit
 
     assert kwargs == {"strata": tuple(load_global_fit(loop.out).strata),
                       "calibration_bins": cfg["calibration_bins"],
@@ -340,8 +340,8 @@ def test_loop_forwards_global_strata_and_every_diagnostic_config_value(tmp_path)
 def test_checkpoint_diagnostics_full_windows_and_final_partial(tmp_path):
     import json
 
-    from training.pretrain.data.index_oracle import json_bytes
-    from training.pretrain.loop_run import Loop
+    from training.pretrain.classical.data.index_oracle import json_bytes
+    from training.pretrain.classical.loop_run import Loop
 
     loop = Loop(tmp_path, diagnostic_window=4, checkpoint_steps=4).write()
     loop.run()

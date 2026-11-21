@@ -4,7 +4,7 @@ leftover staged shard replaced; a rerun of a complete run changes nothing."""
 
 import pytest
 from progress_bars import Bar, states
-from training.pretrain.data.index_run import interrupting
+from training.pretrain.classical.data.index_run import interrupting
 
 from datasets.preferences.acyclic_site import make_site
 

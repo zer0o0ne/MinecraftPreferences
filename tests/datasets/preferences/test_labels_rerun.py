@@ -6,7 +6,7 @@ import json
 
 import pytest
 from progress_bars import Bar, assert_aborted, assert_bars, screen, states
-from training.pretrain.data.index_run import interrupting
+from training.pretrain.classical.data.index_run import interrupting
 
 from datasets.preferences.labels_oracle import inputs_bar, label_bar, same_prompts
 from datasets.preferences.labels_run import PREFIX

@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from training.pretrain.data.index_oracle import json_bytes, name
-from training.pretrain.data.index_world import clips_run, record
+from training.pretrain.classical.data.index_oracle import json_bytes, name
+from training.pretrain.classical.data.index_world import clips_run, record
 
 W, H, L = 4, 2, 6  # config.width, config.height, config.states of {Q_c}/run.json
 E = {k: f"data/9.0/p{k}-0123456789ab-20220101-1{k}0000.mp4" for k in range(1, 9)}

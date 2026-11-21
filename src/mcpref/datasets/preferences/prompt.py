@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
+from mcpref.datasets.clips.io import read_clip
 from mcpref.datasets.vpt.video.yuv import yuv420p_to_rgb
 from mcpref.models.perception.meta import inventory_text
 
@@ -36,11 +37,13 @@ def read_shown(clip: Path, cfg: "VlmLabelsConfig", run: dict) -> Shown:
     """Notation: frames j_q = L - 1 - (k_V - 1 - q) s_V of the clip's frames.yuv as RGB,
     oldest first (W, H, L of Q_c's run.json); lambda_x."""
     W, H, L = (run["config"][k] for k in ("width", "height", "states"))
-    beta = W * H * 3 // 2
-    data = (clip / "frames.yuv").read_bytes()
+    data = read_clip(clip, L, W, H)
+    L = len(data.frames)
     js = [L - 1 - (cfg.frames - 1 - q) * cfg.stride for q in range(cfg.frames)]
-    frames = [yuv420p_to_rgb(data[j * beta : (j + 1) * beta], W, H) for j in js]
-    return Shown(frames, compared_line((clip / "lines.jsonl").read_bytes()))
+    if min(js) < 0:
+        raise ValueError("Clip is shorter than the requested annotation history")
+    frames = [yuv420p_to_rgb(data.frames[j].tobytes(), W, H) for j in js]
+    return Shown(frames, data.lines[-1])
 
 
 def requests(cfg: "VlmLabelsConfig", n: int, start: int) -> list[tuple[int, ...]]:

@@ -48,12 +48,14 @@ The output path is printed to stderr. Files live under:
   trace.json.gz
 ```
 
-Stages are `pretrain`, `pretrain-retrain`, `rl`, and `rl-retrain`. Pretrain uses its
+Stages are `pretrain`, `pretrain-retrain`, `continuous-joint`,
+`continuous-retrain`, `rl`, and `rl-retrain`. Pretrain uses its
 configured `out_dir`; RL uses the cycle directory. Repeated runs never overwrite
 earlier profiles. Open the compressed Chrome trace in Perfetto to inspect CPU
 ranges, CUDA kernels, copies, waits, and compilation events. `summary.txt` contains
 the phase table and operators sorted separately by self CPU and self device time.
-`summary.json` also records device/Torch version, configured batch/microbatch,
+`summary.json` also records device/Torch version, configured batch/microbatch
+(or `tbptt_states` and `preference_micro_batch` in continuous mode),
 actual item count, gradient-diagnostic mode, peak CUDA allocated/reserved bytes,
 and each Qwen call's row count, frame count, token lengths, padding fraction, and
 whether autograd was enabled. A preference item can supply two Qwen rows.

@@ -52,7 +52,17 @@ def publish(trace, directory: Path, metadata: dict, cuda: bool, top_ops: int) ->
     )
     lines = [
         f"{metadata['stage']} step {metadata['step']}: {metadata['wall_s']:.3f}s wall",
-        f"batch={metadata['batch']} micro_batch={metadata['micro_batch']} items={metadata['items']}",
+        " ".join(
+            f"{key}={metadata[key]}"
+            for key in (
+                "batch",
+                "micro_batch",
+                "tbptt_states",
+                "preference_micro_batch",
+                "items",
+            )
+            if key in metadata
+        ),
         f"CUDA peak memory (bytes): {metadata['memory']}",
         f"Qwen calls={len(metadata['qwen_batches'])}; rows per call: {[row['rows'] for row in metadata['qwen_batches']]}",
         note,

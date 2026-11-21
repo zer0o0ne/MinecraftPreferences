@@ -1,0 +1,22 @@
+# Model, objective and optimization settings shared by both pretraining modes.
+extends:
+  - configs/training/optimizer.yaml
+remove:
+  - groups.metra_dual
+retrain: true
+w_P: 1.0
+w_phi: 0.3
+w_pi: 1.0
+perception: configs/models/perception.yaml
+action_mask: configs/gui/action-mask.yaml
+policy: configs/models/policy.yaml
+preference: configs/models/preference.yaml
+diagnostic_window: 100
+reference_steps: 500
+reference_pairs: 64
+calibration_bins: 10
+saturation_threshold: 0.01
+inc_classification_threshold: 0.5
+quantiles: [0.05, 0.5, 0.95]
+action_copy_eps: 0.1
+latent_init_scale: 1.0

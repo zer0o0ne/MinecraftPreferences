@@ -9,7 +9,7 @@ from torch import Tensor
 
 from mcpref.infrastructure.profiling.scopes import measured, phase
 from mcpref.training.groups import Groups
-from mcpref.training.pretrain.config import PretrainConfig
+from mcpref.training.pretrain.config import TrainingConfig
 
 
 def lr_factor(t: int, total: int, warmup: int, floor: float) -> float:
@@ -21,7 +21,7 @@ def lr_factor(t: int, total: int, warmup: int, floor: float) -> float:
     )
 
 
-def adamw(cfg: PretrainConfig, groups: Groups) -> torch.optim.AdamW:
+def adamw(cfg: TrainingConfig, groups: Groups) -> torch.optim.AdamW:
     """(6): AdamW with one parameter group per group, its eta_q and lambda_q."""
     param_groups = [{"params": params} | cfg.groups[q] for q, params in groups.items()]
     fused = torch.device(cfg.device).type == "cuda"
@@ -51,7 +51,7 @@ def adamw(cfg: PretrainConfig, groups: Groups) -> torch.optim.AdamW:
 
 @measured("optimizer")
 def update(
-    cfg: PretrainConfig,
+    cfg: TrainingConfig,
     optimizer: torch.optim.AdamW,
     groups: Groups,
     t: int,
@@ -81,7 +81,7 @@ class UpdateTerm:
 
 
 def iter_update_terms(
-    cfg: PretrainConfig,
+    cfg: TrainingConfig,
     optimizer: torch.optim.AdamW,
     groups: Groups,
     lr: dict,

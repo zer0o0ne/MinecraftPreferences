@@ -13,8 +13,8 @@ from models.perception.world import BASE as PERCEPTION_BASE
 from models.perception.world import STARTING as PERCEPTION_STARTING
 from models.perception.world import write_config as write_perception
 from runtime.engine.engine_world import STARTING as ENGINE_STARTING
-from training.pretrain.loop_configs import action_mask_catalogue
-from training.pretrain.loop_starting import STARTING_GROUPS
+from training.pretrain.classical.loop_configs import action_mask_catalogue
+from training.pretrain.classical.loop_starting import STARTING_GROUPS
 
 MCTS_STARTING = {
     "simulations": 24, "min_n_sampling": 4, "depth": 8, "width": 8, "latency_calls": 10,

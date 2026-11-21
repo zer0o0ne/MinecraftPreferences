@@ -6,7 +6,7 @@ import tqdm
 from progress_bars import screen, states
 
 from mcpref.training.rl.learning.index import build_index, read_item
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 from training.rl.learning.helpers import (
     config,
     pair_items,

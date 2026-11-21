@@ -13,12 +13,12 @@ RUN = (f"uv@{CFG['uv_version']}", "run", "--locked", "python", "-m")
 LABELS = (
     *RUN,
     "mcpref.datasets.preferences.labels",
-    "configs/datasets/preferences/labels.yaml",
+    "configs/datasets/preferences/labels-shared.yaml",
 )
 ACYCLIC = (
     *RUN,
     "mcpref.datasets.preferences.acyclic",
-    "configs/datasets/preferences/acyclic.yaml",
+    "configs/datasets/preferences/acyclic-shared.yaml",
 )
 
 
@@ -41,7 +41,9 @@ def test_acyclic_after_the_labels(spark, where, argv):
     result = spark.run(cwd=spark.tmp / where, argv=argv)
     assert result.returncode == 0, result.stderr
     assert result.events.count(ACYCLIC) == 1
-    assert result.events[-2:] == [LABELS, ACYCLIC]
+    assert result.events[
+        result.events.index(LABELS) : result.events.index(ACYCLIC) + 1
+    ] == [LABELS, ACYCLIC]
     assert {os.path.realpath(c) for c in result.cwds} == {os.path.realpath(spark.repo)}
 
 

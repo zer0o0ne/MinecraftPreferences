@@ -1,0 +1,12 @@
+extends:
+  - configs/training/pretrain/base.yaml
+remove:
+  - batch
+  - micro_batch
+index_dir: data/train_index_continuous
+out_dir: data/pretrain_continuous
+diagnostics: configs/diagnostics-continuous.yaml
+tbptt_states: 4
+preference_micro_batch: 4
+archive_shard_size: 256
+archive_cache_size: 256

@@ -1,25 +1,22 @@
-"""Notation of specs/pretrain.md: configs/training/pretrain/config.yaml."""
+"""Model, optimization and diagnostic settings shared by pretraining modes."""
 
 import math
 from dataclasses import dataclass
-from pathlib import Path
 
 from mcpref.config import (
     betas,
     boolean,
-    config_mapping,
     groups,
     integer,
     number,
     positive,
     positive_int,
     quantiles,
-    read_yaml,
     relative,
 )
 from mcpref.training.devices import device
 
-POSITIVE_INTS = ("epochs", "batch", "micro_batch", "checkpoint_steps")
+POSITIVE_INTS = ("epochs", "checkpoint_steps")
 POSITIVE_INTS += ("keep_checkpoints", "diagnostic_window", "reference_steps")
 POSITIVE_INTS += ("reference_pairs", "calibration_bins")
 POSITIVE_REALS = ("w_pi", "w_P", "grad_clip", "adam_eps", "latent_init_scale")
@@ -28,7 +25,7 @@ PATHS = ("index_dir", "out_dir", *CONFIGS)
 
 
 @dataclass(frozen=True)
-class PretrainConfig:
+class TrainingConfig:
     """Notation: config fields as written; paths relative to the repository root."""
 
     index_dir: str
@@ -41,8 +38,6 @@ class PretrainConfig:
     seed: int
     epochs: int
     retrain: bool
-    batch: int
-    micro_batch: int
     gradient_diagnostics: bool
     diagnostic_window: int
     reference_steps: int
@@ -89,13 +84,12 @@ def diagnostic_values(raw: dict) -> dict:
     }
 
 
-def load_config(path: Path) -> PretrainConfig:
-    """Interface: the YAML file, validated, into PretrainConfig."""
-    raw = config_mapping(read_yaml(path), path, PretrainConfig)
+def parse_values(raw: dict, positive_ints=POSITIVE_INTS) -> dict:
+    """Validate optimization/model settings shared by both pretraining modes."""
     for k in PATHS:
         relative(k, raw[k])
     device(raw["device"])
-    read = {k: positive_int(k, raw[k]) for k in POSITIVE_INTS}
+    read = {k: positive_int(k, raw[k]) for k in positive_ints}
     read |= {k: positive(k, raw[k]) for k in POSITIVE_REALS}
     read["w_phi"] = number("w_phi", raw["w_phi"])
     if not read["w_phi"] >= 0:
@@ -116,4 +110,4 @@ def load_config(path: Path) -> PretrainConfig:
         raise ValueError("checkpoint_steps % diagnostic_window must be 0")
     if read["reference_steps"] % read["checkpoint_steps"]:
         raise ValueError("reference_steps % checkpoint_steps must be 0")
-    return PretrainConfig(**raw | read | {"groups": groups(raw["groups"])})
+    return raw | read | {"groups": groups(raw["groups"])}

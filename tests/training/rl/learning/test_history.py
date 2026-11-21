@@ -14,7 +14,7 @@ from mcpref.runtime.mcts.tree import LatentHistory
 from mcpref.runtime.sampling.shards import RawHistory
 from mcpref.training.rl.learning.history import encode_raw, encode_ref, eval_encoder
 from mcpref.training.rl.pairs.types import StateRef
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 
 
 class RawPhi(torch.nn.Module):

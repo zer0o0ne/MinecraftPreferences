@@ -163,7 +163,7 @@ def test_write_json_syncs_before_and_after_the_rename(tmp_path, monkeypatch):
 REMOVED = [("mcpref.gui.label_files", n) for n in ("sha256", "write_json")]
 REMOVED += [("mcpref.gui.label_files", "check_fingerprints")]
 REMOVED += [("mcpref.gui.recognition.stored", "complete_run")]
-REMOVED += [("mcpref.training.pretrain.data.index", "counted_run")]
+REMOVED += [("mcpref.training.pretrain.classical.data.index", "counted_run")]
 REMOVED += [("mcpref.datasets.vpt.config", n) for n in ("check_rerun", "write_run")]
 
 
@@ -173,13 +173,15 @@ def test_removed_helpers(module, name):
     assert not hasattr(importlib.import_module(module), name)
 
 
-MOVED = [("mcpref.infrastructure.runs.files", "mcpref.training.pretrain.data.items", n) for n in ("shard_files", "new_hash", "fingerprint")]  # fmt: skip
-MOVED += [("mcpref.infrastructure.runs.files", "mcpref.training.pretrain.data.index", n) for n in ("HASHED", "CLIP_FIELDS", "ABSENT", "clip_fields")]  # fmt: skip
-MOVED += [("mcpref.config", "mcpref.training.pretrain.data.index", "relative")]
+MOVED = [("mcpref.infrastructure.runs.files", "mcpref.training.pretrain.classical.data.items", n) for n in ("shard_files", "new_hash", "fingerprint")]  # fmt: skip
+MOVED += [("mcpref.infrastructure.runs.files", "mcpref.training.pretrain.classical.data.index", n) for n in ("HASHED", "CLIP_FIELDS", "ABSENT", "clip_fields")]  # fmt: skip
+MOVED += [
+    ("mcpref.config", "mcpref.training.pretrain.classical.data.index", "relative")
+]
 MOVED += [
     (
         "mcpref.datasets.graphs.components",
-        "mcpref.training.pretrain.data.items",
+        "mcpref.training.pretrain.classical.data.items",
         "components",
     )
 ]

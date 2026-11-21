@@ -6,7 +6,7 @@ import pytest
 import torch
 import yaml
 from runtime.play.conftest import PLAY
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 from training.rl.cycle_world import Env, install, prepare
 
 from mcpref.config import read_yaml

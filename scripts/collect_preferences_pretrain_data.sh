@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Interface of specs/preference-pool.md: clips of recording sessions of VPT and their comparisons;
-# needs a complete gui-masks run (scripts/eval_gui_masks.sh) on this machine.
+# Dataset-only preference candidates; specs/continuous-data.md.
+# Requires completed shared perception data; original labels remain archived.
 # Then specs/vlm-labels.md: the VLM's answers to the comparisons; needs scripts/serve_vlm.sh running.
 # Then specs/acyclic.md: the pair labels, contradictions removed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PATH="$HOME/.local/bin:$PATH"
-uv run --locked python -m mcpref.gui.textures configs/gui/screens.yaml
-uv run --locked python -m mcpref.datasets.pool.run configs/datasets/preference-pool.yaml
-uv run --locked python -m mcpref.datasets.preferences.labels configs/datasets/preferences/labels.yaml
-uv run --locked python -m mcpref.datasets.preferences.acyclic configs/datasets/preferences/acyclic.yaml
+uv run --locked python -m mcpref.datasets.continuous.views.pool configs/datasets/preference-pool-shared.yaml
+uv run --locked python -m mcpref.datasets.preferences.labels configs/datasets/preferences/labels-shared.yaml
+uv run --locked python -m mcpref.datasets.preferences.acyclic configs/datasets/preferences/acyclic-shared.yaml
+uv run --locked python -m mcpref.training.pretrain.classical.data.index configs/training/pretrain/shared-labeled-index.yaml

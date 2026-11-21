@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# specs/train-index.md, then specs/policy.md (13): the index shards, then the pretraining loop;
-# needs complete perception-data (and, with pairs, pair clips and pair labels) outputs on this machine.
+# specs/pretrain-continuous.md: build the selected index and run classical or continuous.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PATH="$HOME/.local/bin:$PATH"
-uv run --locked python -m mcpref.training.pretrain.data.index configs/training/pretrain/train-index.yaml
 uv run --locked python -m mcpref.training.pretrain.run configs/training/pretrain/config.yaml

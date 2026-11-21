@@ -131,7 +131,7 @@ Acceptance:
 
 ### PT-1: Prepare each pretrain clip once
 
-Current locations: `src/mcpref/training/pretrain/steps/micro_loss.py`, `src/mcpref/models/perception/phi.py`, `src/mcpref/models/perception/loss.py`.
+Current locations: `src/mcpref/training/pretrain/classical/steps/micro_loss.py`, `src/mcpref/models/perception/phi.py`, `src/mcpref/models/perception/loss.py`.
 
 - Compute `(frames, metas)` once per clip occurrence in `micro_loss`.
 - Pass the same objects to `phi.frames_z` and to the perception loss for `changed()` and diagnostics.
@@ -182,7 +182,7 @@ Acceptance: equivalent outputs and gradients, unchanged checkpoint contents, and
 
 ### PT-2: Defer loss and observation host transfers
 
-Current locations: `src/mcpref/training/pretrain/steps/micro_loss.py`, `src/mcpref/training/pretrain/steps/loss.py`, `src/mcpref/diagnostics/pretrain/observation.py`, `src/mcpref/training/rl/learning/loss.py`.
+Current locations: `src/mcpref/training/pretrain/classical/steps/micro_loss.py`, `src/mcpref/training/pretrain/classical/steps/loss.py`, `src/mcpref/diagnostics/pretrain/observation.py`, `src/mcpref/training/rl/learning/loss.py`.
 
 - Keep logging values as detached GPU scalars or compact sufficient statistics until the end of the relevant step.
 - Replace scattered `.item()`/`float(...)` calls with batched `stack(...).cpu().tolist()` transfers.

@@ -134,7 +134,7 @@ def tree(root):
 def run(root, path, env):
     from mcpref.training.rl.config import load_config
     from mcpref.training.rl.cycle import run_cycle
-    from training.pretrain.data.index_run import repo_root
+    from training.pretrain.classical.data.index_run import repo_root
 
     with repo_root(root):
         return run_cycle(load_config(path), path, env)

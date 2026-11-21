@@ -3,7 +3,7 @@
 import torch
 
 from mcpref.training.checkpoints import Modules
-from mcpref.training.pretrain.config import PretrainConfig
+from mcpref.training.pretrain.config import TrainingConfig
 
 
 class Groups(dict[str, list[torch.nn.Parameter]]):
@@ -27,7 +27,7 @@ def declared(modules: Modules) -> Groups:
     return groups
 
 
-def check_groups(cfg: PretrainConfig, modules: Modules) -> Groups:
+def check_groups(cfg: TrainingConfig, modules: Modules) -> Groups:
     """(R) 4: names once, each parameter in one group, every parameter in a group, the
     names those of the config."""
     groups, owner = declared(modules), {}

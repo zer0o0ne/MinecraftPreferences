@@ -34,6 +34,16 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 | $\pi$ policy | last $L_\pi$ latent states and the actions executed in their intervals | the logits over $A$; $\widehat{\Delta z}(a)$ of a given action $a$ (`specs/policy.md`) | pretraining loop (action + shift regression), joint RL loop (PPO + factual-shift regression) |
 
 ## Pretraining (VPT dataset)
+The existing clip-based contract is the classical mode. Shared fixed-grid data
+and the continuous alternative are specified in
+[continuous pretraining](pretrain-continuous.md) and
+[continuous data](continuous-data.md). `scripts/pretrain.sh` builds the selected
+index and runs either trainer; `configs/training/pretrain/config.yaml` selects the
+mode. See [running pretraining](../docs/pretraining.md) for commands and settings.
+The collection commands now produce one observation store with filtered classical
+clip references and continuous fragment streams. New preference candidates come
+from that completed store; original clips and labels remain archived.
+
 - **One loop** (blocks 29, 7): P1 and P5 use one standalone item per unique clip in the union of ordinary clips and labeled-pair endpoints. P4 uses each original labeled pair of P2, P3 once for preference loss only. These two item populations are mixed in their natural proportion, each item once per epoch, with separate population normalizations; the comparison graph's vertex degree does not weight the own φ/π objectives. Both π's and P's losses flow into φ, and every pair keeps its two histories together. P5 retains the one-interval delay of Q MCTS-10. With `retrain: true`, a second resumable phase freezes φ and retrains π and P with the same item routing and fixed labels for the same number of epochs and a fresh heads-only AdamW.
 - **P1 Perception** (block 2, `specs/perception.md`). Clips of $L$ consecutive states, with the number $n$ of legal actions of every interval (Q G-12, PER-9); $\phi$ over each clip as one stream. Loss per pair of neighbouring states, averaged over the clip: METRA's perception loss without the skill — maximise $d_\alpha(z_t, z_{t+1})$ subject to $d_\alpha^2 \le n^2$ via METRA's dual variable and slack — on the pairs whose meta or pixels changed (Q PER-8), plus $\beta \max(0, \lVert z \rVert_2^2 - c^2)$ for both $z_t, z_{t+1}$. Large $\alpha_i$ allow long chains along coordinate $i$ inside the ball.
 - **P2 VLM labels** (blocks 23, 4). Recording sessions of the VPT dataset, each one world, reconstructed from line 0 of every episode; clips of up to $e$ episodes of a drawn session; inside each session a random comparison graph (random partners, connected, cycles topped up). `Qwen3-VL-30B-A3B-Instruct-FP8`, served on an NVIDIA DGX Spark (`specs/vlm-client.md`), gets each state as its last screenshots plus its inventory and grades the first against the second in six steps (much worse … much better) or refuses; both orders, several samples (`specs/preference-pool.md`, `specs/vlm-labels.md`).
@@ -53,11 +63,12 @@ Sources: [U] the user, 2026-10-09. Open questions: `specs/00-questions.md`, cite
 
 ## Data flow
 ```
-VPT dataset ─perception-data→ ordinary clips ────────────────────────────────────┐
-VPT dataset ─preference-pool→ pair clips ─P2 (VLM)→ labels ─P3 (C)→ pair labels ─┤
-                              └─ labeled-pair endpoint clips ──────────────────┤
-                           train-index: unique clip union + unchanged pairs ←──┘
-                                      └─ one mixed pretraining loop → φ0, P0, π0
+VPT recordings → shared fixed-grid observations and fragment streams
+                  ├─ mapped ordinary/pair histories → classical eligibility view
+                  ├─ dataset-only candidates → P2 votes → P3 corrected labels
+                  └─ continuous streams + retained preference histories
+classical view + labels → shared-split unique-clip index → classical pretraining
+continuous streams + labels → continuous pretraining (implementation pending)
 (φ, P, π, M, T) + env ─R1→ trajectory τ, trees ─R3 pair production→ fixed pairs
        └──────────────────────→ joint METRA + preference + PPO/shift loop → (φ', P', π') ─R5→ M' ─→ R1 …
 ```
@@ -117,7 +128,10 @@ Filled as block specs are approved: subpackage → stage(s) → spec.
 - `infrastructure/shards` → every block that builds or reads a dataset → `specs/shards.md`
 - `infrastructure/runs` → every block with a run.json → `specs/runs.md`
 - `infrastructure/progress.py` → shared resumable-shard progress reporting
-- `training/pretrain` → unique-clip indexing and joint clip/pair pretraining → `specs/train-index.md`, `specs/pretrain.md`, `specs/pretrain-diagnostics.md`
+- `training/pretrain/classical` → unique-clip indexing and joint clip/pair pretraining → `specs/train-index.md`, `specs/pretrain.md`, `specs/pretrain-diagnostics.md`
+- `training/pretrain/continuous` → chronological fragment indexing, recurrent pretraining and frozen-phi retraining → `specs/pretrain-continuous.md`
+- `training/pretrain` → shared configuration, checkpoints, phases, reference metrics and gradient diagnostics; mode dispatch
+- `models/perception/continuous` → differentiable observation-local attention and fragment-scoped GDN state → `specs/pretrain-continuous.md`
 - `datasets/pool` → P2 data → `specs/preference-pool.md`
 - `datasets/preferences` → P2, P3 labels and correction → `specs/vlm-labels.md`, `specs/acyclic.md`
 - `models/preference` → P4 (later R1, R3) → `specs/preference.md`

@@ -9,7 +9,7 @@ from mcpref.training.rl.files import initial_optimizer
 from mcpref.training.rl.learning.loop import train
 from mcpref.training.rl.learning.retrain import retrain
 from mcpref.training.rl.pairs.files import write_json_shard
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 from training.rl.learning.loop_world import install_steps, write_world
 from training.rl.learning.loss_fakes import modules
 

@@ -11,7 +11,7 @@ import pytest
 import torch
 from models.perception.world import STARTING as PERCEPTION_STARTING
 from runtime_configs import write_classifier_masks, write_repository
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 
 from mcpref.runtime.env.config import load_config as load_env_config
 from mcpref.runtime.env.wrapper import Env

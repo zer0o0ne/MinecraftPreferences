@@ -1,5 +1,8 @@
 # Perception data
 Status: approved (2026-10-15; clarified after the prototype the same day: commit order and replay cleanup, staging names, `run.json` config as written, one client per episode; after the tests: the abort message belongs to `main`, `collect: already done` after exhausted pools); revision of 2026-10-15 (AGENTS.md Data: indices on disk, one draw per shard with the generator state, rerun by output fields; the rules of block vpt-gui-frames spelled out here; a shard holds one whole draw, the episode generator keyed by the shard index), approved the same day; clarified after its prototype and tests: `decode_episode` raises on a timeout, the abort message's names and their order, exception types, `plan.py`, reuse of `download` and `generator`; revision of 2026-10-20 (block gui-classifier: the field `classifier_config`, `main` in `data/clips/run.py`, the script), approved the same day; 2026-11-06: starting-value reconciliation, approved
+
+The standard collection script now produces the shared fixed-grid dataset and classical clip view defined in [continuous data](continuous-data.md). The legacy clip producer below remains available for archived datasets.
+
 Stage: data of P1 (`specs/00-overview.md`, block 25); its pipeline is reused by block preference-pool
 
 ## Sources

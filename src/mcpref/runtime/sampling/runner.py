@@ -37,7 +37,7 @@ from mcpref.runtime.sampling.history import encode
 from mcpref.runtime.sampling.models import SamplingModules, load_pretrained
 from mcpref.runtime.sampling.shards import load_state, read_history
 from mcpref.runtime.sampling.steps import step
-from mcpref.training.pretrain.config import load_config as load_pretrain_config
+from mcpref.training.pretrain.modes import load_classical_config as load_pretrain_config
 
 
 class Sampler:

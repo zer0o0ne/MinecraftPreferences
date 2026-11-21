@@ -7,7 +7,7 @@ import tqdm
 from progress_bars import Bar, screen, states
 
 from mcpref.training.rl.learning.loop import train
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 from training.rl.learning.loop_world import (
     checkpoints,
     install_steps,

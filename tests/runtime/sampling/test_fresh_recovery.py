@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 import torch
 import yaml
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 
 from mcpref.runtime.env.config import load_config as load_env_config
 from mcpref.runtime.env.wrapper import Env

@@ -1,0 +1,5 @@
+extends:
+  - configs/training/pretrain/base.yaml
+index_dir: data/train_index_shared
+out_dir: data/pretrain_classical
+diagnostics: configs/diagnostics-shared.yaml

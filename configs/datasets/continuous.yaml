@@ -1,0 +1,16 @@
+# Shared stream storage and mode-specific views; specs/continuous-data.md.
+perception_config: configs/datasets/perception-data.yaml
+acquisition_plan: data/analysis/continuous-pretrain-2026-11-21/acquisition-plan
+legacy_provenance: data/analysis/continuous-pretrain-2026-11-21/clip-provenance.jsonl.gz
+pair_clips_dir: data/pair_clips
+pair_labels_dir: data/pair_labels_corrected
+split_config: configs/training/pretrain/train-index.yaml
+source_cache: data/analysis/continuous-pretrain-2026-11-21/sources
+out_dir: data/pretraining
+shard_states: 256
+metadata_rows: 4096
+max_shift: 3
+join_gap_ms: 1000
+# 250 GiB of free space must remain for other stages and recovery.
+disk_reserve_bytes: 268435456000
+codec_threads: 4

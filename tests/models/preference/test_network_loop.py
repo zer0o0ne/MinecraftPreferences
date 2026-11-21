@@ -5,12 +5,12 @@ transcribed (preference_oracle.py) on the same initial weights."""
 
 import torch
 from torch import nn
-from training.pretrain.loop_checks import assert_run
-from training.pretrain.loop_modules import D
-from training.pretrain.loop_oracle import train
-from training.pretrain.loop_run import Loop
-from training.pretrain.loop_starting import starting
-from training.pretrain.loop_world import LABELED
+from training.pretrain.classical.loop_checks import assert_run
+from training.pretrain.classical.loop_modules import D
+from training.pretrain.classical.loop_oracle import train
+from training.pretrain.classical.loop_run import Loop
+from training.pretrain.classical.loop_starting import starting
+from training.pretrain.classical.loop_world import LABELED
 
 from mcpref.models.preference.loss import PreferenceLoss
 from mcpref.models.preference.network import Preference
@@ -52,7 +52,7 @@ def components(P: nn.Module, P_loss: nn.Module) -> dict:
 
 def test_preference_in_the_loop(tmp_path):
     """Every step's losses, checkpoint and model.pt against the oracle; P trained."""
-    from training.pretrain.loop_starting import starting_groups
+    from training.pretrain.classical.loop_starting import starting_groups
 
     loop = Loop(
         tmp_path, world=LABELED, keep_checkpoints=20, groups=starting_groups()

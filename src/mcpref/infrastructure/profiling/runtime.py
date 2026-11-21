@@ -60,10 +60,20 @@ class TrainingProfile(AbstractContextManager):
             "stage": stage,
             "device": str(self.device),
             "torch": torch.__version__,
-            "batch": cfg.batch,
-            "micro_batch": cfg.micro_batch,
             "gradient_diagnostics": cfg.gradient_diagnostics,
         }
+        self.metadata.update(
+            {
+                name: getattr(cfg, name)
+                for name in (
+                    "batch",
+                    "micro_batch",
+                    "tbptt_states",
+                    "preference_micro_batch",
+                )
+                if hasattr(cfg, name)
+            }
+        )
 
     def __enter__(self):
         if self.settings is not None:

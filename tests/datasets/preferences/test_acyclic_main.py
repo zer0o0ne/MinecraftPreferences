@@ -11,7 +11,7 @@ import tempfile
 import pytest
 import yaml
 from progress_bars import assert_aborted
-from training.pretrain.data.index_run import interrupting
+from training.pretrain.classical.data.index_run import interrupting
 
 from datasets.preferences.acyclic_site import CONFIG, PREFIX, make_site
 from datasets.preferences.config_files import linked_configs

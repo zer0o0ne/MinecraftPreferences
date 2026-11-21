@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import yaml
 from progress_bars import assert_aborted, tqdm_defaults
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 
 from datasets.graphs.feedback_oracle import eades
 from datasets.preferences import acyclic_oracle as oracle

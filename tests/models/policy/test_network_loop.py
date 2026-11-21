@@ -6,11 +6,11 @@ weights."""
 
 import torch
 from torch import nn
-from training.pretrain.loop_checks import assert_run
-from training.pretrain.loop_modules import D, L
-from training.pretrain.loop_oracle import train
-from training.pretrain.loop_run import Loop
-from training.pretrain.loop_starting import starting
+from training.pretrain.classical.loop_checks import assert_run
+from training.pretrain.classical.loop_modules import D, L
+from training.pretrain.classical.loop_oracle import train
+from training.pretrain.classical.loop_run import Loop
+from training.pretrain.classical.loop_starting import starting
 
 from mcpref.models.policy.loss import PolicyLoss
 from mcpref.models.policy.network import Policy
@@ -57,7 +57,7 @@ class RefPiLoss(nn.Module):
 
 def test_policy_in_the_loop(tmp_path):
     """Every step's losses, checkpoint and model.pt against the oracle; pi trained."""
-    from training.pretrain.loop_starting import starting_groups
+    from training.pretrain.classical.loop_starting import starting_groups
 
     from models.policy.policy_world import action_masks
 

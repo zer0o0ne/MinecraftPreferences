@@ -1,5 +1,6 @@
 """Select and read the initial runtime weights; specs/env-sampling.md (1)."""
 
+import json
 from pathlib import Path
 
 import torch
@@ -28,5 +29,18 @@ def checkpoint_path(cfg: SamplingConfig) -> Path:
 
 
 def load_weights(path: Path) -> dict:
+    metadata = path.parent / "metadata.json"
+    if (
+        metadata.exists()
+        and json.loads(metadata.read_text()).get("pretrain_mode") == "continuous"
+    ):
+        raise RuntimeError(
+            "Continuous pretraining requires the continuous perception stream adapter"
+        )
     saved = torch.load(path, map_location="cpu", weights_only=True)
+    if saved.get("pretrain_mode") == "continuous":
+        raise RuntimeError(
+            "Continuous pretraining requires the continuous perception stream adapter; "
+            "this runtime uses classical clip memory"
+        )
     return saved["modules"] if path.name == "checkpoint.pt" else saved

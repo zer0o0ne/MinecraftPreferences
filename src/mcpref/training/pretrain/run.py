@@ -1,44 +1,41 @@
-"""(13) of specs/policy.md: `main` of the pretraining loop."""
+"""Build the selected mode's index, then launch its pretraining loop."""
 
 import argparse
 import sys
 from collections.abc import Sequence
+from importlib import import_module
 from pathlib import Path
 
 from mcpref.config import REPO
-from mcpref.gui.mask import load_config as load_mask_config
-from mcpref.gui.mask import load_masks
 from mcpref.infrastructure.cli.failure import FAILURES, failed
-from mcpref.models.factory import build_modules, check_lengths
-from mcpref.models.perception.config import load_config as load_perception_config
-from mcpref.models.policy.config import load_config as load_policy_config
-from mcpref.models.preference.config import load_config as load_preference_config
-from mcpref.training.pretrain.checks import index_run
-from mcpref.training.pretrain.config import load_config
-from mcpref.training.pretrain.loop import pretrain
+from mcpref.training.pretrain.modes import load_selection
 
 PROG = "mcpref.training.pretrain.run"
 
 
 def run(path: Path) -> None:
-    """(13): the PretrainConfig at `path`, the configs it names, index_run, the checks,
-    the modules, then the loop."""
-    cfg = load_config(path)
-    perception = load_perception_config(REPO / cfg.perception)
-    masks = load_masks(load_mask_config(REPO / cfg.action_mask))
-    policy = load_policy_config(REPO / cfg.policy)
-    preference = load_preference_config(REPO / cfg.preference)
-    index = index_run(cfg)
-    paired = index["counts"]["train"]["pairs"] >= 1
-    check_lengths(index["states"], policy, preference, paired, cfg.index_dir)
-    modules = build_modules(
-        perception, masks, policy, preference, paired, cfg.device, cfg.latent_init_scale
-    )
-    pretrain(cfg, path, modules)
+    selection = load_selection(path)
+    config_path = REPO / selection.selected.config
+    index_path = REPO / selection.selected.index
+    prefix = f"mcpref.training.pretrain.{selection.mode}"
+    index = import_module(f"{prefix}.data.index")
+    trainer = import_module(f"{prefix}.run")
+    config = trainer.load_config(config_path)
+    index_config = index.load_config(index_path)
+    if (REPO / config.index_dir).resolve() != (REPO / index_config.out_dir).resolve():
+        raise ValueError("Selected index output does not match pretrain index_dir")
+    if (
+        selection.mode == "continuous"
+        and (REPO / index_config.training_config).resolve() != config_path.resolve()
+    ):
+        raise ValueError(
+            "Continuous index training_config does not match the selected trainer config"
+        )
+    index.run(index_config, index_path)
+    trainer.run(config_path)
 
 
 def main(argv: Sequence[str]) -> int:
-    """`python -m mcpref.training.pretrain.run <config path>`; exit code."""
     parser = argparse.ArgumentParser(prog=f"python -m {PROG}")
     parser.add_argument("config", type=Path)
     args = parser.parse_args(argv)

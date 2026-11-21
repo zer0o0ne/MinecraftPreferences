@@ -6,7 +6,7 @@ import io
 import torch
 
 from mcpref.training.rl.learning.loop import train
-from training.pretrain.data.index_run import repo_root
+from training.pretrain.classical.data.index_run import repo_root
 from training.rl.learning.helpers import config, repository, write_json
 
 

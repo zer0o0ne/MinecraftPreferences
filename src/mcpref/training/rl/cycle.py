@@ -22,7 +22,7 @@ from mcpref.runtime.sampling.config import load_config as load_sampling_config
 from mcpref.runtime.sampling.models import SamplingModules
 from mcpref.runtime.sampling.runner import Sampler
 from mcpref.runtime.sampling.shards import record_cache
-from mcpref.training.pretrain.config import load_config as load_pretrain_config
+from mcpref.training.pretrain.modes import load_classical_config as load_pretrain_config
 from mcpref.training.rl.config import RLCycleConfig
 from mcpref.training.rl.files import (
     advance,

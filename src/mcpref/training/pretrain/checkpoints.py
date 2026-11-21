@@ -12,7 +12,7 @@ from mcpref.infrastructure.shards.store import shard_path, write_shard
 from mcpref.training.checkpoints import CHECKPOINT, Modules, cpu_states
 
 if TYPE_CHECKING:
-    from mcpref.training.pretrain.gradients.flow import GradientStepRecord
+    from mcpref.training.pretrain.classical.gradients.flow import GradientStepRecord
 
 LOSSES, DIAGNOSTICS = "losses.json", "diagnostics.json"
 

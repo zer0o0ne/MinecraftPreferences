@@ -1,0 +1,8 @@
+extends:
+  - configs/training/shards.yaml
+clips_dir: data/pretraining
+pair_clips_dir: null
+pair_labels_dir: null
+out_dir: data/train_index_shared
+validation: "0.05"
+seed: 0

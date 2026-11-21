@@ -4,8 +4,8 @@ intra-op torch thread per pytest-xdist worker for the tests of specs/pretrain.md
 import pytest
 import torch
 
-from training.pretrain.data.index_run import Site
-from training.pretrain.data.index_world import CONFIG, HAND, World
+from training.pretrain.classical.data.index_run import Site
+from training.pretrain.classical.data.index_world import CONFIG, HAND, World
 
 
 @pytest.fixture
