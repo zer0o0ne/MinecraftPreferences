@@ -1,0 +1,12 @@
+# Runtime-only tuning; changing these values preserves dataset resume identity.
+workers: 4
+prefetch_sources: 16
+prefetch_bytes: 21474836480
+# Speculative downloads leave this additional workspace for the active fragment.
+processing_reserve_bytes: 8589934592
+connections: 16
+file_connections: 4
+block_bytes: 8388608
+read_bytes: 262144
+block_timeout: 30
+keepalive_expiry: 120

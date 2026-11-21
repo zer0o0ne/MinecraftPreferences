@@ -7,8 +7,8 @@ import httpx
 import pytest
 from datasets.vpt.action_lines import episode
 
+from mcpref.datasets.continuous.acquisition.http import check_response
 from mcpref.datasets.continuous.rows import Rows
-from mcpref.datasets.continuous.sources import response_check
 from mcpref.datasets.vpt.video.sequence import RowView
 
 
@@ -55,4 +55,4 @@ def test_wrong_source_version_or_range_is_rejected(field, value):
     request = httpx.Request("GET", expected["url"], headers={"Range": "bytes=1-3"})
     response = httpx.Response(206, headers=headers, request=request)
     with pytest.raises(RuntimeError):
-        response_check(expected)(response)
+        check_response(response, expected, 1, 3)

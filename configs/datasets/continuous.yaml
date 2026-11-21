@@ -1,5 +1,6 @@
 # Shared stream storage and mode-specific views; specs/continuous-data.md.
 perception_config: configs/datasets/perception-data.yaml
+transfer_config: configs/datasets/continuous-transfer.yaml
 acquisition_plan: data/analysis/continuous-pretrain-2026-11-21/acquisition-plan
 legacy_provenance: data/analysis/continuous-pretrain-2026-11-21/clip-provenance.jsonl.gz
 pair_clips_dir: data/pair_clips

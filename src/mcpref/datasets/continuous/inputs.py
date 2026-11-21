@@ -76,8 +76,10 @@ def annotation_worlds(cfg):
 def header(cfg, pipe, classifier_id, labels: str, sessions: str) -> dict:
     source = run_header(pipe, classifier_id)
     plan = REPO / cfg.acquisition_plan / "manifest.json"
+    semantic_config = dataclasses.asdict(cfg)
+    semantic_config.pop("transfer_config")
     fingerprint = {
-        "config": dataclasses.asdict(cfg),
+        "config": semantic_config,
         "source_config": source,
         "acquisition_plan": digest(plan),
         "legacy_provenance": digest(REPO / cfg.legacy_provenance),

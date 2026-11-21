@@ -154,6 +154,18 @@ interface and apply the configured history tail and its own coordinate origin.
   configs, the frozen acquisition plan, existing clip roots and corrected label
   root, and sets the new output directory, bounded shard/cache size and disk
   reserve. Numeric values live in configs; shared access values remain shared.
+  Runtime transfer tuning is isolated in `configs/datasets/continuous-transfer.yaml`:
+  source workers, bounded lookahead (count and bytes), HTTP connection limits,
+  byte-range block size, read buffer size, attempt timeout and keepalive expiry.
+  These settings and the transfer-config path do not enter the dataset fingerprint;
+  changing them preserves resume compatibility, including earlier serial runs.
+  Concurrent acquisition uses one persistent HTTP client and dynamically schedules
+  small ETag-pinned blocks. Source verification and fragment publication retain
+  manifest order. Completed fragments are not enqueued again. Lookahead leaves
+  additional configured processing workspace; all in-flight source reservations
+  also count against the publisher's disk checks. The attempt deadline is checked
+  between reads and may overrun by one bounded blocking read. Exhausted transient
+  retries stop the run without publishing an incomplete source.
 - A source manifest records ordered pieces, fragment IDs, URLs, expected sizes
   and ETags, source/run/config/classifier fingerprints and per-source disposition.
   A changed ETag is an error requiring an explicit new manifest, not a silent

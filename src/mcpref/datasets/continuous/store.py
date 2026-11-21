@@ -6,8 +6,8 @@ from pathlib import Path
 
 from mcpref.datasets.continuous.config import digest
 from mcpref.datasets.continuous.frames import encode
-from mcpref.datasets.continuous.sources import reserve
 from mcpref.datasets.continuous.timeline import observations
+from mcpref.datasets.vpt.video.ffmpeg import frame_bytes
 from mcpref.infrastructure.runs.files import json_bytes
 from mcpref.infrastructure.shards.store import shard_path, write_shard
 
@@ -19,7 +19,7 @@ def jsonl(rows: list[dict]) -> bytes:
 
 
 def publish_batch(
-    pipe, cfg, out: Path, index: int, raw: Path, items: list, intervals: list
+    pipe, cfg, out: Path, index: int, raw: Path, items: list, intervals: list, space
 ) -> dict:
     observation_bytes, interval_bytes = jsonl(items), jsonl(intervals)
     state = {
@@ -40,7 +40,7 @@ def publish_batch(
             if digest(target / name) != checksum:
                 raise ValueError(f"Published shard checksum differs: {target / name}")
         return previous
-    reserve(out, raw.stat().st_size, cfg.disk_reserve_bytes)
+    space.check(raw.stat().st_size + len(observation_bytes) + len(interval_bytes))
     with write_shard(out / "shards", index) as staged:
         (staged / "observations.jsonl").write_bytes(observation_bytes)
         (staged / "intervals.jsonl").write_bytes(interval_bytes)
@@ -59,7 +59,7 @@ def publish_batch(
 
 
 def write_timeline(
-    pipe, cfg, out: Path, timeline: dict, sources: list, index: int
+    pipe, cfg, out: Path, timeline: dict, sources: list, index: int, space
 ) -> dict:
     raw = out / "staging" / "frames.yuv"
     raw.parent.mkdir(parents=True, exist_ok=True)
@@ -73,6 +73,8 @@ def write_timeline(
     first_shard = index
     with raw.open("wb") as stream:
         for item, frame in observations(pipe, timeline, sources):
+            if not items:
+                space.check(2 * cfg.shard_states * frame_bytes(pipe.cfg))
             if (
                 previous is not None
                 and previous["grid_index"] + 1 == item["grid_index"]
@@ -89,7 +91,9 @@ def write_timeline(
             previous = item
             if len(items) == cfg.shard_states:
                 stream.flush()
-                state = publish_batch(pipe, cfg, out, index, raw, items, intervals)
+                state = publish_batch(
+                    pipe, cfg, out, index, raw, items, intervals, space
+                )
                 counts["observations"] += len(items)
                 counts["intervals"] += len(intervals)
                 counts["frame_payload_bytes"] += state["frame_payload_bytes"]
@@ -99,7 +103,7 @@ def write_timeline(
                 stream.truncate()
         if items:
             stream.flush()
-            state = publish_batch(pipe, cfg, out, index, raw, items, intervals)
+            state = publish_batch(pipe, cfg, out, index, raw, items, intervals, space)
             counts["observations"] += len(items)
             counts["intervals"] += len(intervals)
             counts["frame_payload_bytes"] += state["frame_payload_bytes"]

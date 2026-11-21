@@ -12,6 +12,7 @@ from mcpref.config import config_mapping, positive_int, read_yaml, relative
 @dataclass(frozen=True)
 class ContinuousConfig:
     perception_config: str
+    transfer_config: str
     acquisition_plan: str
     legacy_provenance: str
     pair_clips_dir: str

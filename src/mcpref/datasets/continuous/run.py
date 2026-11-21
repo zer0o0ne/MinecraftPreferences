@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from collections import Counter
+from dataclasses import asdict
 from pathlib import Path
 
 from tqdm import tqdm
@@ -13,12 +14,13 @@ from mcpref.datasets.clips.collect import load_config as load_source_config
 from mcpref.datasets.clips.plan import pipeline
 from mcpref.datasets.clips.run import gamma_of
 from mcpref.datasets.continuous import inputs, mapping
+from mcpref.datasets.continuous.acquisition.queue import Acquisition
+from mcpref.datasets.continuous.acquisition.settings import load_transfer
 from mcpref.datasets.continuous.boundaries import blocks
 from mcpref.datasets.continuous.config import load_config, plans
 from mcpref.datasets.continuous.frames import verify
 from mcpref.datasets.continuous.recovery import cleanup, recover, seal
 from mcpref.datasets.continuous.rows import Rows
-from mcpref.datasets.continuous.sources import acquire
 from mcpref.datasets.continuous.store import jsonl, write_timeline
 from mcpref.datasets.continuous.timeline import compile_timeline, identity
 from mcpref.datasets.continuous.views.clips import clip_info
@@ -32,7 +34,7 @@ from mcpref.training.pretrain.classical.data.index import (
 )
 
 
-def prepare(pipe, cfg, pieces, rows: Rows, fingerprint: dict):
+def prepare(pipe, downloads, pieces, rows: Rows, fingerprint: dict):
     sources = []
     for piece in tqdm(
         pieces,
@@ -42,7 +44,7 @@ def prepare(pipe, cfg, pieces, rows: Rows, fingerprint: dict):
         leave=False,
         mininterval=10,
     ):
-        target, receipt = acquire(pipe, cfg, piece)
+        target, receipt = downloads.get(piece)
         source = {
             "piece": piece,
             "target": target,
@@ -56,6 +58,7 @@ def prepare(pipe, cfg, pieces, rows: Rows, fingerprint: dict):
                 source["reason"] = "options"
             else:
                 try:
+                    downloads.space.check(2 * piece["jsonl"]["bytes"])
                     source["offset"] = rows.append_source(
                         target / "source.jsonl.gz", piece
                     )
@@ -74,7 +77,17 @@ def prepare(pipe, cfg, pieces, rows: Rows, fingerprint: dict):
 
 
 def process_fragment(
-    pipe, cfg, out, k, fragment, pieces, by_source, worlds, first_shard, fingerprint
+    pipe,
+    cfg,
+    out,
+    k,
+    fragment,
+    pieces,
+    by_source,
+    worlds,
+    first_shard,
+    fingerprint,
+    downloads,
 ):
     temporary = out / "staging" / "rows.sqlite"
     temporary.parent.mkdir(parents=True, exist_ok=True)
@@ -82,7 +95,7 @@ def process_fragment(
     rows = Rows(temporary, cfg.metadata_rows)
     streams, mapped, clips = [], [], {}
     try:
-        sources = prepare(pipe, cfg, pieces, rows, fingerprint)
+        sources = prepare(pipe, downloads, pieces, rows, fingerprint)
         index = first_shard
         for group in blocks(sources, rows, cfg.join_gap_ms):
             if group[0]["reason"] is not None:
@@ -96,7 +109,9 @@ def process_fragment(
             end = group[-1]["offset"] + group[-1]["rows"]
             view = RowView(rows, range(base, end))
             timeline = compile_timeline(pipe, view, group, fragment)
-            counts = write_timeline(pipe, cfg, out, timeline, group, index)
+            counts = write_timeline(
+                pipe, cfg, out, timeline, group, index, downloads.space
+            )
             index = counts["next_shard"]
             annotation = {
                 worlds[s["piece"]["relpath"]]
@@ -176,6 +191,7 @@ def process_fragment(
 
 
 def collection(cfg):
+    transfer = load_transfer(REPO / cfg.transfer_config)
     source_cfg = load_source_config(REPO / cfg.perception_config)
     classifier, classifier_id = gamma_of(source_cfg)
     pipe = pipeline(source_cfg, classifier)
@@ -186,14 +202,18 @@ def collection(cfg):
         labels = inputs.label_inputs(cfg)
         worlds, sessions = inputs.annotation_worlds(cfg)
         head = inputs.header(cfg, pipe, classifier_id, labels, sessions)
+        head["transfer"] = asdict(transfer)
         next_fragment = complete_shards(out / "fragments")
         first_shard, counts = 0, Counter()
-        with tqdm(
-            total=manifest["totals"]["fragments"],
-            desc="Continuous fragments",
-            unit="fragment",
-            mininterval=10,
-        ) as bar:
+        with (
+            Acquisition(pipe, cfg, transfer, plans(root), next_fragment) as downloads,
+            tqdm(
+                total=manifest["totals"]["fragments"],
+                desc="Continuous fragments",
+                unit="fragment",
+                mininterval=10,
+            ) as bar,
+        ):
             for k, fragment, pieces in plans(root):
                 if k < next_fragment:
                     summary = recover(cfg, out, k)
@@ -212,6 +232,7 @@ def collection(cfg):
                             "classifier": classifier_id,
                             "source_config": head["fingerprint"]["source_config"],
                         },
+                        downloads,
                     )
                 first_shard = summary["next_shard"]
                 counts["sources"] += len(summary["sources"])
