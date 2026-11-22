@@ -103,7 +103,11 @@ def policy_observation(
     actions = logits.shape[-1]
     valid_count = action_valid.sum()
     q_sum = q.to(torch.float64).sum(dim=(0, 1))
-    r = (1 - copy_eps) * current[..., :actions] + copy_eps / actions
+    previous = current[..., :actions]
+    previous = torch.where(
+        previous.sum(dim=-1, keepdim=True) > 0, previous, 1 / actions
+    )
+    r = (1 - copy_eps) * previous + copy_eps / actions
     copy_finite = ~((q > 0) & (r == 0)).any()
     safe_r = torch.where(r > 0, r, torch.ones_like(r))
     copy_sum = -(q.to(torch.float64) * safe_r.to(torch.float64).log()).sum()
@@ -140,9 +144,9 @@ def raw_policy_observation(value, clips, masks) -> dict:
     else:
         index = {action: i for i, action in enumerate(masks.names)}
         allowed = np.stack(
-            [clip_masks(masks, clip.info, clip.lines)[1:-1] for clip in clips]
+            [clip_masks(masks, clip.info, clip.lines)[:-1] for clip in clips]
         )
-        chosen = np.stack([next_actions(clip, index)[:-2] for clip in clips])
+        chosen = np.stack([next_actions(clip, index)[:-1] for clip in clips])
     valid_rows = valid["action_valid"]
     prior = q[valid_rows].sum(dim=(0, 1))
     prior_sum = prior.sum()

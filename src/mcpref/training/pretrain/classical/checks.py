@@ -14,7 +14,9 @@ from mcpref.infrastructure.runs.files import (
     sha256,
     write_json,
 )
+from mcpref.models.policy.targets import ALIGNMENT
 from mcpref.training.checkpoints import Modules
+from mcpref.training.pretrain.checkpoints import check_alignment
 from mcpref.training.pretrain.classical.config import PretrainConfig
 from mcpref.training.pretrain.classical.data.index import FINGERPRINTS
 from mcpref.training.pretrain.classical.data.items import read_inputs
@@ -74,6 +76,7 @@ def header(cfg: PretrainConfig, path: Path) -> dict:
     """(R) 6: check_fingerprints of an existing {out_dir}/run.json (the config, the
     index, the module configs, the screen catalogue); run.json written."""
     out = REPO / cfg.out_dir / "run.json"
+    check_alignment(out)
     sha = {
         "config": config_sha256(path),
         "index": sha256(REPO / cfg.index_dir / "run.json"),
@@ -81,6 +84,10 @@ def header(cfg: PretrainConfig, path: Path) -> dict:
     sha |= {k: config_sha256(REPO / getattr(cfg, k)) for k in CONFIGS}
     sha["screens"] = sha256(REPO / load_mask_config(REPO / cfg.action_mask).screens)
     check_fingerprints(out, sha, cfg.out_dir)
-    head = {"config": yaml.safe_load(path.read_text()), "sha256": sha}
+    head = {
+        "policy_alignment": ALIGNMENT,
+        "config": yaml.safe_load(path.read_text()),
+        "sha256": sha,
+    }
     write_json(out, head)
     return head

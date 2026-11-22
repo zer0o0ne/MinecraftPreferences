@@ -61,7 +61,11 @@ def own_losses(context, stream, observation, z, result):
         stream.policy = []
     pi = modules["pi"]
     stream.policy.append(
-        {"id": observation.id, "z": z, "c": action_input(pi, observation.interval, z)}
+        {
+            "id": observation.id,
+            "z": z,
+            "c": action_input(pi, incoming if adjacent else None, z),
+        }
     )
     stream.policy = stream.policy[-pi.history :]
     if eligible(observation):

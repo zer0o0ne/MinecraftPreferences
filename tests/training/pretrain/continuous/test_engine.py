@@ -39,14 +39,14 @@ def test_k_one_ce_trains_phi_delayed_shift_does_not(tmp_path, monkeypatch):
     cfg = config(w_phi=0.0)
     ctx = context(tmp_path, cfg)
     original = copy.deepcopy(ctx.modules)
-    rows = observations("x", [1, 2, 3])
-    pop = {"N_phi": 2, "N_pi": 1, "N_P": 0, "M": 3}
+    rows = observations("x", [1, 2], actions=[["b"]])
+    pop = {"N_phi": 1, "N_pi": 1, "N_P": 0, "M": 2}
     archive, capture = Archive(tmp_path / "archive" / "shards", 1, 1), Capture()
     stream, result = steps.window(ctx, Stream(), archive, rows[:1], pop, capture)
     z = original["phi"].weight[None, None]
-    h = original["pi"].readout(z, torch.tensor([[[1.0, 0.0, 0.0]]]))[:, -1]
+    h = original["pi"].readout(z, torch.tensor([[[0.0, 0.0, 1.0]]]))[:, -1]
     expected = (
-        3 * cfg.w_pi * F.cross_entropy(original["pi"].logits(h), torch.tensor([0]))
+        2 * cfg.w_pi * F.cross_entropy(original["pi"].logits(h), torch.tensor([1]))
     )
     expected.backward()
     torch.testing.assert_close(capture.rows[0]["phi"][0], original["phi"].weight.grad)
@@ -130,9 +130,12 @@ def test_idle_history_kept_and_unknown_history_cut(tmp_path, monkeypatch):
             Stream(),
             Archive(tmp_path / prefix / "shards", 1, 1),
             rows[:2],
-            {"N_phi": 2, "N_pi": 1, "N_P": 0, "M": 2},
+            {"N_phi": 2, "N_pi": 2, "N_P": 0, "M": 2},
         )
         assert stream.pending["indices"] == expected
+        torch.testing.assert_close(
+            stream.pending["C"][0, -1], torch.tensor([0.0, 0.0, 1.0])
+        )
         if not first:
             torch.testing.assert_close(
                 stream.pending["C"][0, 0], torch.tensor([0.0, 0.0, 1.0])

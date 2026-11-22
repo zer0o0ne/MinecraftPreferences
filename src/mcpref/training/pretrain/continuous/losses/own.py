@@ -35,30 +35,23 @@ def action_input(pi, interval, z):
 
 
 def eligible(observation) -> bool:
-    first, second = observation.interval, observation.next_interval
-    return bool(
-        first
-        and second
-        and first["valid"]
-        and second["valid"]
-        and first["b"] == second["a"]
-    )
+    return bool(observation.interval and observation.interval["valid"])
 
 
 def policy_ce(pi, stream, observation, z):
-    first, second = observation.interval, observation.next_interval
-    kept = [a for a in second["actions"] if observation.next_mask[pi.index[a]]]
+    interval = observation.interval
+    kept = [a for a in interval["actions"] if observation.mask[pi.index[a]]]
     q = z.new_tensor(frequencies(kept, pi.index, len(pi.names)))
     Y = torch.stack([row["z"] for row in stream.policy])[None]
     C = torch.stack([row["c"] for row in stream.policy])[None]
     readout = pi.readout(Y, C)[:, -1]
     logits = pi.logits(readout)
     ce = F.cross_entropy(logits, q[None], reduction="sum", label_smoothing=0.0)
-    valid = first["n"] == second["n"] == len(kept) == 1
-    action = pi.index[second["actions"][0]] if second["n"] == 1 else 0
+    valid = interval["n"] == len(kept) == 1
+    action = pi.index[interval["actions"][0]] if interval["n"] == 1 else 0
     pending = {
         "id": observation.id,
-        "target": first["b"],
+        "target": interval["b"],
         "z": z,
         "Y": Y,
         "C": C,
@@ -72,7 +65,7 @@ def policy_ce(pi, stream, observation, z):
         "logits": logits.detach(),
         "targets": q[None].detach(),
         "previous": C[:, -1, :-1].detach(),
-        "masks": observation.next_mask,
+        "masks": observation.mask,
         "action": action,
         "action_valid": bool(kept),
         "shift_valid": valid,

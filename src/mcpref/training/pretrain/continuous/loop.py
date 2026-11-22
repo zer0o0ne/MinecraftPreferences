@@ -15,8 +15,10 @@ from mcpref.infrastructure.profiling.runtime import TrainingProfile
 from mcpref.infrastructure.profiling.scopes import phase as profile_phase
 from mcpref.infrastructure.runs.files import check_fingerprints, sha256, write_json
 from mcpref.infrastructure.shards.store import part_path, publish
+from mcpref.models.policy.targets import ALIGNMENT
 from mcpref.training.groups import check_groups
 from mcpref.training.optim import adamw
+from mcpref.training.pretrain.checkpoints import check_alignment
 from mcpref.training.pretrain.continuous.archive import Archive
 from mcpref.training.pretrain.continuous.checkpoints import restore, save, write_model
 from mcpref.training.pretrain.continuous.data.reader import Index, StreamReader
@@ -214,6 +216,8 @@ def pretrain(cfg, path: Path, modules: dict, index=None, hooks=None):
         if not population["M"]:
             raise RuntimeError("Continuous index has no training observations")
         root = REPO / cfg.out_dir
+        run_path = root / "run.json"
+        check_alignment(run_path)
         fingerprints = {
             "config": config_sha256(path),
             "index": sha256(REPO / cfg.index_dir / "run.json"),
@@ -231,6 +235,7 @@ def pretrain(cfg, path: Path, modules: dict, index=None, hooks=None):
         check_fingerprints(root / "run.json", fingerprints, cfg.out_dir)
         header = {
             "pretrain_mode": "continuous",
+            "policy_alignment": ALIGNMENT,
             "attention": "observation",
             "memory": "fragment",
             "sha256": fingerprints,

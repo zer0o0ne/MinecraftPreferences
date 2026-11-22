@@ -11,7 +11,7 @@ from training.pretrain.classical.loop_oracle import Step
 from training.pretrain.classical.loop_run import Loop
 
 KEYS = {"step", "epoch", "schedule_rng", "batch_in_epoch", "modules", "optimizer",
-        "torch_rng", "cuda_rng"}  # fmt: skip
+        "torch_rng", "cuda_rng", "policy_alignment"}  # fmt: skip
 
 
 def checkpoint_steps(T: int, n_c: int) -> list[int]:

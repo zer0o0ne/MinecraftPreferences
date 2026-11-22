@@ -157,7 +157,7 @@ def test_shift_of_every_action_at_one_node():
     assert not torch.allclose(got[0], got[1])
 
 
-CLIPS = [  # L = 4 over the tiny A: n_{s+1} = 1 or not, the last states
+CLIPS = [  # L = 4 over the tiny A: single and mixed-action intervals
     make_clip([["jump"], ["attack"], ["use", "use"]], [0.0] * 4, [0] * 4, cid="a"),
     make_clip([["forward", "turn_up"], ["hotbar_3"], ["left_click_1"]], [0.0] * 4, [0] * 4, cid="b"),
     make_clip([["use"], ["jump", "attack", "jump"], ["turn_up"]], [0.0] * 4, [0] * 4, cid="c"),

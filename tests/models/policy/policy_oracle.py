@@ -36,21 +36,23 @@ def cfg_of(**changes) -> PolicyConfig:
 
 
 def input_weights(clip, names: tuple) -> np.ndarray:
-    """(1): C of a clip, (L, |A| + 1): counts over n_j; the last row the one-hot of none."""
+    """(1): prior-interval counts at each state; the initial row has no action."""
     info, L = clip.info, len(clip.info["states"])
     C = np.zeros((L, len(names) + 1))
     for j in range(L - 1):
+        if info["n"][j] == 0:
+            C[j + 1, len(names)] = 1.0
         for a, count in Counter(info["actions"][j]).items():
-            C[j, names.index(a)] = count / info["n"][j]
-    C[L - 1, len(names)] = 1.0
+            C[j + 1, names.index(a)] = count / info["n"][j]
+    C[0, len(names)] = 1.0
     return C
 
 
 def next_actions(clip, names: tuple) -> list[int]:
-    """(7): iota of the action of A_{s+1} when s <= L - 3 and n_{s+1} = 1, else 0."""
+    """(7): the action of interval s when single, otherwise the placeholder 0."""
     info, L = clip.info, len(clip.info["states"])
-    one = lambda s: s <= L - 3 and info["n"][s + 1] == 1
-    return [names.index(info["actions"][s + 1][0]) if one(s) else 0 for s in range(L)]
+    one = lambda s: s < L - 1 and info["n"][s] == 1
+    return [names.index(info["actions"][s][0]) if one(s) else 0 for s in range(L)]
 
 
 def allowed(name: str, pitch: float, hotbar: int, names: tuple) -> bool:
@@ -61,20 +63,16 @@ def allowed(name: str, pitch: float, hotbar: int, names: tuple) -> bool:
 
 
 def targets(clip, names: tuple) -> tuple[np.ndarray, np.ndarray]:
-    """(8) of a clip of world states: q (L - 2, |A|), chi (L - 2,)."""
+    """(8) of a clip of world states: q (L - 1, |A|), chi (L - 1,)."""
     info, L = clip.info, len(clip.info["states"])
     assert not any(info["gui"])
-    q, chi = np.zeros((L - 2, len(names))), np.zeros(L - 2, dtype=bool)
-    for s in range(L - 2):
-        h = clip.lines[info["states"][s + 1] - info["states"][0]]["hotbar"]
-        T = [
-            a
-            for a in info["actions"][s + 1]
-            if allowed(a, info["pitch"][s + 1], h, names)
-        ]
+    q, chi = np.zeros((L - 1, len(names))), np.zeros(L - 1, dtype=bool)
+    for s in range(L - 1):
+        h = clip.lines[info["states"][s] - info["states"][0]]["hotbar"]
+        T = [a for a in info["actions"][s] if allowed(a, info["pitch"][s], h, names)]
         for a, count in Counter(T).items():
             q[s, names.index(a)] = count / len(T)
-        chi[s] = info["n"][s] == 1 and info["n"][s + 1] == 1 and len(T) == 1
+        chi[s] = info["n"][s] == 1 and len(T) == 1
     return q, chi
 
 

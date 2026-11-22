@@ -42,7 +42,7 @@ def world(k):
     }
     population = {
         "N_phi": 5,
-        "N_pi": 3,
+        "N_pi": 5,
         "N_P": 2,
         "M": sum((len(s) + k - 1) // k for s in streams.values()),
     }

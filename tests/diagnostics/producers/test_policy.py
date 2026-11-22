@@ -2,6 +2,7 @@
 
 import math
 
+import pytest
 import torch
 
 from diagnostics.core.world import config, context
@@ -15,6 +16,28 @@ from mcpref.diagnostics.producers.policy import (
     on_ppo_observation,
     on_shift_observation,
 )
+
+
+@pytest.mark.parametrize("copy_eps", [0.0, 0.1])
+def test_copy_without_previous_action_is_uniform(copy_eps):
+    observation = PolicyObservations(
+        logits=torch.zeros(1, 2),
+        targets=torch.tensor([[1.0, 0.0]]),
+        masks=torch.ones(1, 2, dtype=torch.bool),
+        previous=torch.zeros(1, 2),
+        actions=torch.tensor([0]),
+        prior=torch.tensor([0.5, 0.5]),
+        width=1,
+        copy_eps=copy_eps,
+        calibration_bins=2,
+    )
+    ctx = context(
+        "pretrain/checkpoints/0/losses.json", "policy", steps=(1,), clusters=("e0",)
+    )
+    result = on_policy_observation(observation, cfg=config(), context=ctx)
+    copy = result["metrics"]["policy.copy_ce"]
+    assert copy["n"] == 1 and copy["missing"] == 0
+    assert copy["mean"] == pytest.approx(math.log(2))
 
 
 def test_policy_soft_metrics_kl_null_masks_and_confusion():

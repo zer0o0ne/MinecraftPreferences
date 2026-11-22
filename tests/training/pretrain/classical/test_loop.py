@@ -133,6 +133,7 @@ def test_run_json(tmp_path):
         "screens": SCREENS,
     }
     value = {
+        "policy_alignment": "preceding-action-v1",
         "config": yaml.safe_load(loop.path.read_bytes()),
         "sha256": {"config": sha(loop.path.read_bytes())}
         | {k: sha((loop.repo / v).read_bytes()) for k, v in files.items()},
@@ -151,7 +152,7 @@ def test_model_present_already_done(tmp_path):
     loop.run()
     before = loop.tree()
     run = json.loads(before["run.json"])
-    (loop.out / "run.json").write_bytes(json_bytes({k: run[k] for k in ("config", "sha256")}))  # fmt: skip
+    (loop.out / "run.json").write_bytes(json_bytes({k: run[k] for k in ("policy_alignment", "config", "sha256")}))  # fmt: skip
     mods = loop.modules()
     r = loop.run(mods)
     assert screen(r.err) == [

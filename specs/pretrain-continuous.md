@@ -80,12 +80,15 @@ stop-gradients. Sum it once when its right-hand observation becomes available.
 An idle or otherwise invalid interval still carries observations through phi,
 but does not introduce a new zero-action METRA constraint or an extra norm loss.
 
-Let `I_pi` be grid positions j for which intervals j and j+1 are both valid and
-available within the fragment. Use the two terms of policy Eqs. (7)-(9) once
+Let `I_pi` be grid positions j whose current interval j is valid and available
+within the fragment. Use the two terms of policy Eqs. (7)-(9) once
 each at every such position, without the classical clip reduction: the history ends
-at j, the target actions and mask come from interval/state j+1, and the factual
-shift target is `sg(z[j+1] - z[j])`. Preserve the existing one-interval delay,
-frequency targets, single-action shift mask and `shift_weight`. Read at most
+at j, each input action precedes its latent state, and the target actions and mask
+come from the current interval/state j. The same current action's factual shift
+target is `sg(z[j+1] - z[j])`. Every valid outgoing interval contributes one
+position, including the first and last intervals; no second valid interval is
+required. Preserve frequency targets and `shift_weight`; the shift mask requires
+exactly one action in the current interval, allowed at its starting state. Read at most
 `policy.history` past observations with known action metadata. Known idle
 intervals remain in the history; unknown/unsupported action spans truncate that
 history. A history never inserts a fabricated interval. Empty action
@@ -99,6 +102,10 @@ history ending at j, with the updated policy weights and a new saved-RNG dropout
 draw. Do not add z[j+1] to that input history. This delayed shift trains pi but
 has no phi gradient across the boundary; it is an explicit TBPTT approximation.
 Pending shift snapshots include the exact latent/action history and indices.
+
+The initial observation and the first observation after unknown/disconnected
+action metadata use the no-action input. A known idle interval preserves the
+history and supplies the same no-action input to its successor.
 
 Clips exist only as preference endpoints. At completion of a mapped clip, gather
 the final `preference.history` latents of its mapped full history (or the shorter
@@ -179,10 +186,13 @@ an independently shuffled/split part of the same recurrent history.
   a fresh heads-only optimizer/schedule and the same retained labels. The phase
   has its own fully resumable stream/archive/checkpoint state.
 
+Continuous indexes use `mcpref-continuous-index-v2`: `N_pi` counts every valid current interval. Version 1 indexes must be rebuilt in a new index output directory from the existing raw dataset. Training run headers and checkpoints carry `policy_alignment: "preceding-action-v1"`; old or missing alignment tags reject resume. A new output directory is required for the revised objective; existing saved weights are not retroactively retrained.
+
 ## Acceptance
 
-- Classical mode retains its existing loss, gradient, scheduling and resume
-  oracles after the directory/config dispatch change.
+- Both pretraining modes follow the preceding-action input and current-transition
+  target contract of `specs/policy.md`; classical scheduling and resume oracles
+  remain valid within the new alignment version.
 - Clearing full attention alone preserves recurrent influence from earlier
   observations; a fragment reset removes it. Attention cannot read a token from
   an earlier observation. State/token storage does not grow with fragment age.

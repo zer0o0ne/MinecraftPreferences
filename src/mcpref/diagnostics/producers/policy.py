@@ -113,6 +113,9 @@ def on_policy_observation(
     kl_teacher = _cross_entropy(q, pi) - _entropy(q)
     kl_model = _cross_entropy(pi, q) - _entropy(pi)
     prior_ce = _cross_entropy(q, np.broadcast_to(prior, q.shape))
+    previous = np.where(
+        previous.sum(axis=1, keepdims=True) > 0, previous, 1 / pi.shape[1]
+    )
     copy = (1 - observation.copy_eps) * previous + observation.copy_eps / pi.shape[1]
     metrics = {
         "policy.nll": distribution(nll, cfg, missing=missing, reason=reason),

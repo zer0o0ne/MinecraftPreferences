@@ -61,8 +61,9 @@ def test_stored_clip_suffix_trains_all_heads_with_aligned_targets(tmp_path, mask
     assert result.phi["z_norm"].shape == (1, 3)
     assert result.phi["changed"].shape == (1, 2)
     target = result.policy[1]
-    assert target.shape == (1, 1, len(masks.names))
-    assert target[..., masks.names.index("jump")].eq(1).all()
+    assert target.shape == (1, 2, len(masks.names))
+    assert target[0, 0, masks.names.index("attack")] == 1
+    assert target[0, 1, masks.names.index("jump")] == 1
     loss.backward()
     for name in ("phi", "pi", "P"):
         grads = [p.grad for p in modules[name].parameters() if p.grad is not None]

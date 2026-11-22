@@ -90,10 +90,7 @@ def rows(root, fragment, masks):
 
 
 def population(root, fragment, masks, K):
-    phi, policy, previous = 0, 0, False
+    valid = 0
     for item in rows(root, fragment, masks):
-        valid = bool(item["incoming"] and item["incoming"]["valid"])
-        phi += valid
-        policy += previous and valid
-        previous = valid
-    return {"N_phi": phi, "N_pi": policy, "M": (fragment["observations"] + K - 1) // K}
+        valid += bool(item["incoming"] and item["incoming"]["valid"])
+    return {"N_phi": valid, "N_pi": valid, "M": (fragment["observations"] + K - 1) // K}

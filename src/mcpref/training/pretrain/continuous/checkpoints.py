@@ -10,6 +10,7 @@ from mcpref.infrastructure.shards.store import (
     shard_path,
     write_shard,
 )
+from mcpref.models.policy.targets import ALIGNMENT
 from mcpref.training.checkpoints import cpu_states, prune, restore_rng
 from mcpref.training.pretrain.continuous.events import notify
 
@@ -19,6 +20,7 @@ def save(context, position, stream, archive, results, hooks) -> None:
     device = torch.device(context.cfg.device)
     state = {
         "pretrain_mode": "continuous",
+        "policy_alignment": ALIGNMENT,
         "modules": cpu_states(context.modules),
         "optimizer": context.optimizer.state_dict(),
         "position": position,
@@ -61,6 +63,10 @@ def restore(context):
     )
     if state.get("pretrain_mode") != "continuous":
         raise ValueError("Cannot resume a classical checkpoint in continuous mode")
+    if state.get("policy_alignment") != ALIGNMENT:
+        raise ValueError(
+            "Checkpoint policy alignment differs; start a new training run"
+        )
     for name, module in context.modules.items():
         module.load_state_dict(state["modules"][name])
     context.optimizer.load_state_dict(state["optimizer"])

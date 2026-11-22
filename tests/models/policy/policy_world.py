@@ -64,7 +64,7 @@ def random_clips(seed: int, m: int, L: int, pool=POOL) -> list[Clip]:
     return [random_clip(rng, L, pool, f"r{i}") for i in range(m)]
 
 
-# Hand clip (L = 8, intervals 0..6, targets of states 0..5), world states:
+# Hand clip (L = 8, intervals 0..6, targets of states 0..6), world states:
 # state 4 has hotbar 2 (hotbar_3 masked there), state 5 pitch -90 (turn_up masked there).
 HAND = make_clip(
     actions=[["forward"], ["jump"], ["attack", "attack", "turn_left"], ["use"],

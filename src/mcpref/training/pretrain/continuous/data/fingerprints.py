@@ -13,7 +13,7 @@ from mcpref.infrastructure.runs.files import clip_fields, finished_run
 from mcpref.infrastructure.runs.files import fingerprint as dataset_fingerprint
 from mcpref.infrastructure.shards.store import complete_shards, shard_path
 
-FORMAT = "mcpref-continuous-index-v1"
+FORMAT = "mcpref-continuous-index-v2"
 
 
 def additional_runs(cfg, root):

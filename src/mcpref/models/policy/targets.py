@@ -8,6 +8,8 @@ import numpy as np
 from mcpref.datasets.clips.io import Clip
 from mcpref.gui.mask import Masks, clip_masks
 
+ALIGNMENT = "preceding-action-v1"
+
 
 def frequencies(actions: list[str], index: Mapping[str, int], size: int) -> np.ndarray:
     """(1), (8): the count of each action over their number, `size` entries; 0 without
@@ -18,35 +20,35 @@ def frequencies(actions: list[str], index: Mapping[str, int], size: int) -> np.n
 
 
 def weights(clip: Clip, index: Mapping[str, int]) -> np.ndarray:
-    """(1): C of the clip, shape (L, |A| + 1): the frequencies of interval j's actions,
-    the last row the one-hot of no action."""
+    """(1): preceding-interval frequencies at each state; state 0 has no action."""
     size = len(index) + 1
-    rows = [frequencies(actions, index, size) for actions in clip.info["actions"]]
     none = np.zeros(size)
     none[-1] = 1.0
-    return np.stack([*rows, none])
+    rows = [
+        frequencies(actions, index, size) if actions else none
+        for actions in clip.info["actions"]
+    ]
+    return np.stack([none, *rows])
 
 
 def next_actions(clip: Clip, index: Mapping[str, int]) -> np.ndarray:
-    """(7): a_s = the action of interval s + 1 when s <= L - 3 and n_{s+1} = 1, else
-    the placeholder 0; shape (L,), int64."""
+    """(7): action of interval s when it is single, else 0; final state also 0."""
     info = clip.info
     out = np.zeros(len(info["states"]), dtype=np.int64)
-    for s in range(len(info["states"]) - 2):
-        if info["n"][s + 1] == 1:
-            out[s] = index[info["actions"][s + 1][0]]
+    for s in range(len(info["states"]) - 1):
+        if info["n"][s] == 1:
+            out[s] = index[info["actions"][s][0]]
     return out
 
 
 def targets(clip: Clip, masks: Masks) -> tuple[np.ndarray, np.ndarray]:
-    """(8): q_s of shape (L - 2, |A|), from the actions of interval s + 1 allowed at
-    state s + 1; chi_s = [n_s = 1][n_{s+1} = 1][n'_s = 1], shape (L - 2,)."""
+    """(8): interval s actions allowed at state s; shift valid for one allowed action."""
     index = {a: i for i, a in enumerate(masks.names)}
     M = clip_masks(masks, clip.info, clip.lines)
     actions, n = clip.info["actions"], clip.info["n"]
     q, chi = [], []
-    for s in range(len(clip.info["states"]) - 2):
-        T = [a for a in actions[s + 1] if M[s + 1, index[a]]]
+    for s in range(len(clip.info["states"]) - 1):
+        T = [a for a in actions[s] if M[s, index[a]]]
         q.append(frequencies(T, index, len(index)))
-        chi.append(n[s] == 1 and n[s + 1] == 1 and len(T) == 1)
+        chi.append(n[s] == 1 and len(T) == 1)
     return np.stack(q), np.array(chi, dtype=bool)

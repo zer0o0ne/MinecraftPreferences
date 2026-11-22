@@ -145,7 +145,7 @@ def observations(prefix, values, *, actions=None, endpoints=None):
         }
         for i, a in enumerate(actions)
     ]
-    intervals += [None, None]
+    intervals += [None]
     return [
         Observation(
             f"{prefix}{i}",
@@ -156,9 +156,7 @@ def observations(prefix, values, *, actions=None, endpoints=None):
             {"value": values[0]},
             str(value),
             intervals[i],
-            intervals[i + 1],
             np.ones(2, dtype=bool),
-            np.ones(2, dtype=bool) if i < len(values) - 1 else None,
             tuple(endpoints.get(i, ())),
             0,
             i,

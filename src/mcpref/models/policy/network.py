@@ -111,7 +111,7 @@ class Policy(torch.nn.Module):
         return torch.stack(rows, dim=1)
 
     def forward(self, Z: Tensor, clips: list[Clip]) -> tuple[Tensor, Tensor, Tensor]:
-        """(7): logits, next-action shifts and the shared input weights by (1)."""
+        """(7): logits and shifts for interval s, with preceding actions as inputs."""
         C = np.stack([weights(clip, self.index) for clip in clips])
         a = np.stack([next_actions(clip, self.index) for clip in clips])
         C = torch.tensor(C, dtype=Z.dtype, device=Z.device)

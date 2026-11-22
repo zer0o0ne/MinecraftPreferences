@@ -15,6 +15,7 @@ from mcpref.diagnostics.pretrain.observation import (
     phi_observation,
     policy_observation,
     preference_observation,
+    raw_policy_observation,
     step_observation,
 )
 
@@ -88,3 +89,47 @@ def test_mixed_step_normalizes_only_standalone_clips_and_keeps_all_pairs():
     assert suite["action"]["count"] == 2
     assert suite["action"]["top1_support"] == 1
     assert suite["uniform"] == policy.uniform
+
+
+@pytest.mark.parametrize("copy_eps", [0.0, 0.2])
+def test_copy_without_previous_action_is_uniform(copy_eps):
+    value = (
+        torch.zeros(1, 1, 2, dtype=torch.float64),
+        torch.tensor([[[1.0, 0.0]]], dtype=torch.float64),
+        torch.tensor([[[0.0, 0.0, 1.0]]], dtype=torch.float64),
+        {"action_valid": torch.tensor([[True]]), "shift_valid": torch.tensor([[True]])},
+        torch.tensor([0.0]),
+    )
+    result, _ = policy_observation(value, calibration_bins=2, copy_eps=copy_eps)
+    assert result["copy_finite"]
+    assert result["copy_current"].item() == pytest.approx(math.log(2))
+
+
+def test_raw_policy_rows_use_source_masks_and_interval_actions(tmp_path):
+    from models.policy.policy_world import action_masks, make_clip
+
+    from mcpref.models.policy.targets import targets, weights
+
+    masks = action_masks(tmp_path / "masks")
+    index = {name: i for i, name in enumerate(masks.names)}
+    clip = make_clip([["hotbar_3"], ["turn_up"]], [0.0, -90.0, 0.0], [0, 2, 0])
+    clip.info["relpath"] = "episode"
+    q, chi = targets(clip, masks)
+    value = (
+        torch.zeros(1, 3, len(index)),
+        torch.tensor(q[None]),
+        torch.tensor(weights(clip, index)[None, :-1]),
+        {
+            "action_valid": torch.tensor(q.sum(-1)[None] > 0),
+            "shift_valid": torch.tensor(chi[None]),
+        },
+        torch.zeros(1),
+    )
+    got = raw_policy_observation(value, [clip], masks)
+    assert got["actions"].tolist() == [index["hotbar_3"], index["turn_up"]]
+    assert got["masks"].shape == (2, len(index))
+    assert got["masks"][:, index["hotbar_3"]].tolist() == [True, False]
+    assert got["masks"][:, index["turn_up"]].tolist() == [True, False]
+    assert got["previous"][0].sum() == 0
+    assert got["previous"][1, index["hotbar_3"]] == 1
+    assert got["clusters"] == ("episode", "episode")

@@ -88,9 +88,7 @@ class Observation:
     origin: dict
     meta: str
     interval: dict
-    next_interval: dict
     mask: np.ndarray
-    next_mask: np.ndarray | None
     endpoints: tuple[dict, ...]
     shard: int
     position: int
@@ -125,7 +123,6 @@ class StreamReader:
             raise ValueError("Continuous stream cursor is outside the fragment")
         source = iter(rows(self.root, fragment, self.masks))
         current, following = next(source, None), next(source, None)
-        future = next(source, None)
         while current is not None:
             if current["index"] >= start:
                 raw = self.payload.frame(current["shard"], current["position"])
@@ -137,11 +134,6 @@ class StreamReader:
                         frame, current["meta"], self.sprite, self.cfg.mouse_height
                     )
                 interval = outgoing(current, following)
-                target = (
-                    outgoing(following, future)
-                    if following
-                    else outgoing(current, None)
-                )
                 yield Observation(
                     current["id"],
                     current["index"],
@@ -151,12 +143,10 @@ class StreamReader:
                     fragment["origin"],
                     meta_text(self.cfg, current["meta"], fragment["origin"]),
                     interval,
-                    target,
                     np.array(current["mask"], dtype=bool),
-                    np.array(following["mask"], dtype=bool) if following else None,
                     tuple(self.index.endpoints(fragment["id"], current["id"])),
                     current["shard"],
                     current["position"],
                     current["source"],
                 )
-            current, following, future = following, future, next(source, None)
+            current, following = following, next(source, None)

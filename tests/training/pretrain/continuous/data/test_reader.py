@@ -26,20 +26,15 @@ def test_reader_keeps_grid_gaps_idle_history_origin_and_boundary_targets(
             7,
             9,
         ]
-        assert [
-            item.grid_index
-            for item in items
-            if item.interval["valid"] and item.next_interval["valid"]
-        ] == [0, 6]
         assert items[2].interval["known"] and items[2].interval["actions"] == []
         assert not items[3].interval["known"]
         assert not items[4].interval["known"]
         assert items[7].interval["actions"] == ["turn_up"]
         assert items[7].interval["legal_actions"] == []
-        assert items[0].next_interval["a"] == "f0:1"
-        assert items[0].next_interval["b"] == "f0:2"
+        assert items[0].interval["a"] == "f0:0"
+        assert items[0].interval["b"] == "f0:1"
         assert items[0].shard != items[2].shard
-        assert not items[-1].interval["valid"] and items[-1].next_mask is None
+        assert not items[-1].interval["valid"]
         assert items[-1].meta == "10.0,64.0,0.0"
         assert all(item.origin == items[0].line for item in items)
         suffix = list(stream.observations(fragment, start=5))
@@ -86,4 +81,4 @@ def test_window_count_uses_surviving_observations_and_partial_fragment_windows(
     run = index.run(world.cfg, world.path)
     assert run["populations"]["train"]["M"] == windows
     assert run["populations"]["train"]["N_phi"] == 7
-    assert run["populations"]["train"]["N_pi"] == 3
+    assert run["populations"]["train"]["N_pi"] == 7

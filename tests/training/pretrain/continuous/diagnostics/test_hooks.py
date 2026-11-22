@@ -16,14 +16,14 @@ from mcpref.training.pretrain.continuous import loop
 from mcpref.training.pretrain.continuous.diagnostics.hooks import Diagnostics
 
 
-def assert_policy(record, source):
-    assert record["metrics"]["policy.nll"]["n"] == 1
-    assert record["populations"]["policy.nll"] == [source]
-    assert record["populations"]["policy.top1_support"] == [source]
+def assert_policy(record, source, count):
+    assert record["metrics"]["policy.nll"]["n"] == count
+    assert record["populations"]["policy.nll"] == [source] * count
+    assert record["populations"]["policy.top1_support"] == [source] * count
     assert record["metrics"]["policy.top1_support"]["insufficient_clusters"]
     joined = record["joined"]["policy"]
-    assert sum(map(sum, joined["confusion"])) == 1
-    assert sum(row["n"] for row in joined["reliability"]) == 1
+    assert sum(map(sum, joined["confusion"])) == count
+    assert sum(row["n"] for row in joined["reliability"]) == count
 
 
 def assert_episode_populations(tmp_path, name, records):
@@ -48,8 +48,8 @@ def assert_episode_populations(tmp_path, name, records):
         ]
         assert record["context"]["cluster_ids"] == expected
         assert record["populations"]["P"] == expected
-    assert_policy(records["continuous:joint:step:2"], "source-1")
-    assert_policy(records["continuous:joint:step:5"], "source-0")
+    assert_policy(records["continuous:joint:step:2"], "source-1", 1)
+    assert_policy(records["continuous:joint:step:5"], "source-0", 2)
 
 
 def assert_complete(tmp_path, name):
@@ -129,8 +129,8 @@ def test_diagnostic_hooks_without_preference_population(tmp_path, monkeypatch):
         for record in records.values():
             assert record["populations"]["P"] == []
             assert record["metrics"]["P"]["reason"] == "empty_pair_population"
-        assert_policy(records["continuous:joint:step:2"], "source-1")
-        assert_policy(records["continuous:joint:step:5"], "source-0")
+        assert_policy(records["continuous:joint:step:2"], "source-1", 1)
+        assert_policy(records["continuous:joint:step:5"], "source-0", 2)
         assert not list((root / "outbox").rglob("*.json"))
     finally:
         data.close()

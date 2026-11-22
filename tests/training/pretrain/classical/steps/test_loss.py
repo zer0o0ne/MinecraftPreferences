@@ -307,7 +307,7 @@ def test_action_target_count_is_valid_rows_not_nonzero_elements():
 def test_copy_eps_zero_with_unreachable_target_is_null_not_infinite():
     mods = fakes(noise=False, stateful=False)
     q = torch.tensor([[[1.0, 0.0, 0.0]]], dtype=torch.float64)
-    current = torch.zeros_like(q)
+    current = torch.tensor([[[0.0, 1.0, 0.0]]], dtype=torch.float64)
     override_policy_diagnostics(mods, q, current)
     cfg = dataclasses.replace(CFG, action_copy_eps=0.0)
     got = step_gradients(

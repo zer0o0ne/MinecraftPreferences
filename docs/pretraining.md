@@ -116,3 +116,9 @@ directories when changing a completed index or training run's inputs.
 
 For bounded profiling and disabling it per invocation, see
 [training profiling](training-profiling.md).
+
+## Policy temporal alignment
+
+Both modes now use the same convention as sampling and RL: the row at state `t` contains `z[t]` and the preceding action, predicts the current interval action `a[t]`, and trains that action's shift against `sg(z[t+1] - z[t])`. The first input action is no-action. Classical losses average over all `L-1` transitions; continuous losses count every valid current interval.
+
+Runs/checkpoints created before `policy_alignment: preceding-action-v1` cannot resume under this objective. Use a new training output directory. Rebuild old continuous indexes in a new index directory (`mcpref-continuous-index-v2`); existing raw datasets and classical indexes can be reused. Existing policy weights retain their old learned semantics until retrained.

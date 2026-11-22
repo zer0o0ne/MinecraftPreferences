@@ -22,7 +22,7 @@ def test_populations_original_edges_aliases_and_suffix_collisions(
     assert run["populations"] == {
         "train": {
             "N_phi": 7,
-            "N_pi": 3,
+            "N_pi": 7,
             "N_P": 4,
             "M": 5,
             "observations": 13,
@@ -30,7 +30,7 @@ def test_populations_original_edges_aliases_and_suffix_collisions(
         },
         "validation": {
             "N_phi": 1,
-            "N_pi": 0,
+            "N_pi": 1,
             "N_P": 0,
             "M": 1,
             "observations": 2,
