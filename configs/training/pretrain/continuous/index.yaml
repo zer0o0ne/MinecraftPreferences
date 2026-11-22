@@ -2,6 +2,6 @@ extends:
   - configs/training/shards.yaml
 dataset: data/pretraining
 out_dir: data/train_index_continuous
-training_config: configs/training/pretrain/continuous.yaml
+training_config: configs/training/pretrain/continuous/config.yaml
 pair_clips_dir: null
 pair_labels_dir: null

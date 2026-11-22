@@ -24,6 +24,7 @@ from mcpref.infrastructure.shards.store import (
 )
 from mcpref.models.factory import check_lengths
 from mcpref.models.perception.config import load_config as load_perception_config
+from mcpref.models.perception.continuous import ContinuousPhiStream
 from mcpref.models.perception.stream import PhiStream
 from mcpref.models.policy.config import load_config as load_policy_config
 from mcpref.models.preference.config import load_config as load_preference_config
@@ -31,34 +32,57 @@ from mcpref.runtime.env.config import load_config as load_env_config
 from mcpref.runtime.env.wrapper import Env
 from mcpref.runtime.mcts.config import load_config as load_mcts_config
 from mcpref.runtime.mcts.tree import Tree
+from mcpref.runtime.sampling.anchors import initialize, layout, write_anchor
 from mcpref.runtime.sampling.config import SamplingConfig
 from mcpref.runtime.sampling.files import SamplingRun
 from mcpref.runtime.sampling.history import encode
 from mcpref.runtime.sampling.models import SamplingModules, load_pretrained
 from mcpref.runtime.sampling.shards import load_state, read_history
 from mcpref.runtime.sampling.steps import step
-from mcpref.training.pretrain.modes import load_classical_config as load_pretrain_config
+from mcpref.training.pretrain.modes import load_selected_config as load_pretrain_config
+from mcpref.training.pretrain.modes import selected_config
 
 
 class Sampler:
     """Interface: explicit reset, then one complete trajectory shard per sample."""
 
     def __init__(
-        self, cfg: SamplingConfig, env: Env, modules: SamplingModules | None = None
+        self,
+        cfg: SamplingConfig,
+        env: Env,
+        modules: SamplingModules | None = None,
+        *,
+        replay_stride: int | None = None,
+        handover_from: str | None = None,
     ) -> None:
         self.cfg, self.env = cfg, env
+        self.replay_stride, self.handover_from = replay_stride, handover_from
+        if replay_stride is not None and (
+            type(replay_stride) is not int or replay_stride < 1
+        ):
+            raise ValueError("replay_stride must be a positive integer")
         self.modules = load_pretrained(cfg) if modules is None else modules
         for module in (self.modules.phi, self.modules.pi, self.modules.P):
             module.eval()
         pretrain = load_pretrain_config(REPO / cfg.pretrain)
+        self.mode, _ = selected_config(REPO / cfg.pretrain)
+        if replay_stride is not None and self.mode != "continuous":
+            raise ValueError("memory anchors require continuous perception")
         policy = load_policy_config(REPO / pretrain.policy)
         preference = load_preference_config(REPO / pretrain.preference)
         perception = load_perception_config(REPO / pretrain.perception)
-        data = load_perception_data_config(REPO / cfg.perception_data)
-        self.states = min(data.states, perception.history)
-        check_lengths(
-            data.states, policy, preference, paired=True, index_dir=cfg.perception_data
-        )
+        if self.mode == "continuous":
+            self.states = max(policy.history, preference.history)
+        else:
+            data = load_perception_data_config(REPO / cfg.perception_data)
+            self.states = min(data.states, perception.history)
+            check_lengths(
+                data.states,
+                policy,
+                preference,
+                paired=True,
+                index_dir=cfg.perception_data,
+            )
         self.mcts = load_mcts_config(REPO / cfg.mcts)
         env_cfg = load_env_config(REPO / cfg.env)
         self.delta = load_clips_config(REPO / env_cfg.clips).delta
@@ -68,11 +92,16 @@ class Sampler:
             perception.alpha, dtype=torch.float64, device=self.device
         )
         self.actions = len(self.modules.pi.names)
-        self.stream = PhiStream(self.modules.phi, self.states)
+        self.stream = self._new_stream()
         path = getattr(cfg, "_source_path", REPO / "configs/runtime/sampling.yaml")
         self.run = SamplingRun(cfg, path)
         self.diagnostics = DiagnosticRun.load(REPO / pretrain.diagnostics)
         self._reset_done = False
+
+    def _new_stream(self):
+        if self.mode == "continuous":
+            return ContinuousPhiStream(self.modules.phi)
+        return PhiStream(self.modules.phi, self.states)
 
     def reset(self) -> None:
         """(2): one reset; start afresh or restore the last complete boundary state."""
@@ -104,7 +133,7 @@ class Sampler:
     def _reset_fresh(self) -> None:
         """(2): reset the environment, stream, decision RNG and global index."""
         self._observation = self.env.reset()
-        self.stream = PhiStream(self.modules.phi, self.states)
+        self.stream = self._new_stream()
         self.rng = np.random.default_rng(self.cfg.seed)
         self.next_step = 0
         self.history, self.tree = None, None
@@ -114,6 +143,21 @@ class Sampler:
     def _restore(self, out: Path) -> None:
         """(2): restore a complete boundary, rebuilding raw history if models changed."""
         state = load_state(out, self.modules.phi, self.states, self.device)
+        continuous = isinstance(state.stream, ContinuousPhiStream)
+        if continuous != (self.mode == "continuous"):
+            raise RuntimeError("incompatible sampling state: perception mode changed")
+        if (
+            continuous
+            and state.fingerprint != self.modules.fingerprint
+            and (self.replay_stride is None or self.handover_from != state.fingerprint)
+        ):
+            raise RuntimeError(
+                "Continuous sampling requires unchanged model weights on resume"
+            )
+        if self.replay_stride is not None:
+            previous = shard_path(out / "shards", complete_shards(out / "shards") - 1)
+            if layout(previous, self.replay_stride)["fingerprint"] != state.fingerprint:
+                raise RuntimeError("memory anchor model does not match sampling state")
         self.env.restore(state.observation, state.env)
         self._observation, self.history, self.tree = (
             state.observation,
@@ -124,18 +168,19 @@ class Sampler:
         self.rng = np.random.default_rng()
         self.rng.bit_generator.state = state.rng_state
         self._changed = state.fingerprint != self.modules.fingerprint
-        if not self._changed:
+        if continuous or not self._changed:
             self.stream = state.stream
             self._raw, self._preceding = [], []
             return
-        self.stream = PhiStream(self.modules.phi, self.states)
+        self.stream = self._new_stream()
         raw = read_history(out, self.next_step, self.states)
         self._raw, self._preceding = raw.states, raw.actions
 
     def _prepare(self) -> None:
         """(3): encode through s_t, then construct the tree or replace a stale base."""
-        if self._changed:
+        if self._changed and self.mode != "continuous":
             self.history = None
+        self._capture_anchor()
         self.history = encode(
             self.stream,
             self.history,
@@ -150,6 +195,16 @@ class Sampler:
         elif self._changed:
             self.tree.base = self.history.to(torch.float64)
         self._changed = False
+
+    def _capture_anchor(self) -> None:
+        if self.replay_stride is not None and self._raw:
+            write_anchor(
+                self._anchor_dir,
+                self.next_step,
+                self.stream,
+                self.modules.fingerprint,
+                self.replay_stride,
+            )
 
     def observe(self, record) -> None:
         """Stage a completed StepRecord before its source shard is published."""
@@ -226,6 +281,9 @@ class Sampler:
                 file=sys.stderr,
             ) as bar,
         ):
+            self._anchor_dir = staged
+            if self.replay_stride is not None:
+                initialize(staged, self.replay_stride, self.modules.fingerprint)
             for local in range(self.cfg.steps):
                 step(self, staged, local, bar)
             self.observe_milestones(k)

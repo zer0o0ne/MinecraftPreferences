@@ -164,6 +164,7 @@ def _finish(
     bar: tqdm,
 ) -> None:
     """(5): encode and advance the final successor, then persist its step and state."""
+    sampler._capture_anchor()
     sampler.history = encode(
         sampler.stream,
         sampler.history,

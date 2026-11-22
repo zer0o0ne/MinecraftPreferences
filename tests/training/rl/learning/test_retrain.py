@@ -1,7 +1,9 @@
 """Frozen RL retraining with fixed advantages and continuous joint Adam state."""
 
 import json
+from types import SimpleNamespace
 
+import pytest
 import torch
 
 from mcpref.infrastructure.runs.files import write_json
@@ -207,3 +209,35 @@ def test_new_process_retrain_restores_final_joint_checkpoint(
     assert len(calls) == 6
     assert final_checkpoint(index)["step"] == 6
     assert json.loads((index.parent / "retrain/run.json").read_text())["complete"]
+
+
+@pytest.mark.parametrize("kind", ["fresh", "pending"])
+@pytest.mark.parametrize("horizon", [1, 3])
+def test_continuous_fixed_advantages_use_one_item_branch(monkeypatch, kind, horizon):
+    from mcpref.training.rl.config import ContinuousConfig
+    from mcpref.training.rl.learning.retrain import advantage_histories
+
+    context = SimpleNamespace(
+        perception=object(), states=5, replay=ContinuousConfig(2, 4)
+    )
+    histories = [SimpleNamespace(Y=torch.tensor([i])) for i in range(horizon + 1)]
+    item = {"kind": kind, "index": 7}
+    calls = []
+
+    def branch(items, *args, continuous):
+        calls.append((items, args[-1], continuous, torch.is_grad_enabled()))
+        count = 2 if kind == "fresh" else 1
+        return iter(histories[:count]), iter(histories[count:])
+
+    monkeypatch.setattr("mcpref.training.rl.learning.retrain.micro_histories", branch)
+    monkeypatch.setattr(
+        "mcpref.training.rl.learning.retrain.encode_ref",
+        lambda *args: pytest.fail("separate endpoint replay"),
+    )
+    with torch.no_grad():
+        origin, futures = advantage_histories(
+            item, modules(), object(), context, SimpleNamespace(horizon=horizon)
+        )
+    assert origin is histories[0]
+    assert [future.item() for future in futures] == list(range(1, horizon + 1))
+    assert calls == [([item], False, context.replay, False)]

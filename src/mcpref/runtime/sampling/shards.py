@@ -11,6 +11,7 @@ import torch
 from torch import Tensor
 
 from mcpref.infrastructure.shards.store import complete_shards, name, shard_path
+from mcpref.models.perception.continuous import ContinuousPhiStream
 from mcpref.models.perception.phi import Phi
 from mcpref.models.perception.stream import PhiStream
 from mcpref.runtime.env.state import EnvContinuation, EnvState
@@ -65,7 +66,7 @@ class SamplerState:
     tree: Tree
     rng_state: dict
     next_step: int
-    stream: PhiStream
+    stream: PhiStream | ContinuousPhiStream
     fingerprint: str
 
 
@@ -210,6 +211,14 @@ def _read_step(out_dir: Path, index: int, steps: int) -> StepRecord:
 def load_step(out_dir: Path, index: int) -> StepRecord:
     """Interface: load the globally indexed record without materialising a dataset."""
     return _read_step(out_dir, index, _steps_per_shard(out_dir))
+
+
+def read_observation(out_dir: Path, index: int) -> tuple[EnvState, int | None]:
+    """Read one real observation with the action preceding it, across shards."""
+    if index < 0:
+        raise ValueError("observation index must be nonnegative")
+    record = load_step(out_dir, max(0, index - 1))
+    return (record.before, None) if index == 0 else (record.after, record.action)
 
 
 def read_history(out_dir: Path, index: int, states: int) -> RawHistory:

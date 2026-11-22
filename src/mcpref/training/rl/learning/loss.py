@@ -38,6 +38,7 @@ def micro_loss(
     metric: Callable[[Tensor], Tensor],
     observations: dict | None = None,
     fixed_advantages: dict[tuple[str, int], float] | None = None,
+    continuous=None,
 ) -> tuple[dict[str, list[Tensor]], dict[str, list[Tensor]]]:
     """Compute each item's supplied roles with one shared fresh policy readout."""
     phi, pi, P = modules["phi"], modules["pi"], modules["P"]
@@ -54,6 +55,7 @@ def micro_loss(
         action_count,
         ppo,
         fixed_advantages is not None,
+        continuous=continuous,
     )
 
     with phase("rl.heads_losses"):
@@ -176,6 +178,7 @@ def step_gradients(
     micro_batch: int,
     observations: dict | None = None,
     fixed_advantages: dict[tuple[str, int], float] | None = None,
+    continuous=None,
 ) -> dict:
     """Accumulate Eq. (3) into existing gradients, one backward per micro-batch."""
     metric = latent_metric(perception)
@@ -195,6 +198,7 @@ def step_gradients(
             metric,
             observations,
             fixed_advantages,
+            continuous,
         )
         total = None
         if n_a and terms["ppo"]:

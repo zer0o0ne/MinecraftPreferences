@@ -7,6 +7,7 @@ from importlib import import_module
 from pathlib import Path
 
 from mcpref.config import REPO
+from mcpref.config_moves import relocated_path
 from mcpref.infrastructure.cli.failure import FAILURES, failed
 from mcpref.training.pretrain.modes import load_selection
 
@@ -15,8 +16,8 @@ PROG = "mcpref.training.pretrain.run"
 
 def run(path: Path) -> None:
     selection = load_selection(path)
-    config_path = REPO / selection.selected.config
-    index_path = REPO / selection.selected.index
+    config_path = relocated_path(REPO / selection.selected.config, REPO)
+    index_path = relocated_path(REPO / selection.selected.index, REPO)
     prefix = f"mcpref.training.pretrain.{selection.mode}"
     index = import_module(f"{prefix}.data.index")
     trainer = import_module(f"{prefix}.run")
@@ -26,7 +27,7 @@ def run(path: Path) -> None:
         raise ValueError("Selected index output does not match pretrain index_dir")
     if (
         selection.mode == "continuous"
-        and (REPO / index_config.training_config).resolve() != config_path.resolve()
+        and relocated_path(REPO / index_config.training_config, REPO) != config_path
     ):
         raise ValueError(
             "Continuous index training_config does not match the selected trainer config"

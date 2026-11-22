@@ -199,6 +199,9 @@ def resolve_config(raw: dict, path: Path, parents: tuple[Path, ...] = ()) -> dic
 
 
 def _read_yaml(path: Path, parents: tuple[Path, ...]) -> object:
+    from mcpref.config_moves import relocated_path
+
+    path = relocated_path(path, REPO)
     if path in parents:
         chain = " -> ".join(str(item) for item in (*parents, path))
         raise ValueError(f"config extends cycle: {chain}")
@@ -208,16 +211,23 @@ def _read_yaml(path: Path, parents: tuple[Path, ...]) -> object:
 
 def config_sha256(path: Path) -> str:
     """Hash a YAML file and every ancestor in extends order, without path names."""
+    return _config_sha256(path)
+
+
+def _config_sha256(path: Path, transform=None) -> str:
+    from mcpref.config_moves import relocated_path
+
     digest = hashlib.sha256()
 
     def add(path: Path, parents: tuple[Path, ...]) -> None:
-        path = path.resolve()
+        path = relocated_path(path, REPO)
         if path in parents:
             chain = " -> ".join(str(item) for item in (*parents, path))
             raise ValueError(f"config extends cycle: {chain}")
         raw = yaml.safe_load(path.read_text())
         extends = _string_list(raw, "extends", path) if isinstance(raw, dict) else []
-        digest.update(path.read_bytes())
+        payload = path.read_bytes()
+        digest.update(transform(payload) if transform else payload)
         for name in extends:
             relative("extends", name)
             digest.update(b"\0")

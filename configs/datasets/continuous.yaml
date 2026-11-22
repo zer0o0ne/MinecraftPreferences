@@ -5,7 +5,7 @@ acquisition_plan: data/analysis/continuous-pretrain-2026-11-21/acquisition-plan
 legacy_provenance: data/analysis/continuous-pretrain-2026-11-21/clip-provenance.jsonl.gz
 pair_clips_dir: data/pair_clips
 pair_labels_dir: data/pair_labels_corrected
-split_config: configs/training/pretrain/train-index.yaml
+split_config: configs/training/pretrain/classical/index/config.yaml
 source_cache: data/analysis/continuous-pretrain-2026-11-21/sources
 out_dir: data/pretraining
 shard_states: 256

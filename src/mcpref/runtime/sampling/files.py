@@ -5,7 +5,8 @@ from pathlib import Path
 import torch
 import yaml
 
-from mcpref.config import REPO, config_sha256
+from mcpref.config import REPO
+from mcpref.config_moves import pretrain_config_sha256
 from mcpref.datasets.clips.config import load_config as load_clips_config
 from mcpref.gui.mask import load_config as load_mask_config
 from mcpref.infrastructure.runs.files import check_fingerprints, sha256, write_json
@@ -13,8 +14,8 @@ from mcpref.infrastructure.shards.store import complete_shards, name, shard_path
 from mcpref.runtime.env.config import load_config as load_env_config
 from mcpref.runtime.sampling.checkpoints import checkpoint_path
 from mcpref.runtime.sampling.config import SamplingConfig
-from mcpref.training.pretrain.modes import classical_config_path
-from mcpref.training.pretrain.modes import load_classical_config as load_pretrain_config
+from mcpref.training.pretrain.modes import load_selected_config as load_pretrain_config
+from mcpref.training.pretrain.modes import selected_config
 
 
 def config_paths(cfg: SamplingConfig, path: Path) -> dict[str, Path]:
@@ -40,7 +41,7 @@ def config_paths(cfg: SamplingConfig, path: Path) -> dict[str, Path]:
         "vpt_actions": clips.actions,
         "gui_screens": REPO / mask.screens,
     }
-    selected = classical_config_path(REPO / cfg.pretrain)
+    _, selected = selected_config(REPO / cfg.pretrain)
     if selected != REPO / cfg.pretrain:
         paths["pretrain_mode_config"] = selected
     return paths
@@ -52,7 +53,9 @@ class SamplingRun:
     def __init__(self, cfg: SamplingConfig, path: Path) -> None:
         self.path = REPO / cfg.out_dir / "run.json"
         hashes = {
-            key: sha256(value) if key == "pretrain_model" else config_sha256(value)
+            key: sha256(value)
+            if key == "pretrain_model"
+            else pretrain_config_sha256(value)
             for key, value in config_paths(cfg, path).items()
         }
         check_fingerprints(self.path, hashes, cfg.out_dir)

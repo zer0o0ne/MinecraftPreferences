@@ -7,7 +7,8 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 
-from mcpref.config import REPO, config_sha256
+from mcpref.config import REPO
+from mcpref.config_moves import pretrain_config_sha256
 from mcpref.datasets.continuous.timeline import identity
 from mcpref.datasets.continuous.views.labels import attach, extra_labels
 from mcpref.infrastructure.runs.files import check_fingerprints, write_json
@@ -129,7 +130,7 @@ def build_index(cfg, path, root: Path):
     fingerprint, states = view_fingerprint(root)
     extra, extra_fingerprint = extra_labels(cfg, root)
     sha = {
-        "config": config_sha256(path),
+        "config": pretrain_config_sha256(path),
         "clip_metadata": fingerprint,
         "shared_dataset": fingerprint,
         "additional_labels": extra_fingerprint,

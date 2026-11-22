@@ -40,6 +40,12 @@ archive; that archive is independent of recurrent state.
 
 ## Timeline and preference mapping
 
+Moving the split config from `pretrain/train-index.yaml` to
+`pretrain/classical/index/config.yaml` does not change an existing dataset's
+identity. On resume, compare these known aliases while retaining the recorded
+path in the fingerprint; all other fields and the split file's byte hash must
+still match. Do not rewrite dataset identity merely to migrate a config path.
+
 For a fragment, concatenate source rows in episode order. A row refers to its
 source video frame with the same zero-based index, as in perception-data. The
 extra terminal video frame without a JSONL row is not a state. Verify all rows,
@@ -197,7 +203,7 @@ interface and apply the configured history tail and its own coordinate origin.
 - `scripts/collect_preferences_pretrain_data.sh` selects references from the
   completed dataset, then runs the existing voting/correction stages into new
   `*_shared` roots. It never fetches source videos. Additional corrected labels are attached by
-  `configs/training/pretrain/shared-labeled-index.yaml`; attachment checks the
+  `configs/training/pretrain/classical/index/shared-labeled.yaml`; attachment checks the
   immutable dataset version and pool fingerprint, preserves the shared split and
   adds each new canonical endpoint to the classical own-loss union once.
 - Collection checkpoints retain the source cursor and validated whole-fragment

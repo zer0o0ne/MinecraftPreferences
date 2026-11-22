@@ -15,6 +15,7 @@ from mcpref.models.perception.phi import Phi
 from mcpref.runtime.mcts.tree import LatentHistory
 from mcpref.runtime.sampling.config import SamplingConfig
 from mcpref.runtime.sampling.shards import RawHistory, read_history
+from mcpref.training.rl.continuous.replay import branch
 from mcpref.training.rl.pairs.types import Encoder, StateRef
 
 
@@ -72,17 +73,28 @@ def encode_ref(
     sampling: SamplingConfig,
     states: int,
     action_count: int,
+    continuous=None,
 ) -> LatentHistory:
     """Validate a per-cycle episode reference and rebuild its full raw context."""
+    if continuous is not None:
+        validate_ref(ref, sampling)
+        encoded, _ = branch(phi, sampling, states, action_count, continuous, ref.index)
+        return encoded[0]
     raw = read_ref(ref, sampling, states)
     return encode_raw(phi, perception, raw, states, action_count)
 
 
-@measured("data.history_read")
-def read_ref(ref: StateRef, sampling: SamplingConfig, states: int) -> RawHistory:
+def validate_ref(ref: StateRef, sampling: SamplingConfig) -> None:
     match = re.fullmatch(re.escape(sampling.out_dir) + r"#([0-9]{6,})", ref.episode)
     if match is None:
         raise ValueError(f"invalid sampling episode {ref.episode!r}")
+    if type(ref.index) is not int or ref.index < 0:
+        raise ValueError(f"invalid sampling state index {ref.index!r}")
+
+
+@measured("data.history_read")
+def read_ref(ref: StateRef, sampling: SamplingConfig, states: int) -> RawHistory:
+    validate_ref(ref, sampling)
     return read_history(REPO / sampling.out_dir, ref.index, states)
 
 
@@ -115,6 +127,7 @@ def eval_encoder(
     sampling: SamplingConfig,
     states: int,
     action_count: int,
+    continuous=None,
 ) -> Encoder:
     """Return batch-1 Y values in reference order, restoring phi's caller mode."""
 
@@ -124,7 +137,17 @@ def eval_encoder(
         try:
             with torch.no_grad():
                 return [
-                    encode_ref(ref, phi, perception, sampling, states, action_count).Y
+                    encode_ref(
+                        ref,
+                        phi,
+                        perception,
+                        sampling,
+                        states,
+                        action_count,
+                        **(
+                            {"continuous": continuous} if continuous is not None else {}
+                        ),
+                    ).Y
                     for ref in refs
                 ]
         finally:

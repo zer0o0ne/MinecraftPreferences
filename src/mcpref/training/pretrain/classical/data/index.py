@@ -13,11 +13,11 @@ import yaml
 from mcpref.config import (
     REPO,
     config_mapping,
-    config_sha256,
     positive_int,
     read_yaml,
     relative,
 )
+from mcpref.config_moves import pretrain_config_sha256
 from mcpref.infrastructure.cli.failure import FAILURES, failed
 from mcpref.infrastructure.progress import shard_bar
 from mcpref.infrastructure.runs.files import (
@@ -41,7 +41,7 @@ FINGERPRINTS = ("config", "clips", "pair_clips", "pair_labels", "clip_metadata")
 
 @dataclass(frozen=True)
 class TrainIndexConfig:
-    """Notation: configs/training/pretrain/train-index.yaml as written; paths relative to the repository
+    """Notation: configs/training/pretrain/classical/index/config.yaml as written; paths relative to the repository
     root, resolved against it where read or written; pair_* both null without pairs."""
 
     clips_dir: str
@@ -99,7 +99,7 @@ def header(
         raise RuntimeError(
             f"{cfg.pair_labels_dir} labels other clips than {cfg.pair_clips_dir}"
         )
-    sha = dict(zip(FINGERPRINTS, [config_sha256(path), *fingerprints]))
+    sha = dict(zip(FINGERPRINTS, [pretrain_config_sha256(path), *fingerprints]))
     check_fingerprints(REPO / cfg.out_dir / "run.json", sha, cfg.out_dir)
     run = {
         "config": yaml.safe_load(path.read_text()),

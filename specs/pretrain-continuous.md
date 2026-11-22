@@ -19,13 +19,25 @@ both remain under `training/pretrain/`, in purpose-named subpackages where
 needed. Classical losses, scheduling and artifact semantics remain those of
 `pretrain.md`; moving modules must preserve that mode's numerical behavior.
 
-There are two mode configs, `configs/training/pretrain/classical.yaml` and
-`configs/training/pretrain/continuous.yaml`. The higher-level
+There are two mode configs, `configs/training/pretrain/classical/config.yaml` and
+`configs/training/pretrain/continuous/config.yaml`. The higher-level
 `configs/training/pretrain/config.yaml` selects `mode: classical|continuous` and
 the corresponding config path. Model/optimizer values shared by the modes live
 above their mode-specific configs. The existing `scripts/pretrain.sh` entry
 point dispatches the selected mode; data indexes, output paths and checkpoint
 formats are mode-specific and reject incompatible resume.
+
+The pretrain config directory keeps only `config.yaml` (selection) and
+`base.yaml` (shared settings) at its root. Classical index variants live in
+`classical/index/`; continuous indexing uses `continuous/index.yaml`.
+The six former flat config paths remain read aliases when their files are absent;
+an existing file at an old path takes precedence. Config reads outside the
+repository are not redirected. Pretrain index and sampling fingerprints use a
+scoped compatibility hash: for the relocated pretrain configs and selector,
+reverse only the known path substitutions before hashing the same bytes and
+inheritance graph. The general raw-byte config hash is unchanged. Other content
+changes must still reject resume. Complete existing indexes retain their metadata
+bytes, preserving downstream training identities.
 
 ## Stream and gradients
 

@@ -2,6 +2,14 @@
 Status: approved (2026-11-07); 2026-11-07: cross-cycle AdamW state, wrapper continuation and reward-only encoding, approved; 2026-11-10: optional frozen-$\phi$ retraining with fixed PPO advantages, approved
 Stage: block 13 of `specs/00-overview.md` — R1–R5 orchestration and the one joint training loop of $\phi,P,\pi$
 
+Continuous perception follows [Continuous RL](rl-continuous.md) (approved
+2026-11-22). Its retained-memory handover and item-conditioned replay replace
+the classical restarts, raw-history encoding and perception batching below.
+The schedule, losses, role normalization, optimizer and phase ordering remain
+shared. Config accepts optional `continuous: {gradient_history, replay_stride}`
+with positive integers; it is required when the referenced pretrain mode is
+continuous. Existing classical configs without it remain valid.
+
 Execution profiling is controlled by `configs/training/profile.yaml` (`enabled: true`
 currently), with a `MCPREF_PROFILE` override, without changing training fingerprints
 or checkpoint state; see [Training profiling](../docs/training-profiling.md).

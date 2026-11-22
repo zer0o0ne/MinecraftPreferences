@@ -28,19 +28,42 @@ def checkpoint_path(cfg: SamplingConfig) -> Path:
     return path
 
 
-def load_weights(path: Path) -> dict:
+def _check_mode(actual: str, expected: str) -> None:
+    if actual != expected or actual not in ("classical", "continuous"):
+        raise RuntimeError(
+            f"Pretraining mode mismatch: artifact={actual}, sampling={expected}; "
+            "continuous artifacts require the continuous perception stream adapter"
+        )
+
+
+def load_weights(path: Path, mode: str = "classical") -> dict:
     metadata = path.parent / "metadata.json"
-    if (
-        metadata.exists()
-        and json.loads(metadata.read_text()).get("pretrain_mode") == "continuous"
-    ):
-        raise RuntimeError(
-            "Continuous pretraining requires the continuous perception stream adapter"
-        )
-    saved = torch.load(path, map_location="cpu", weights_only=True)
-    if saved.get("pretrain_mode") == "continuous":
-        raise RuntimeError(
-            "Continuous pretraining requires the continuous perception stream adapter; "
-            "this runtime uses classical clip memory"
-        )
+    info = json.loads(metadata.read_text()) if metadata.exists() else None
+    if info is not None:
+        _check_mode(info.get("pretrain_mode", "classical"), mode)
+    allowed = []
+    if mode == "continuous":
+        import numpy as np
+        from numpy.core.multiarray import _reconstruct
+
+        from mcpref.models.perception.continuous.state import ContinuousState, GDNState
+        from mcpref.training.pretrain.continuous.state import Stream
+
+        allowed = [
+            ContinuousState,
+            GDNState,
+            Stream,
+            _reconstruct,
+            np.ndarray,
+            np.dtype,
+            type(np.dtype(np.uint8)),
+        ]
+    with torch.serialization.safe_globals(allowed):
+        saved = torch.load(path, map_location="cpu", weights_only=True)
+    _check_mode(saved.get("pretrain_mode", "classical"), mode)
+    if mode == "continuous":
+        for values in (info or {}, saved):
+            for key, expected in (("attention", "observation"), ("memory", "fragment")):
+                if key in values and values[key] != expected:
+                    raise RuntimeError(f"Incompatible continuous perception {key}")
     return saved["modules"] if path.name == "checkpoint.pt" else saved

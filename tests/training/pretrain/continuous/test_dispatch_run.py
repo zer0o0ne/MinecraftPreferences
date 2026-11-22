@@ -3,20 +3,23 @@
 import json
 from dataclasses import asdict, replace
 
+import pytest
 import torch
 import yaml
 from training.pretrain.continuous.diagnostics.hooks_world import setup, training
 from training.pretrain.continuous.diagnostics.test_hooks import assert_complete
 
 from mcpref.config import config_sha256
+from mcpref.runtime.sampling.checkpoints import load_weights
 from mcpref.training.pretrain import modes
 from mcpref.training.pretrain import run as dispatch
 from mcpref.training.pretrain.continuous import loop
 from mcpref.training.pretrain.continuous import run as continuous
 
 
+@pytest.mark.parametrize("legacy_paths", [False, True])
 def test_public_continuous_entrypoint_builds_index_and_completes_training(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, legacy_paths
 ):
     world, initial_index = setup(tmp_path, monkeypatch)
     try:
@@ -25,7 +28,15 @@ def test_public_continuous_entrypoint_builds_index_and_completes_training(
         initial_index.close()
     for module in (modes, dispatch, continuous, loop):
         monkeypatch.setattr(module, "REPO", tmp_path)
-    train_path = tmp_path / "dispatch-train.yaml"
+    prefix = "configs/training/pretrain/"
+    train_name = (
+        prefix + "continuous/config.yaml" if legacy_paths else "dispatch-train.yaml"
+    )
+    index_name = (
+        prefix + "continuous/index.yaml" if legacy_paths else "dispatch-index.yaml"
+    )
+    train_path = tmp_path / train_name
+    train_path.parent.mkdir(parents=True, exist_ok=True)
     raw = vars(fixture.cfg) | {
         "index_dir": "dispatch-index",
         "out_dir": "dispatch",
@@ -39,14 +50,14 @@ def test_public_continuous_entrypoint_builds_index_and_completes_training(
     (tmp_path / "perception.yaml").write_text(yaml.safe_dump(vars(world.phi_cfg)))
     (tmp_path / "policy.yaml").write_text("history: 3\n")
     (tmp_path / "mask.yaml").write_text("fixture: shared-action-catalogue\n")
-    index_path = tmp_path / "dispatch-index.yaml"
+    index_path = tmp_path / index_name
     index_path.write_text(
         yaml.safe_dump(
             asdict(
                 replace(
                     world.cfg,
                     out_dir=raw["index_dir"],
-                    training_config=train_path.name,
+                    training_config=train_name,
                 )
             )
         )
@@ -57,7 +68,14 @@ def test_public_continuous_entrypoint_builds_index_and_completes_training(
             {
                 "mode": "continuous",
                 "classical": {"config": "unused.yaml", "index": "unused-index.yaml"},
-                "continuous": {"config": train_path.name, "index": index_path.name},
+                "continuous": {
+                    "config": prefix + "continuous.yaml"
+                    if legacy_paths
+                    else train_name,
+                    "index": prefix + "continuous-index.yaml"
+                    if legacy_paths
+                    else index_name,
+                },
             }
         )
     )
@@ -87,6 +105,10 @@ def test_public_continuous_entrypoint_builds_index_and_completes_training(
     saved = torch.load(fixture.root / "model.pt", weights_only=True)
     assert saved["pretrain_mode"] == "continuous" and saved["memory"] == "fragment"
     assert set(fixture.modules) <= saved.keys()
+    checkpoint = next(fixture.root.glob("checkpoints/*/checkpoint.pt"))
+    inference_weights = load_weights(checkpoint, "continuous")
+    assert set(fixture.modules) <= inference_weights.keys()
+    assert "stream" not in inference_weights
     assert_complete(tmp_path, "dispatch")
     assert (
         len(list(fixture.root.glob("checkpoints/*/gradient_flow/*/metrics.json"))) == 2

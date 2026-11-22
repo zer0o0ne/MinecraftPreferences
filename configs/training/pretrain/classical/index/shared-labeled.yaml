@@ -1,5 +1,5 @@
 extends:
-  - configs/training/pretrain/shared-index.yaml
+  - configs/training/pretrain/classical/index/shared.yaml
 pair_clips_dir: data/pair_clips_shared
 pair_labels_dir: data/pair_labels_shared
 out_dir: data/train_index_shared_labeled

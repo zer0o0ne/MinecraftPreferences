@@ -12,6 +12,7 @@ from mcpref.gui.mask import load_masks
 from mcpref.infrastructure.runs.files import sha256
 from mcpref.models.factory import build_modules
 from mcpref.models.perception.config import load_config as load_perception_config
+from mcpref.models.perception.continuous import ContinuousPhiStream
 from mcpref.models.perception.phi import Phi
 from mcpref.models.perception.stream import PhiStream
 from mcpref.models.policy.config import load_config as load_policy_config
@@ -21,7 +22,10 @@ from mcpref.models.preference.network import Preference
 from mcpref.runtime.sampling.checkpoints import checkpoint_path, load_weights
 from mcpref.runtime.sampling.codecs import _cpu
 from mcpref.runtime.sampling.config import SamplingConfig
-from mcpref.training.pretrain.modes import load_classical_config as load_pretrain_config
+from mcpref.runtime.sampling.continuous import decode as decode_continuous
+from mcpref.runtime.sampling.continuous import encode as encode_continuous
+from mcpref.training.pretrain.modes import load_selected_config as load_pretrain_config
+from mcpref.training.pretrain.modes import selected_config
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,8 @@ def load_pretrained(cfg: SamplingConfig) -> SamplingModules:
     """(1): selected initial weights on the configured device, in eval mode."""
     pretrain = load_pretrain_config(REPO / cfg.pretrain)
     path = checkpoint_path(cfg)
+    mode, _ = selected_config(REPO / cfg.pretrain)
+    weights = load_weights(path, mode)
     perception = load_perception_config(REPO / pretrain.perception)
     masks = load_masks(load_mask_config(REPO / pretrain.action_mask))
     policy = load_policy_config(REPO / pretrain.policy)
@@ -51,7 +57,6 @@ def load_pretrained(cfg: SamplingConfig) -> SamplingModules:
         device=pretrain.device,
         latent_init_scale=pretrain.latent_init_scale,
     )
-    weights = load_weights(path)
     for name in ("phi", "pi", "P"):
         built[name].load_state_dict(weights[name])
         built[name].eval()
@@ -73,8 +78,10 @@ def _linear_state(layer: object, name: str) -> torch.Tensor | None:
     return None if states is None else states[0]
 
 
-def encode_stream(stream: PhiStream) -> dict:
+def encode_stream(stream: PhiStream | ContinuousPhiStream) -> dict:
     """Datasets: primitive ids/first line, CPU grids and complete per-layer caches."""
+    if isinstance(stream, ContinuousPhiStream):
+        return encode_continuous(stream)
     cache = []
     for layer in stream.cache.layers:
         cumulative_length = getattr(layer, "cumulative_length", None)
@@ -136,8 +143,13 @@ def _decode_cache(phi: Phi, entries: list[dict], device: torch.device) -> Dynami
 
 def decode_stream(
     phi: Phi, states: int, value: dict, device: torch.device
-) -> PhiStream:
+) -> PhiStream | ContinuousPhiStream:
     """Datasets: restore a stream, cache tensors on device and grids on the CPU."""
+    mode = value.get("mode", "classical")
+    if mode == "continuous":
+        return decode_continuous(phi, value, device)
+    if mode != "classical":
+        raise RuntimeError("incompatible sampling state")
     stream = PhiStream(phi, states)
     stream.ids = list(value["ids"])
     stream.grids = [grid.to(device="cpu") for grid in value["grids"]]

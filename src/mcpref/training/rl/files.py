@@ -9,6 +9,7 @@ import numpy as np
 import yaml
 
 from mcpref.config import REPO, config_sha256
+from mcpref.config_moves import pretrain_config_sha256
 from mcpref.infrastructure.runs.files import check_fingerprints, sha256, write_json
 from mcpref.infrastructure.shards.store import complete_shards, shard_path
 from mcpref.runtime.sampling.checkpoints import checkpoint_path
@@ -63,6 +64,41 @@ def initial_optimizer(cfg: RLCycleConfig, cycle: int) -> Path | None:
     return path
 
 
+def handover_from(cfg: RLCycleConfig, cycle: int, model: Path) -> str | None:
+    """Authorize only the preceding completed cycle's final-model handover."""
+    if cycle == 0:
+        return None
+    previous = REPO / cfg.out_dir / f"{cycle - 1:06d}"
+    run = json.loads((previous / "run.json").read_text())
+    if not run.get("complete") or model.resolve() != (previous / "model.pt").resolve():
+        raise RuntimeError(
+            "continuous RL requires the previous completed cycle's model"
+        )
+    initial = run.get("sha256", {}).get("initial_model")
+    if not isinstance(initial, str) or len(initial) != 64:
+        raise RuntimeError("previous RL cycle has no sampling-model fingerprint")
+    return initial
+
+
+def validate_anchor_manifests(cfg: RLCycleConfig, sampling: SamplingConfig, cycle: int):
+    """Check archived anchor identities without rehashing the raw world history."""
+    for previous in range(cycle):
+        root = REPO / cfg.out_dir / f"{previous:06d}"
+        run = json.loads((root / "run.json").read_text())
+        manifest = (
+            shard_path(REPO / sampling.out_dir / "shards", previous) / "anchors.json"
+        )
+        expected = run.get("sha256", {}).get("anchors_manifest")
+        if (
+            not run.get("complete")
+            or not manifest.is_file()
+            or expected != sha256(manifest)
+        ):
+            raise RuntimeError(
+                f"missing or changed historical memory anchors: {previous}"
+            )
+
+
 def fingerprints(
     cfg: RLCycleConfig, path: Path, sampling: SamplingConfig, model: Path
 ) -> dict:
@@ -74,7 +110,7 @@ def fingerprints(
         "rl_pairs": config_sha256(REPO / cfg.rl_pairs),
     }
     result |= {
-        key: config_sha256(value)
+        key: pretrain_config_sha256(value)
         for key, value in config_paths(sampling, source).items()
         if key != "pretrain_model"
     }

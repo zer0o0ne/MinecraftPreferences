@@ -31,6 +31,14 @@ POSITIVE_REALS = ("w_ppo", "w_delta", "w_metra", "w_P", "adam_eps", "grad_clip")
 
 
 @dataclass(frozen=True)
+class ContinuousConfig:
+    """Bounded conditional replay; specs/rl-continuous.md."""
+
+    gradient_history: int
+    replay_stride: int
+
+
+@dataclass(frozen=True)
 class RLCycleConfig:
     """All paths, exact training numbers and declared optimizer groups of one cycle."""
 
@@ -58,11 +66,15 @@ class RLCycleConfig:
     warmup_steps: int
     lr_floor: float
     device: str
+    continuous: ContinuousConfig | None = None
 
 
 def load_config(path: Path) -> RLCycleConfig:
     """Load exactly the dataclass fields and reject every violated constraint."""
-    raw = config_mapping(read_yaml(path), path, RLCycleConfig)
+    values = read_yaml(path)
+    if isinstance(values, dict):
+        values.setdefault("continuous", None)
+    raw = config_mapping(values, path, RLCycleConfig)
     for name in PATHS:
         relative(name, raw[name])
     read = {name: positive_int(name, raw[name]) for name in POSITIVE_INTS}
@@ -76,9 +88,22 @@ def load_config(path: Path) -> RLCycleConfig:
         "warmup_steps": integer("warmup_steps", raw["warmup_steps"], 0, math.inf),
         "betas": betas(raw["betas"]),
         "groups": groups(raw["groups"]),
+        "continuous": continuous_config(raw["continuous"], path),
     }
     floor = number("lr_floor", raw["lr_floor"])
     if not 0 <= floor <= 1:
         raise ValueError(f"lr_floor {raw['lr_floor']!r} is not in [0, 1]")
     device(raw["device"])
     return RLCycleConfig(**raw | read | {"lr_floor": floor})
+
+
+def continuous_config(raw, path: Path) -> ContinuousConfig | None:
+    if raw is None:
+        return None
+    fields = config_mapping(raw, path, ContinuousConfig)
+    return ContinuousConfig(
+        **{
+            name: positive_int(f"continuous.{name}", value)
+            for name, value in fields.items()
+        }
+    )

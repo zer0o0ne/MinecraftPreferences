@@ -20,6 +20,61 @@ Stage: block 9 of `specs/00-overview.md` — R1: the environment loop and trajec
 - Config `configs/runtime/sampling.yaml` → `@dataclass(frozen=True) class SamplingConfig`, fields in order `pretrain`, `checkpoint_dir`, `env`, `mcts`, `perception_data`, `out_dir` (non-empty relative path strings without `..`, kept as written and resolved against `REPO`), `steps` ($n$, `positive_int`), `seed` (numpy decision RNG, integer $0..2^{32}-1$), `safety_limit` (ms, number $\ge0$, with $50\Delta-$ `safety_limit` > 0). `config_mapping` rejects missing/unknown keys and violated constraints with `ValueError`. `min_n_sampling` belongs to `MctsConfig`, with $1\le$ `min_n_sampling` $\le$ `simulations`.
 
 ## Behaviour
+
+### Continuous perception
+
+Continuous sampling supports fixed-weight inference and the cross-update
+handover in [Continuous RL](rl-continuous.md) for a single uninterrupted world.
+Select perception semantics from the referenced
+pretrain selector or leaf config; do not add an independent conflicting sampling
+mode. A continuous artifact requires continuous config, and a classical artifact
+(including legacy artifacts without a mode tag) requires classical config.
+Validate the payload and any `metadata.json` consistently. Intermediate continuous
+checkpoints may contain training stream dataclasses: load with `weights_only=True`
+and scoped `safe_globals` for `Stream`, `ContinuousState`, `GDNState` and the
+NumPy uint8 frame representation stored in `Stream.previous`, extracting only
+weights. Never initialize the world's stream from training memory.
+
+For continuous mode, use `ContinuousPhiStream`: full attention sees only the
+current observation, while GDN convolution/recurrent state and the first world's
+observation origin persist indefinitely. Never restart this memory at a history,
+trajectory, shard, death/respawn or process-continuation boundary. `perception.history`
+and `perception_data.states` do not bound this stream. Set the separate retained
+latent/action history length to `max(policy.history, preference.history)`; each
+head applies its own suffix limit. The following classical length checks and
+changed-model re-encoding rules apply only to classical mode.
+
+The new world's first observation starts with empty memory. At a completed-shard
+resume, restore the exact recurrent values, origin, histories, tree and RNG with
+no re-encoding or duplicate successor. Reject a stream-mode mismatch or changed
+model fingerprint before `env.restore`, except for the validated preceding-cycle
+handover defined in `rl-continuous.md`. That handover retains the numerical GDN
+state and real history; only `tree.base` is replaced by that retained real history,
+while nodes/caches stay stale. The existing matching external-world
+requirement still applies. This is an unbounded stream lifetime, not an unbounded
+token/KV/history buffer or an automatic simulator-world restoration mechanism.
+
+Continuous `state.pt.stream` is the primitive mapping
+`{mode: "continuous", version: 1, origin, layers: [{conv, recurrent}, ...]}`.
+Tensors are independent CPU copies with their original dtypes; decoding moves
+them to the model device without dtype conversion. It contains no historical
+token IDs, grids or full-attention K/V. Classical state format stays compatible.
+
+Continuous RL additionally writes `anchors/<global-index>.pt` within trajectory
+shards, before each observation divisible by `continuous.replay_stride`.
+`anchors.json` records the format version, stride, sampling-model fingerprint and
+SHA-256 of each anchor. The final successor's anchor belongs to the preceding
+shard and is never rewritten by the next cycle. A validated RL handover requires
+these artifacts; an ordinary fixed-weight run does not create them.
+
+Acceptance: exceed perception/history and multiple shard boundaries without a
+reset or double encoding; bound state shapes independently of lifetime; reproduce
+uninterrupted outputs/actions after primitive same-model save/load; reject
+incompatible continuation before touching the environment. Exercise the real
+tiny Qwen stream and keep classical recovery tests unchanged.
+
+### Shared and classical behavior
+
 (1) Construction [U,A]: block 13 constructs, owns, checkpoints and closes the sole `Env`; `Sampler` only receives it, and `SamplingConfig.env` is read for the clips $\Delta$. `checkpoint_dir` selects exactly one `checkpoint.pt` or `model.pt`. Reject paths within `.part` directories, missing artifacts and directories containing both formats. A `checkpoint.pt` supplies its `modules` mapping without requiring completed pretraining; a `model.pt` supplies its top-level mapping and requires the directory's `run.json` marker `complete`. With no supplied modules, `build_modules(..., paired=True, device=pretrain.device)` builds $\phi,\pi,P$, their selected entries are loaded with `torch.load(..., map_location="cpu", weights_only=True)`, and the selected file's SHA-256 is their fingerprint. The static `pretrain_model` fingerprint also identifies that file. Block 13 may instead supply the current $\phi,\pi,P$ and their fingerprint for a later RL cycle. In both cases call `eval()` on all three, build `PhiStream(phi, L)` and $\alpha$ directly from `configs/models/perception.yaml` in float64 on $\phi$'s device. Enforce `check_lengths(L, policy_cfg, preference_cfg, paired=True, index_dir=cfg.perception_data)`. All direct preference calls are under `torch.no_grad`, as is any sampling inference not already covered internally by `PhiStream` or MCTS.
 
 (2) Explicit reset [U,A]: block 13 calls `reset()` once after construction, then may call `sample()` repeatedly; `sample()` before that reset or a second `reset()` raises `RuntimeError`. At zero complete shards, `reset()` calls `env.reset()`, keeps the raw $s_0$ for the first timed action, creates a new stream and `numpy.random.default_rng(seed)`, and sets `next_step=0`; no latent history or tree exists yet. At nonzero complete shards it loads the last complete `state.pt`, calls `env.restore(state.observation, state.env)` before any model-fingerprint branch, never calls `env.reset` and never reinitialises the RNG. Thus both a newly constructed and an already initialised matching wrapper receive the saved `EnvState`, raw completion baselines, physical GUI flag and cursor without simulator commands, ticks or classification. With an unchanged model fingerprint it restores the raw current state, history, tree and stream; tree coordinates and base history are promoted to float64 when loading legacy snapshots, preserving stored values and statistics. With a changed fingerprint it creates a new stream and loads the raw history ending at the current state; the next timed action re-encodes the suffix since its stream restart and replaces the real history and its float64 copy in `tree.base`, while the root and all descendant coordinates, cached values and $N,Q$ deliberately remain stale.

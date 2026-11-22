@@ -152,3 +152,20 @@ def test_source_configuration_is_not_removed_from_fingerprint(resumed):
     with pytest.raises(ValueError, match="inputs/config changed"):
         header(resumed)
     assert resumed.run.read_bytes() == before
+
+
+def test_relocated_split_preserves_recorded_identity_and_still_checks_content(resumed):
+    old = "configs/training/pretrain/train-index.yaml"
+    new = "configs/training/pretrain/classical/index/config.yaml"
+    resumed.fingerprints["config"]["split_config"] = old
+    resumed.run.write_text(json.dumps({"fingerprint": resumed.fingerprints}))
+    path = resumed.root / new
+    path.parent.mkdir(parents=True)
+    (resumed.root / "split.yaml").rename(path)
+    cfg = replace(resumed.cfg, split_config=new)
+    assert header(resumed, cfg)["fingerprint"] == resumed.fingerprints
+    path.write_text("validation_fraction: 0.3\n")
+    before = resumed.run.read_bytes()
+    with pytest.raises(ValueError, match="inputs/config changed"):
+        header(resumed, cfg)
+    assert resumed.run.read_bytes() == before

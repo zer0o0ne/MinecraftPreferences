@@ -3,6 +3,7 @@
 import torch
 from torch import Tensor
 
+from mcpref.models.perception.continuous import ContinuousPhiStream
 from mcpref.models.perception.stream import PhiStream
 from mcpref.models.preference.network import Preference
 from mcpref.runtime.env.state import EnvState
@@ -29,7 +30,7 @@ def append(
 
 
 def encode(
-    stream: PhiStream,
+    stream: PhiStream | ContinuousPhiStream,
     history: LatentHistory | None,
     raw: list[EnvState],
     preceding: list[int | None],

@@ -4,7 +4,8 @@ import torch
 
 from mcpref.infrastructure.profiling.scopes import phase
 from mcpref.runtime.sampling.config import SamplingConfig
-from mcpref.training.rl.learning.history import encode_refs
+from mcpref.training.rl.continuous.replay import branch
+from mcpref.training.rl.learning.history import encode_refs, validate_ref
 from mcpref.training.rl.pairs.types import StateRef
 from mcpref.training.rl.ppo.config import PpoConfig
 
@@ -23,8 +24,14 @@ def ppo_eligible(item: dict, sampling: SamplingConfig, ppo: PpoConfig) -> bool:
     )
 
 
-def micro_histories(items, phi, perception, sampling, states, action_count, ppo, fixed):
+def micro_histories(
+    items, phi, perception, sampling, states, action_count, ppo, fixed, continuous=None
+):
     """Return ordered differentiable histories and no-grad reward histories."""
+    if continuous is not None:
+        return continuous_histories(
+            items, phi, sampling, states, action_count, ppo, fixed, continuous
+        )
     refs, reward_refs = [], []
     for item in items:
         kind, t = item["kind"], item.get("index")
@@ -54,4 +61,31 @@ def micro_histories(items, phi, perception, sampling, states, action_count, ppo,
                     action_count,
                 )
             )
+    return iter(encoded), iter(rewards)
+
+
+def continuous_histories(items, phi, sampling, states, actions, ppo, fixed, config):
+    """Each transition and its futures share one anchor, even across boundaries."""
+    encoded, rewards = [], []
+    for item in items:
+        if item["kind"] == "preference":
+            for side in ("a", "b"):
+                ref = StateRef(**item[side])
+                validate_ref(ref, sampling)
+                values, _ = branch(phi, sampling, states, actions, config, ref.index)
+                encoded.extend(values)
+            continue
+        horizon = ppo.horizon if not fixed and ppo_eligible(item, sampling, ppo) else 0
+        values, futures = branch(
+            phi,
+            sampling,
+            states,
+            actions,
+            config,
+            item["index"],
+            fresh=item["kind"] == "fresh",
+            horizon=horizon,
+        )
+        encoded.extend(values)
+        rewards.extend(futures)
     return iter(encoded), iter(rewards)

@@ -5,6 +5,9 @@ extends:
 remove:
   - "groups.phi_dual"
 retrain: true
+continuous:
+  gradient_history: 4
+  replay_stride: 64
 w_P: 1.0
 w_ppo: 1.0
 w_delta: 1.0

@@ -6,7 +6,7 @@ import pytest
 import torch
 import yaml
 
-from mcpref.training.rl.config import RLCycleConfig, load_config
+from mcpref.training.rl.config import ContinuousConfig, RLCycleConfig, load_config
 from training.rl.learning.helpers import BASE, GROUPS
 
 FIELDS = list(BASE)
@@ -26,7 +26,10 @@ def load(tmp_path, **changes):
 
 def test_field_order_types_and_frozen(tmp_path):
     cfg = load(tmp_path, seed=2**32 - 1, betas=[0, 0.5], lr_floor=0)
-    assert [field.name for field in dataclasses.fields(RLCycleConfig)] == FIELDS
+    assert [field.name for field in dataclasses.fields(RLCycleConfig)] == FIELDS + [
+        "continuous"
+    ]
+    assert cfg.continuous is None
     assert cfg.seed == 2**32 - 1 and type(cfg.seed) is int
     assert cfg.betas == (0.0, 0.5) and all(type(x) is float for x in cfg.betas)
     assert cfg.lr_floor == 0
@@ -122,10 +125,34 @@ def test_starting_values_and_group_order(tmp_path):
     cfg = load(tmp_path, **starting)
     expected = BASE | starting
     assert dataclasses.asdict(cfg) | {"device": "cuda"} == expected | {
-        "betas": (0.9, 0.999)
+        "betas": (0.9, 0.999),
+        "continuous": None,
     }
     assert list(cfg.groups) == list(GROUPS)
     assert "phi_dual" not in cfg.groups and cfg.groups["metra_dual"] == {
         "lr": 1.0e-4,
         "weight_decay": 0.0,
     }
+
+
+def test_explicit_continuous_replay(tmp_path):
+    cfg = load(tmp_path, continuous={"gradient_history": 4, "replay_stride": 64})
+    assert cfg.continuous == ContinuousConfig(4, 64)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        False,
+        [],
+        {},
+        {"gradient_history": 4},
+        {"gradient_history": 4, "replay_stride": 64, "extra": 1},
+        {"gradient_history": 0, "replay_stride": 64},
+        {"gradient_history": 4, "replay_stride": True},
+        {"gradient_history": 1.0, "replay_stride": 64},
+    ],
+)
+def test_invalid_continuous_replay(tmp_path, value):
+    with pytest.raises(ValueError):
+        load(tmp_path, continuous=value)

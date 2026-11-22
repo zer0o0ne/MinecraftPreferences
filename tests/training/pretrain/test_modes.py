@@ -70,10 +70,18 @@ def test_clip_consumer_resolves_classical_leaf(tmp_path, monkeypatch):
 
 
 def test_repository_modes_share_model_and_optimizer_settings(repo):
-    a = classical(repo / "configs/training/pretrain/classical.yaml")
-    b = continuous(repo / "configs/training/pretrain/continuous.yaml")
+    a = classical(repo / "configs/training/pretrain/classical/config.yaml")
+    b = continuous(repo / "configs/training/pretrain/continuous/config.yaml")
     aa, bb = asdict(a), asdict(b)
     common = set(aa) & set(bb) - {"index_dir", "out_dir", "diagnostics"}
     assert {k: aa[k] for k in common} == {k: bb[k] for k in common}
     assert a.index_dir != b.index_dir and a.out_dir != b.out_dir
     assert "batch" not in bb and "tbptt_states" not in aa
+
+
+def test_materialized_continuous_leaf_still_rejects_classical_consumers(tmp_path):
+    path = tmp_path / "pretrain.yaml"
+    path.write_text("tbptt_states: 4\n")
+    assert modes.selected_config(path) == ("continuous", path)
+    with pytest.raises(RuntimeError, match="requires classical pretraining"):
+        modes.classical_config_path(path)

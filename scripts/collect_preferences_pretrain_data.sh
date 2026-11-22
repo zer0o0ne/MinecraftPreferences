@@ -9,4 +9,4 @@ PATH="$HOME/.local/bin:$PATH"
 uv run --locked python -m mcpref.datasets.continuous.views.pool configs/datasets/preference-pool-shared.yaml
 uv run --locked python -m mcpref.datasets.preferences.labels configs/datasets/preferences/labels-shared.yaml
 uv run --locked python -m mcpref.datasets.preferences.acyclic configs/datasets/preferences/acyclic-shared.yaml
-uv run --locked python -m mcpref.training.pretrain.classical.data.index configs/training/pretrain/shared-labeled-index.yaml
+uv run --locked python -m mcpref.training.pretrain.classical.data.index configs/training/pretrain/classical/index/shared-labeled.yaml

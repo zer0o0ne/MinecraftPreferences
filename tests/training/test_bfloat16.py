@@ -179,9 +179,12 @@ def test_rl_builder_and_all_roles(setup, masks, monkeypatch):
         preference="P",
         latent_init_scale=1.0,
     )
-    monkeypatch.setattr(cycle, "load_pretrain_config", lambda _: pretrain)
+    monkeypatch.setattr(
+        cycle,
+        "load_context",
+        lambda *_: SimpleNamespace(pretrain=pretrain, perception=perception),
+    )
     for name, value in [
-        ("load_perception_config", perception),
         ("load_mask_config", masks),
         ("load_masks", masks),
         ("load_policy_config", policy),

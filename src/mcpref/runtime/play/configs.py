@@ -13,9 +13,10 @@ from mcpref.runtime.play.checkpoints import snapshot
 from mcpref.runtime.play.config import PlayConfig
 from mcpref.runtime.sampling.checkpoints import checkpoint_path
 from mcpref.runtime.sampling.config import load_config as load_sampling
-from mcpref.training.pretrain.modes import classical_config_path
-from mcpref.training.pretrain.modes import load_classical_config as load_pretrain
+from mcpref.training.pretrain.modes import load_selected_config as load_pretrain
+from mcpref.training.pretrain.modes import selected_config
 from mcpref.training.rl.config import load_config as load_rl
+from mcpref.training.rl.context import load_context
 from mcpref.training.rl.pairs.config import load_config as load_pairs
 
 
@@ -50,14 +51,15 @@ def _rl(cfg: PlayConfig, root: Path, sampling: str) -> str:
         "device": cfg.device,
     }
     path = _save(root, "rl", raw)
-    load_rl(REPO / path)
+    load_context(load_rl(REPO / path), load_sampling(REPO / sampling))
     return path
 
 
 def materialize(cfg: PlayConfig, root: Path) -> PlayConfig:
     sampling = read_yaml(REPO / cfg.sampling)
     source = checkpoint_path(load_sampling(REPO / cfg.sampling))
-    pretrain = read_yaml(classical_config_path(REPO / sampling["pretrain"]))
+    _, selected = selected_config(REPO / sampling["pretrain"])
+    pretrain = read_yaml(selected)
     diagnostics = read_yaml(REPO / pretrain["diagnostics"])
     base = root.relative_to(REPO.resolve()).as_posix()
     diagnostics["out_dir"] = f"{base}/diagnostics"

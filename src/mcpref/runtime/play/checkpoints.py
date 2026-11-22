@@ -15,6 +15,9 @@ def snapshot(source: Path, directory: Path) -> None:
     publish(staged, target)
     if source.name == "model.pt":
         write_file(directory / "run.json", (source.parent / "run.json").read_bytes())
+    metadata = source.parent / "metadata.json"
+    if metadata.exists():
+        write_file(directory / "metadata.json", metadata.read_bytes())
     write_json(
         directory / "source.json",
         {"path": str(source), "sha256": sha256(target)},

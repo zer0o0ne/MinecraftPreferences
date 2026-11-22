@@ -8,21 +8,25 @@ import torch
 from tqdm import tqdm
 
 from mcpref.config import REPO
-from mcpref.datasets.clips.collect import load_config as load_perception_data_config
 from mcpref.datasets.vpt.plan import generator
 from mcpref.diagnostics.core.runtime import DiagnosticRun, diagnostic_bar
 from mcpref.infrastructure.profiling.runtime import TrainingProfile
 from mcpref.infrastructure.profiling.scopes import phase
 from mcpref.infrastructure.shards.store import complete_shards, shard_path
-from mcpref.models.perception.config import load_config as load_perception_config
 from mcpref.runtime.mcts.config import load_config as load_mcts_config
 from mcpref.runtime.sampling.config import load_config as load_sampling_config
-from mcpref.training.checkpoints import prune, write_model
+from mcpref.training.checkpoints import prune
 from mcpref.training.groups import check_groups
 from mcpref.training.optim import adamw, update
-from mcpref.training.pretrain.modes import load_classical_config as load_pretrain_config
 from mcpref.training.rl.config import RLCycleConfig
-from mcpref.training.rl.learning.checkpoints import STATEFUL, restore, write_checkpoint
+from mcpref.training.rl.context import load_context
+from mcpref.training.rl.learning.checkpoints import (
+    STATEFUL,
+    check_mode,
+    restore,
+    write_checkpoint,
+    write_model,
+)
 from mcpref.training.rl.learning.loss import ROLES, step_gradients
 from mcpref.training.rl.learning.producer import (
     accept,
@@ -49,9 +53,12 @@ def shard_sizes(index_dir: Path) -> list[int]:
     ]
 
 
-def load_initial_optimizer(optimizer: torch.optim.AdamW, path: Path) -> None:
+def load_initial_optimizer(
+    optimizer: torch.optim.AdamW, path: Path, *, mode: str = "classical"
+) -> None:
     """Load persistent Adam state after final-step and group compatibility checks."""
     state = torch.load(path, map_location="cpu", weights_only=True)
+    check_mode(state, mode)
     previous_root = path.parent.parent.parent
     if previous_root.name == "retrain":
         previous_root = previous_root.parent
@@ -78,6 +85,8 @@ def started(
     groups: dict,
     directory: Path,
     initial_optimizer: Path | None,
+    *,
+    mode: str = "classical",
 ):
     """Create a cycle-local AdamW, then freshly seed or restore an exact position."""
     stateful = {name: modules[name] for name in STATEFUL}
@@ -88,9 +97,9 @@ def started(
         torch.manual_seed(cfg.seed)
         optimizer = adamw(cfg, groups)
         if initial_optimizer is not None:
-            load_initial_optimizer(optimizer, initial_optimizer)
+            load_initial_optimizer(optimizer, initial_optimizer, mode=mode)
         return optimizer, dict(START), 0
-    state = restore(directory, h, stateful)
+    state = restore(directory, h, stateful, mode=mode)
     optimizer = adamw(cfg, groups)
     optimizer.load_state_dict(state["optimizer"])
     return optimizer, {key: state[key] for key in START}, h
@@ -110,10 +119,13 @@ def train(
     run = json.loads((index_dir / "run.json").read_text())
     sizes, total = shard_sizes(index_dir), run["steps"]
     directory = index_dir.parent / "checkpoints"
-    optimizer, position, j = started(cfg, modules, groups, directory, initial_optimizer)
-    stateful = {name: modules[name] for name in STATEFUL}
     sampling = load_sampling_config(REPO / cfg.sampling)
-    pretrain = load_pretrain_config(REPO / sampling.pretrain)
+    context = load_context(cfg, sampling)
+    pretrain, perception, states = context.pretrain, context.perception, context.states
+    optimizer, position, j = started(
+        cfg, modules, groups, directory, initial_optimizer, mode=context.mode
+    )
+    stateful = {name: modules[name] for name in STATEFUL}
     diagnostics = DiagnosticRun.load(REPO / pretrain.diagnostics)
     cycle = int(index_dir.parent.name)
     event_start = sum(
@@ -126,13 +138,8 @@ def train(
     if position["step"] == total:
         print("rl cycle: already done", file=sys.stderr)
         accept(diagnostics, cfg, cycle, event_start, total)
-        write_model(index_dir.parent / "model.pt", stateful)
+        write_model(index_dir.parent / "model.pt", stateful, mode=context.mode)
         return optimizer
-    perception = load_perception_config(REPO / pretrain.perception)
-    states = min(
-        perception.history,
-        load_perception_data_config(REPO / sampling.perception_data).states,
-    )
     ppo = load_ppo_config(REPO / cfg.ppo)
     mcts = load_mcts_config(REPO / sampling.mcts)
     weight = modules["phi"].head[0].weight
@@ -181,6 +188,7 @@ def train(
                     w_P=cfg.w_P,
                     micro_batch=cfg.micro_batch,
                     observations=observations,
+                    continuous=context.replay,
                 )
                 gradients = (
                     capture_gradients(groups) if cfg.gradient_diagnostics else None
@@ -212,6 +220,7 @@ def train(
                         optimizer,
                         torch.device(cfg.device),
                         losses,
+                        mode=context.mode,
                     )
                     accept(diagnostics, cfg, cycle, event_start, t)
                     prune(directory, j, cfg.keep_checkpoints)
@@ -221,5 +230,5 @@ def train(
     with diagnostic_bar("diagnostics rl", cycle + 1, cycle, "cycle") as bar:
         if bar is not None:
             bar.update()
-    write_model(index_dir.parent / "model.pt", stateful)
+    write_model(index_dir.parent / "model.pt", stateful, mode=context.mode)
     return optimizer

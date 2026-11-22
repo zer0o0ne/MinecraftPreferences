@@ -8,21 +8,25 @@ import torch
 from tqdm import tqdm
 
 from mcpref.config import REPO
-from mcpref.datasets.clips.collect import load_config as load_perception_data_config
 from mcpref.datasets.vpt.plan import generator
 from mcpref.infrastructure.profiling.runtime import TrainingProfile
 from mcpref.infrastructure.profiling.scopes import phase
 from mcpref.infrastructure.runs.files import write_json
 from mcpref.infrastructure.shards.store import complete_shards
-from mcpref.models.perception.config import load_config as load_perception_config
 from mcpref.runtime.mcts.config import load_config as load_mcts_config
 from mcpref.runtime.sampling.config import load_config as load_sampling_config
-from mcpref.training.checkpoints import prune, write_model
+from mcpref.training.checkpoints import prune
 from mcpref.training.groups import check_groups
 from mcpref.training.optim import adamw, update
-from mcpref.training.pretrain.modes import load_classical_config as load_pretrain_config
 from mcpref.training.rl.config import RLCycleConfig
-from mcpref.training.rl.learning.checkpoints import STATEFUL, restore, write_checkpoint
+from mcpref.training.rl.context import load_context
+from mcpref.training.rl.learning.checkpoints import (
+    STATEFUL,
+    restore,
+    write_checkpoint,
+    write_model,
+)
+from mcpref.training.rl.learning.encoding import micro_histories
 from mcpref.training.rl.learning.history import encode_ref
 from mcpref.training.rl.learning.loop import START, shard_sizes
 from mcpref.training.rl.learning.loss import (
@@ -42,18 +46,37 @@ def fixed_advantages(root: Path, shard: int) -> dict[tuple[str, int], float]:
     return {(row["kind"], row["index"]): row["advantage"] for row in rows}
 
 
+def advantage_histories(item, modules, sampling, context, ppo):
+    args = (
+        modules["phi"],
+        context.perception,
+        sampling,
+        context.states,
+        len(modules["pi"].names),
+    )
+    if context.replay is not None:
+        encoded, rewards = micro_histories(
+            [item], *args, ppo, False, continuous=context.replay
+        )
+        origin = next(encoded)
+        futures = [next(encoded).Y] if item["kind"] == "fresh" else []
+        return origin, futures + [history.Y for history in rewards]
+    t = item["index"]
+    origin = encode_ref(state_ref(sampling, t), *args)
+    futures = [
+        encode_ref(state_ref(sampling, t + k), *args).Y
+        for k in range(1, ppo.horizon + 1)
+    ]
+    return origin, futures
+
+
 def prepare_advantages(cfg: RLCycleConfig, modules: dict, index_dir: Path) -> None:
     root = index_dir.parent
     directory = root / "retrain/advantages"
     if (directory / "run.json").exists():
         return
     sampling = load_sampling_config(REPO / cfg.sampling)
-    pretrain = load_pretrain_config(REPO / sampling.pretrain)
-    perception = load_perception_config(REPO / pretrain.perception)
-    states = min(
-        perception.history,
-        load_perception_data_config(REPO / sampling.perception_data).states,
-    )
+    context = load_context(cfg, sampling)
     ppo = load_ppo_config(REPO / cfg.ppo)
     mcts = load_mcts_config(REPO / sampling.mcts)
     run = json.loads((index_dir / "run.json").read_text())
@@ -80,25 +103,9 @@ def prepare_advantages(cfg: RLCycleConfig, modules: dict, index_dir: Path) -> No
                     continue
                 t = item["index"]
                 with torch.no_grad():
-                    origin = encode_ref(
-                        state_ref(sampling, t),
-                        modules["phi"],
-                        perception,
-                        sampling,
-                        states,
-                        len(modules["pi"].names),
+                    origin, futures = advantage_histories(
+                        item, modules, sampling, context, ppo
                     )
-                    futures = [
-                        encode_ref(
-                            state_ref(sampling, t + k),
-                            modules["phi"],
-                            perception,
-                            sampling,
-                            states,
-                            len(modules["pi"].names),
-                        ).Y
-                        for k in range(1, ppo.horizon + 1)
-                    ]
                     advantage = reward(
                         modules["P"],
                         [origin.Y],
@@ -119,13 +126,15 @@ def prepare_advantages(cfg: RLCycleConfig, modules: dict, index_dir: Path) -> No
     write_json(directory / "run.json", {"complete": True, "count": total})
 
 
-def joint_optimizer(cfg: RLCycleConfig, modules: dict, index_dir: Path):
+def joint_optimizer(
+    cfg: RLCycleConfig, modules: dict, index_dir: Path, *, mode="classical"
+):
     root = index_dir.parent
     directory = root / "checkpoints"
     h = complete_shards(directory)
     if h == 0:
         raise RuntimeError(f"joint training has no final checkpoint: {directory}")
-    state = restore(directory, h, modules)
+    state = restore(directory, h, modules, mode=mode)
     groups = check_groups(
         cfg, {name: modules[name] for name in ("phi", "metra", "pi", "P", "P_loss")}
     )
@@ -144,6 +153,9 @@ def retrain(
     marker = root / "retrain/run.json"
     if marker.exists():
         return
+    sampling = load_sampling_config(REPO / cfg.sampling)
+    context = load_context(cfg, sampling)
+    perception, states = context.perception, context.states
     stateful = {name: modules[name] for name in STATEFUL}
     groups = check_groups(
         cfg, {name: modules[name] for name in ("phi", "metra", "pi", "P", "P_loss")}
@@ -151,13 +163,13 @@ def retrain(
     directory = root / "retrain/checkpoints"
     h = complete_shards(directory)
     if h:
-        state = restore(directory, h, modules)
+        state = restore(directory, h, modules, mode=context.mode)
         optimizer = adamw(cfg, groups)
         optimizer.load_state_dict(state["optimizer"])
         position = {key: state[key] for key in START}
     else:
         if optimizer is None:
-            optimizer, _ = joint_optimizer(cfg, modules, index_dir)
+            optimizer, _ = joint_optimizer(cfg, modules, index_dir, mode=context.mode)
         position = dict(START)
         prepare_advantages(cfg, modules, index_dir)
         torch.manual_seed(cfg.seed)
@@ -169,13 +181,6 @@ def retrain(
     run = json.loads((index_dir / "run.json").read_text())
     sizes, total = shard_sizes(index_dir), run["steps"]
     counts, losses, visit, t, j = run["counts"], [], None, position["step"], h
-    sampling = load_sampling_config(REPO / cfg.sampling)
-    pretrain = load_pretrain_config(REPO / sampling.pretrain)
-    perception = load_perception_config(REPO / pretrain.perception)
-    states = min(
-        perception.history,
-        load_perception_data_config(REPO / sampling.perception_data).states,
-    )
     ppo = load_ppo_config(REPO / cfg.ppo)
     mcts = load_mcts_config(REPO / sampling.mcts)
     weight = modules["phi"].head[0].weight
@@ -224,6 +229,7 @@ def retrain(
                     w_P=cfg.w_P,
                     micro_batch=cfg.micro_batch,
                     fixed_advantages=advantages,
+                    continuous=context.replay,
                 )
                 lr = update(cfg, optimizer, groups, t, total)
                 optimizer.zero_grad(set_to_none=True)
@@ -237,10 +243,11 @@ def retrain(
                         optimizer,
                         torch.device(cfg.device),
                         losses,
+                        mode=context.mode,
                     )
                     prune(directory, j, cfg.keep_checkpoints)
                     j, losses = j + 1, []
                 bar.set_postfix({key: entry[key] for key in (*ROLES, "loss")})
                 bar.update()
-    write_model(root / "model.pt", stateful)
+    write_model(root / "model.pt", stateful, mode=context.mode)
     write_json(marker, {"complete": True, "steps": total})

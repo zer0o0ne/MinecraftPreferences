@@ -9,6 +9,7 @@ from collections import defaultdict
 from tqdm import tqdm
 
 from mcpref.config import REPO, config_sha256
+from mcpref.config_moves import MOVED
 from mcpref.datasets.clips.collect import run_header
 from mcpref.datasets.continuous.config import digest
 from mcpref.datasets.continuous.timeline import identity
@@ -89,10 +90,17 @@ def header(cfg, pipe, classifier_id, labels: str, sessions: str) -> dict:
     }
     out = REPO / cfg.out_dir
     path = out / "run.json"
-    if path.exists() and json.loads(path.read_text())["fingerprint"] != fingerprint:
-        raise ValueError(
-            "Continuous dataset inputs/config changed; use a new output directory"
-        )
+    if path.exists():
+        previous = json.loads(path.read_text())["fingerprint"]
+        old_split = previous["config"]["split_config"]
+        if MOVED.get(old_split, old_split) == MOVED.get(
+            cfg.split_config, cfg.split_config
+        ):
+            semantic_config["split_config"] = old_split
+        if previous != fingerprint:
+            raise ValueError(
+                "Continuous dataset inputs/config changed; use a new output directory"
+            )
     result = {
         "format": "mcpref-pretraining-streams-v1",
         "fingerprint": fingerprint,

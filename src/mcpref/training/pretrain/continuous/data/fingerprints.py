@@ -6,6 +6,7 @@ import json
 from tqdm import tqdm
 
 from mcpref.config import REPO, config_sha256, read_yaml
+from mcpref.config_moves import pretrain_config_sha256
 from mcpref.datasets.continuous.config import digest
 from mcpref.datasets.continuous.recovery import verify_files
 from mcpref.infrastructure.runs.files import clip_fields, finished_run
@@ -72,8 +73,8 @@ def sources(cfg, path, maths, masks):
     }
     return {
         **maths,
-        "index_config": config_sha256(path),
-        "training_config": config_sha256(REPO / cfg.training_config),
+        "index_config": pretrain_config_sha256(path),
+        "training_config": pretrain_config_sha256(REPO / cfg.training_config),
         "preference_config": config_sha256(REPO / train["preference"]),
         "action_mask_sha256": hashlib.sha256(
             json.dumps(mask_value, sort_keys=True).encode()
