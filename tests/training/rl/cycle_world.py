@@ -121,7 +121,14 @@ def install(monkeypatch, events, batches):
         draw = torch.rand((), dtype=torch.float64)
         modules["phi"].scale.grad = draw.clone()
         value = float(draw)
-        return {"ppo": value, "shift": value, "metra": value, "P": value, "loss": value}
+        return {
+            "ppo": value,
+            "change": value,
+            "shift": value,
+            "metra": value,
+            "P": value,
+            "loss": value,
+        }
 
     monkeypatch.setattr("mcpref.training.rl.learning.loop.step_gradients", gradients)
 

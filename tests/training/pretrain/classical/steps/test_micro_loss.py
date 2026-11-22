@@ -116,7 +116,7 @@ def test_micro_loss_prepares_once_and_matches_separate_preparation(
     monkeypatch.setattr(loss_module, "changed", record_changed)
     pi_log = []
     modules["pi"].log = pi_log
-    loss, result = micro_loss(modules, cs, pairs, FACTORS)
+    loss, result = micro_loss(modules, cs, pairs, FACTORS, w_change=0.0)
     loss.backward()
 
     assert calls == cs

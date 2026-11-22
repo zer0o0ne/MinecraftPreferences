@@ -79,7 +79,7 @@ def install_steps(monkeypatch, calls, updates=None, all_parameters=False):
         for k, parameter in enumerate(targets):
             parameter.grad = torch.full_like(parameter, draw + 0.01 * k)
         value = float(draw)
-        return {"ppo": value, "shift": value + 1, "metra": value + 2,
+        return {"ppo": value, "change": value, "shift": value + 1, "metra": value + 2,
                 "P": value + 3, "loss": value + 4}  # fmt: skip
 
     monkeypatch.setattr("mcpref.training.rl.learning.loop.step_gradients", fake)

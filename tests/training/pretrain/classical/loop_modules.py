@@ -170,7 +170,12 @@ class PiLoss(Fake):
             "zero_shift": (factual**2).sum((1, 2)),
         }
         return (
-            {"action": action, "shift": shift_term, "total": total},
+            {
+                "action": action,
+                "shift": shift_term,
+                "change": torch.zeros_like(total),
+                "total": total,
+            },
             {
                 "action_valid": valid,
                 "shift_valid": valid,

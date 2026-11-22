@@ -7,6 +7,7 @@ retrain: true
 w_P: 1.0
 w_phi: 0.3
 w_pi: 1.0
+w_change: 1.0
 perception: configs/models/perception.yaml
 action_mask: configs/gui/action-mask.yaml
 policy: configs/models/policy.yaml

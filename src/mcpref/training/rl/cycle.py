@@ -12,6 +12,7 @@ from mcpref.gui.mask import load_masks
 from mcpref.infrastructure.runs.files import sha256
 from mcpref.infrastructure.shards.store import complete_shards, shard_path
 from mcpref.models.factory import build_modules
+from mcpref.models.policy.checkpoints import load_policy_weights
 from mcpref.models.policy.config import load_config as load_policy_config
 from mcpref.models.preference.config import load_config as load_preference_config
 from mcpref.runtime.env.wrapper import Env
@@ -78,12 +79,20 @@ def build_rl_modules(cfg: RLCycleConfig, sampling, ppo) -> dict[str, torch.nn.Mo
 
 
 def load_model(
-    path: Path, modules: dict[str, torch.nn.Module], names, *, mode: str = "classical"
+    path: Path,
+    modules: dict[str, torch.nn.Module],
+    names,
+    *,
+    mode: str = "classical",
+    allow_legacy_policy: bool = False,
 ) -> None:
-    """Load exactly the named CPU state_dict entries into existing modules."""
+    """Load named weights strictly, allowing a new change head only for warm starts."""
     weights = load_weights(path, mode)
     for name in names:
-        modules[name].load_state_dict(weights[name])
+        if name == "pi" and allow_legacy_policy:
+            load_policy_weights(modules[name], weights[name])
+        else:
+            modules[name].load_state_dict(weights[name])
 
 
 def run_cycle(cfg: RLCycleConfig, path: Path, env: Env) -> Path:
@@ -119,6 +128,7 @@ def _run_cycle(cfg, path, env, sampling, ppo, context) -> Path:
         modules,
         ("phi", "pi", "P") if cycle == 0 else STATEFUL,
         mode=context.mode,
+        allow_legacy_policy=cycle == 0,
     )
     run_path, run = start_run(
         cfg, path, cycle, u_before, fingerprints(cfg, path, sampling, model)

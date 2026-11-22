@@ -72,6 +72,9 @@ class Policy(nn.Module):
     def logits(self, readout):
         return readout @ self.logit_weight.T + self.logit_bias
 
+    def change(self, readout):
+        return torch.sigmoid(readout.sum(dim=-1))
+
     def shift(self, readout, actions):
         self.shift_calls += 1
         self.events.append(("shift", int(actions[0])))

@@ -3,10 +3,13 @@
 import dataclasses
 import hashlib
 
+import pytest
 import torch
 import yaml
+from models.policy.policy_oracle import cfg_of
 from transformers import DynamicCache
 
+from mcpref.models.policy.network import Policy
 from mcpref.runtime.sampling.models import (
     SamplingModules,
     decode_stream,
@@ -83,6 +86,37 @@ def test_pretrained_loading_eval_fingerprint_and_explicit_cpu_load(site, monkeyp
     torch.testing.assert_close(
         got.phi.head[-1].bias, torch.full_like(got.phi.head[-1].bias, -1.75)
     )
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_sampling_loads_real_old_and_new_policy_artifacts(site, monkeypatch, legacy):
+    source = Policy(cfg_of(seed=11), 2, ("a", "b"))
+    target = Policy(cfg_of(seed=19), 2, ("a", "b"))
+    expected_head = target.change_head.weight.detach().clone()
+    weights = source.state_dict()
+    if legacy:
+        del weights["change_head.weight"]
+    else:
+        expected_head = weights["change_head.weight"]
+    built = modules("built")
+    state = {"phi": built.phi.state_dict(), "pi": weights, "P": built.P.state_dict()}
+    pretrain = yaml.safe_load((site.root / site.cfg.pretrain).read_text())
+    path = site.root / pretrain["out_dir"] / "model.pt"
+    torch.save(state, path)
+    monkeypatch.setattr(
+        "mcpref.runtime.sampling.models.build_modules",
+        lambda *args, **kwargs: {"phi": built.phi, "pi": target, "P": built.P},
+    )
+    got = load_pretrained(site.cfg)
+    assert got.pi is target and not got.pi.training
+    assert got.fingerprint == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert got.pi.change_head.weight.equal(expected_head)
+    for key, value in weights.items():
+        assert got.pi.state_dict()[key].equal(value)
+    del state["pi"]["head.weight"]
+    torch.save(state, path)
+    with pytest.raises(RuntimeError, match="head.weight"):
+        load_pretrained(site.cfg)
 
 
 def test_supplied_modules_eval_and_length_checks(site):

@@ -93,7 +93,10 @@ def continuous(pi, loss, clip, latents, monkeypatch):
     intervals.append(
         {"a": "3", "b": None, "actions": [], "n": 0, "known": False, "valid": False}
     )
-    ctx = SimpleNamespace(modules={"pi": pi, "pi_loss": loss, "phi_loss": None})
+    ctx = SimpleNamespace(
+        modules={"pi": pi, "pi_loss": loss, "phi_loss": None},
+        cfg=SimpleNamespace(w_change=1.0),
+    )
     stream, result, histories, readouts = Stream(), WindowResult(), [], []
     for t, z in enumerate(latents):
         observation = SimpleNamespace(
@@ -143,7 +146,7 @@ def test_same_transition_has_same_inputs_readout_action_and_shift_everywhere(
     assert valid["shift_valid"].tolist() == [[True, True, True]]
     assert next_actions(clip, pi.index).tolist() == [0, 1, 2, 0]
     assert streamed.counts["ce"] == streamed.counts["shift"] == 3
-    ce, shifts, sampled = [], [], None
+    ce, shifts, changes, sampled = [], [], [], None
     for t, z in enumerate(latents):
         sampled = append(sampled, z, None if t == 0 else t - 1, 3, history)
         raw = RawHistory([None] * (t + 1), [None, *range(t)], 0)
@@ -167,6 +170,8 @@ def test_same_transition_has_same_inputs_readout_action_and_shift_everywhere(
         assert row["action"] == t and row["shift_valid"]
         assert row["masks"].tolist() == [i == t for i in range(3)]
         ce.append(-torch.log_softmax(logits, -1)[0, t])
+        if t > 0:
+            changes.append((1 - pi.change(readout)[0]) * ce[-1])
         shifts.append(0.7 * (prediction[0] - deltas[t]).square().sum())
         torch.testing.assert_close(streamed.shift_rows[t]["total"], shifts[-1])
     expected_ce, expected_shift = torch.stack(ce).mean(), torch.stack(shifts).mean()
@@ -174,14 +179,20 @@ def test_same_transition_has_same_inputs_readout_action_and_shift_everywhere(
     torch.testing.assert_close(terms["shift"][0], expected_shift)
     torch.testing.assert_close(streamed.sums["pi_action"] / 3, expected_ce)
     torch.testing.assert_close(streamed.sums["pi_shift"] / 3, expected_shift)
+    expected_change = sum(changes) / 3
+    torch.testing.assert_close(terms["change"][0], expected_change)
+    torch.testing.assert_close(streamed.sums["pi_change"] / 3, expected_change)
     variables = [latents, *pi.parameters()]
-    oracle_gradients = torch.autograd.grad(expected_ce + expected_shift, variables)
-    terms["total"].sum().backward()
+    oracle_gradients = torch.autograd.grad(
+        expected_ce + expected_shift + expected_change, variables
+    )
+    (terms["total"] + terms["change"]).sum().backward()
     for variable, oracle in zip(variables, oracle_gradients, strict=True):
         assert variable.grad is not None and torch.isfinite(variable.grad).all()
         if dtype == torch.float64:
             torch.testing.assert_close(variable.grad, oracle)
     assert torch.count_nonzero(latents.grad)
+    assert torch.count_nonzero(pi.change_head.weight.grad)
     assert torch.count_nonzero(pi.head.weight.grad)
     assert torch.count_nonzero(pi.dynamics.w2.weight.grad)
     assert torch.count_nonzero(latents.grad[-1]) == 0  # factual successor is detached

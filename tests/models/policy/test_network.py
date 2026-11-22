@@ -170,8 +170,10 @@ def test_forward_against_composition(history):
     cfg = cfg_of(history=history)
     net = net_of(cfg)
     Z = torch.randn(3, 4, D, generator=torch.Generator().manual_seed(7), dtype=F64)
-    lam, sh, current = net(Z, CLIPS)
+    lam, sh, current, change = net(Z, CLIPS)
     assert lam.shape == (3, 4, A) and sh.shape == (3, 4, D)
+    assert change.shape == (3, 4)
+    assert_close(change, net.change(net.clip_readout(Z, current)))
     want = oracle.forward(net, cfg, NAMES, Z, CLIPS)
     assert_close(lam, want[0])
     assert_close(sh, want[1])
@@ -184,11 +186,11 @@ def test_forward_ignores_latents_before_each_window(history):
     """Output s is unchanged by latents before max(0, s - L_pi + 1)."""
     net = net_of(cfg_of(history=history))
     Z = torch.randn(2, 4, D, generator=torch.Generator().manual_seed(70), dtype=F64)
-    lam, sh, _ = net(Z, CLIPS[:2])
+    lam, sh, _, _ = net(Z, CLIPS[:2])
     for s in range(history, Z.shape[1]):
         changed = Z.clone()
         changed[:, : s - history + 1] = 100.0
-        lam2, sh2, _ = net(changed, CLIPS[:2])
+        lam2, sh2, _, _ = net(changed, CLIPS[:2])
         assert_close(lam2[:, s], lam[:, s])
         assert_close(sh2[:, s], sh[:, s])
 
@@ -197,8 +199,8 @@ def test_forward_clips_independent():
     """Row i depends only on Z_i and clip i."""
     net = net_of()
     Z = torch.randn(3, 4, D, generator=torch.Generator().manual_seed(8), dtype=F64)
-    lam, sh, _ = net(Z, CLIPS)
-    lam1, sh1, _ = net(Z[[1]], CLIPS[1:2])
+    lam, sh, _, _ = net(Z, CLIPS)
+    lam1, sh1, _, _ = net(Z[[1]], CLIPS[1:2])
     assert_close(lam1[0], lam[1])
     assert_close(sh1[0], sh[1])
 
@@ -209,8 +211,8 @@ def test_float32():
     net = Policy(cfg, D, NAMES).eval()
     randomize_gains(net)
     Z = torch.randn(3, 4, D, generator=torch.Generator().manual_seed(9))
-    lam, sh, current = net(Z, CLIPS)
-    assert lam.dtype == sh.dtype == current.dtype == torch.float32
+    lam, sh, current, change = net(Z, CLIPS)
+    assert lam.dtype == sh.dtype == current.dtype == change.dtype == torch.float32
     want = oracle.forward(net.double(), cfg, NAMES, Z.double(), CLIPS)
     assert_close(lam.double(), want[0], rtol=1e-4, atol=1e-5)
     assert_close(sh.double(), want[1], rtol=1e-4, atol=1e-5)

@@ -135,7 +135,8 @@ def write_repository(
         "quantiles": [0.05, 0.5, 0.95], "action_copy_eps": 0.1,
         "latent_init_scale": 1.0,
         "checkpoint_steps": 100, "keep_checkpoints": 2, "warmup_steps": 100,
-        "w_phi": 1.0, "w_pi": 1.0, "w_P": 1.0, "grad_clip": 1.0, "adam_eps": 1e-8,
+        "w_phi": 1.0, "w_pi": 1.0, "w_change": 1.0, "w_P": 1.0,
+        "grad_clip": 1.0, "adam_eps": 1e-8,
         "lr_floor": 0.1, "betas": [0.9, 0.999], "groups": STARTING_GROUPS, "device": "cpu",
     }  # fmt: skip
     docs["env-sampling"] = {

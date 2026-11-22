@@ -195,7 +195,7 @@ def test_terms_components_validity_and_forward(masks):
     action = -sum(float((torch.tensor(q[s]) * logp[s]).sum()) for s in range(7)) / 7
     err = sh[0, [0, 1, 3]] - (Z[0, [1, 2, 4]] - Z[0, [0, 1, 3]])
     shift = W * float(((ALPHA * err) ** 2).sum()) / 7
-    assert set(terms) == {"action", "shift", "total"}
+    assert set(terms) == {"action", "shift", "change", "total"}
     assert set(observations) == {"q", "current", "zero_shift"}
     assert terms["action"].item() == pytest.approx(action, rel=1e-12)
     assert terms["shift"].item() == pytest.approx(shift, rel=1e-12)
@@ -260,3 +260,49 @@ def test_weights_shared_and_observations_are_per_call(masks, monkeypatch):
     q0, _ = oracle.targets(HAND, masks.names)
     assert_close(returned[0]["q"], torch.tensor(q0[None], dtype=F64))
     assert not returned[0]["q"].equal(returned[1]["q"])
+
+
+def test_change_uses_prior_membership_current_multiplicity_and_known_idle(masks):
+    clip = make_clip(
+        [
+            ["forward", "attack"],
+            ["forward", "forward", "jump", "close"],
+            [],
+            ["jump", "jump"],
+            ["jump", "close"],
+        ],
+        [0.0] * 6,
+        [0] * 6,
+    )
+    count = len(masks.names)
+    logits = torch.zeros((1, 6, count), dtype=F64, requires_grad=True)
+    probability = torch.tensor(
+        [[0.1, 0.8, 0.2, 0.3, 0.4, 0.9]], dtype=F64, requires_grad=True
+    )
+    current = torch.tensor(oracle.input_weights(clip, masks.names)[None], dtype=F64)
+    Z, shift = torch.zeros((1, 6, D), dtype=F64), torch.zeros((1, 6, D), dtype=F64)
+    terms, _, _ = module(masks).terms((logits, shift, current, probability), Z, [clip])
+    # First row unknown; close masked; repeated A occurs twice; idle is known.
+    log_count = np.log(count)
+    assert terms["change"].item() == pytest.approx((0.6 + 0.7 + 0.4) * log_count / 5)
+    terms["change"].sum().backward()
+    torch.testing.assert_close(
+        probability.grad,
+        torch.tensor([[0, 1 / 3, 0, -1, 1, 0]], dtype=F64) * log_count / 5,
+    )
+    assert not logits.grad[:, [0, 2, 5]].any()
+    assert logits.grad[:, [1, 3, 4]].abs().sum() > 0
+
+
+def test_prior_frequency_does_not_scale_change_repeat_label(masks):
+    clips = [
+        make_clip([past, ["forward", "jump"]], [0.0] * 3, [0] * 3)
+        for past in (["forward", "attack"], ["forward"] * 5 + ["attack"])
+    ]
+    lam, sh, Z = outputs(1, 3, len(masks.names), 51)
+    p = torch.full((1, 3), 0.8, dtype=F64)
+    values = []
+    for clip in clips:
+        C = torch.tensor(oracle.input_weights(clip, masks.names)[None], dtype=F64)
+        values.append(module(masks).terms((lam, sh, C, p), Z, [clip])[0]["change"])
+    assert_close(values[0], values[1])

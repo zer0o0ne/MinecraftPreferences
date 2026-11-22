@@ -220,7 +220,7 @@ gradients, updates, baselines
 ```
 
 - `counts`: the integer fields of (14), with `sum_p: float|null`; `action_targets` and `shift_targets` are valid-row counts by (14).
-- `components`: `{"phi":{"push","constraint","dual","norm"}|null, "pi":{"action","shift"}|null, "P":{"inc","succ"}|null}`. Existing `phi`, `pi`, `P` are reduced from `terms()["total"]` exactly as before, never from separate diagnostic components.
+- `components`: `{"phi":{"push","constraint","dual","norm"}|null, "pi":{"action","shift","change"}|null, "P":{"inc","succ"}|null}`. Existing `phi`, `pi`, `P` are reduced from `terms()["total"]` exactly as before, never from separate diagnostic components.
 - `outputs`: `{"P_inc": <step head suite|null>, "P_succ": <step head suite|null>, "pi_action": {"count","top1_support","mean_confidence","action_entropy"}}`. `P_succ` is conditional on comparable pairs by (5).
 - `phi_stats`: (4); `z_norm_mean` uses $\|z\|_2$.
 - `gradients`: `{"global":{"norm","clip_coefficient","active"}, "groups":{q:{"norm","active"}}, "P_heads":{"pref_weight":{"norm","active"},"inc_weight":{"norm","active"},"inc_bias":{"norm","active"}}|null}`. `P_heads` is null only when $P$ is absent; an unreached head has `norm=null, active=false`.
@@ -243,7 +243,7 @@ losses = {
   phi, pi, P, loss,
   components: {
     phi: {push, constraint, dual, norm},
-    pi: {action, shift},
+    pi: {action, shift, change},
     P: {inc, succ}
   },
   baselines: {zero, inc_only, both, target_entropy, inc_constant, succ_constant}
@@ -269,7 +269,7 @@ No raw per-example outputs are written. During a window memory holds the CPU `St
 
 Every record has `{version:1, step, conditions}`. `conditions` has exactly `joint`, `P_only`, `phi_only`, `initial`. Each condition has exactly `train` and `validation`; each part has `{losses, preference, baselines}`.
 - For every condition, `losses` contains `P`, `P_inc`, `P_succ`; `preference` has the aggregate preference schema; `baselines` has the same six keys as a step's baselines. All use equal pair weight within the part.
-- Only `conditions.joint.<part>.losses` additionally contains `phi`, `phi_push`, `phi_constraint`, `phi_dual`, `phi_norm`, `pi`, `pi_action`, `pi_shift`. Only `conditions.joint.<part>` additionally has `pi` and `phi`, with the aggregate schemas of (16) and (4), evaluated over that part's $2R_r$ clip occurrences.
+- Only `conditions.joint.<part>.losses` additionally contains `phi`, `phi_push`, `phi_constraint`, `phi_dual`, `phi_norm`, `pi`, `pi_action`, `pi_shift`, `pi_change`. Only `conditions.joint.<part>` additionally has `pi` and `phi`, with the aggregate schemas of (16) and (4), evaluated over that part's $2R_r$ clip occurrences.
 - `initial` repeats the step-0 losses/preference/baseline objects and has no `pi` or `phi` keys outside `joint`.
 `selection.json`, `baselines.json` and `initial.pt` occur only in shard 0; their formats are (10), (17) and (18). In a new run every shard additionally has `pairs.json`, a list of the typed fixed-reference `ReferencePair` rows of `specs/rl-diagnostics.md`, in selection order. Legacy runs have no `pairs.json` in any shard; the file is never backfilled.
 
@@ -397,7 +397,7 @@ JSON serialization of `GlobalFit` and `Stratum` uses exactly the fields of (10),
 ### Function and module interface
 
 - `src/mcpref/models/preference/loss.py`: `def terms(self, out: tuple[Tensor, Tensor], labels: list[dict]) -> dict[str, Tensor]` returns per-pair `{inc,succ,total}` of (2), each shape $(m,)$; `forward` returns `total`.
-- `src/mcpref/models/policy/loss.py`: `def terms(self, out: tuple[Tensor, ...], Z: Tensor, clips: list[Clip]) -> tuple[dict[str, Tensor], dict[str, Tensor], dict[str, Tensor]]` returns per-clip `{action,shift,total}`, each shape $(m,)$, `{action_valid,shift_valid}` boolean tensors of shape $(m,L-1)$, and detached per-call `{q,current,zero_shift}`. The policy's returned $C$ supplies `current`; direct `(logits,shift)` loss calls may still construct it themselves. `zero_shift` reuses the factual squared shift computed in the same call. `total` preserves the original per-state addition and reduction, and `forward` returns it. Targets are computed once, and no diagnostic values are held on the module between calls.
+- `src/mcpref/models/policy/loss.py`: `def terms(self, out: tuple[Tensor, ...], Z: Tensor, clips: list[Clip]) -> tuple[dict[str, Tensor], dict[str, Tensor], dict[str, Tensor]]` returns per-clip `{action,shift,change,total}`, each shape $(m,)$, `{action_valid,shift_valid}` boolean tensors of shape $(m,L-1)$, and detached per-call `{q,current,zero_shift}`. The policy's returned $C$ supplies `current`; direct `(logits,shift)` loss calls may still construct it themselves. `zero_shift` reuses the factual squared shift computed in the same call. `total` preserves the original per-state addition and reduction, and `forward` returns it. Targets are computed once, and no diagnostic values are held on the module between calls.
 - `src/mcpref/models/perception/loss.py`: `def terms(self, Z: Tensor, clips: list[Clip], states: list[tuple[list[np.ndarray], list[str]]] | None = None) -> tuple[dict[str, Tensor], dict[str, Tensor]]` returns per-clip `{push,constraint,dual,norm,total}`, each shape $(m,)$, and `{changed,d_alpha}` of shape $(m,L-1)$ plus `{z_norm,hinge}` of shape $(m,L)$; `changed` is boolean, the others have $Z$'s dtype. `z_norm` is $\|z\|_2$ and `hinge` = $\max(0,z\_norm^2-c^2)$. `total` preserves the original per-state addition and reduction, and `forward` returns it. Frames, metas and $\chi$ are computed once per clip, using the optional prepared `states` shared by pretrain `micro_loss` with $\phi$.
 - `src/mcpref/training/pretrain/classical/steps/loss.py`: `def step_gradients(items: list[dict], modules: dict[str, torch.nn.Module], read: Callable[[str], Clip], m: int, k_tot: int, r_tot: int, w_phi: float, w_pi: float, w_P: float, micro_batch: int, *, cfg: PretrainConfig) -> dict`. The positional parameter order is retained and `k_tot` is the unique standalone clip count $N_C$; `cfg` is required, keyword-only, and supplies `calibration_bins` and `action_copy_eps` together with the rest of the shared diagnostic config used later by reference and gradient-flow. There is no default, overload or backward-compatibility mode; omitting `cfg` raises `TypeError`. `micro_loss` additionally returns the separately weighted scalar tensors `{phi,pi,P}` of (23) while computing the original training scalar by its original expression. `step_gradients` produces `StepObservations` and, only for a selected step, uses `loss.backward(retain_graph=True)` and calls `collect_micro`; ordinary steps use `loss.backward()` and no gradient-flow call. There is no additional module forward.
 - `src/mcpref/diagnostics/pretrain/diagnostics.py`:
@@ -528,3 +528,7 @@ New mirrors are `tests/diagnostics/pretrain/test_diagnostics.py`, `test_aggregat
 - Backfilling `Z0/P0` or reference metrics into runs started before this block. Such runs keep the ordinary fingerprint/resume rules; this block defines initialization and resume only for runs whose reference shard 0 was created at step 0.
 - Raw direction accuracy of oriented preference labels, per-window preference-constant refitting, NaN/Infinity JSON values, padding or distributed diagnostics.
 - Pruning reference shards, resampling a reference on resume, and evaluation at a non-cadence final step.
+
+## Action-change auxiliary
+
+`pi.change` is the raw per-clip auxiliary mean defined in `specs/policy.md`, with the same transition denominator as the action CE. The recorded raw `pi` remains action plus shift. The training `loss` and weighted policy gradient diagnostics additionally include the independently weighted `w_change` term. Reference losses expose `pi_change`; step and window components expose `components.pi.change`. No new denominator is introduced for rows with a known predecessor.

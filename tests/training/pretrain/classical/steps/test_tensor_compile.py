@@ -105,7 +105,9 @@ def parameters_of(modules):
 
 def run(modules, optimizer, clips, compiled):
     optimizer.zero_grad(set_to_none=True)
-    loss, result = micro_loss(modules, clips, PAIRS, FACTORS, compile_tensors=compiled)
+    loss, result = micro_loss(
+        modules, clips, PAIRS, FACTORS, w_change=0.0, compile_tensors=compiled
+    )
     loss.backward()
     gradients = {
         key: None if parameter.grad is None else parameter.grad.detach().clone()

@@ -49,7 +49,7 @@ def test_schedule_item_order_one_shared_update_and_full_postfix(
     assert len(entries) == 6 and [entry["step"] for entry in entries] == list(
         range(1, 7)
     )
-    assert postfix == [{key: entry[key] for key in ["ppo", "shift", "metra", "P", "loss"]
+    assert postfix == [{key: entry[key] for key in ["ppo", "change", "shift", "metra", "P", "loss"]
                         if entry[key] is not None} for entry in entries]  # fmt: skip
     assert list(entries[0]["lr"]) == list(cfg.groups)
     final = model(index)

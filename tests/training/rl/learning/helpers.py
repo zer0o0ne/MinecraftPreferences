@@ -36,6 +36,7 @@ BASE = {
     "checkpoint_steps": 1,
     "keep_checkpoints": 2,
     "w_ppo": 1.0,
+    "w_change": 1.0,
     "w_delta": 1.0,
     "w_metra": 1.0,
     "w_P": 1.0,

@@ -56,6 +56,7 @@ class RLCycleConfig:
     checkpoint_steps: int
     keep_checkpoints: int
     w_ppo: float
+    w_change: float
     w_delta: float
     w_metra: float
     w_P: float
@@ -79,6 +80,10 @@ def load_config(path: Path) -> RLCycleConfig:
         relative(name, raw[name])
     read = {name: positive_int(name, raw[name]) for name in POSITIVE_INTS}
     read |= {name: positive(name, raw[name]) for name in POSITIVE_REALS}
+    change = number("w_change", raw["w_change"])
+    if not math.isfinite(change) or change < 0:
+        raise ValueError("w_change must be finite and nonnegative")
+    read["w_change"] = change
     read |= {
         "seed": integer("seed", raw["seed"], 0, 2**32 - 1),
         "retrain": boolean("retrain", raw["retrain"]),

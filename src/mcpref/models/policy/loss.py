@@ -10,6 +10,7 @@ from torch.nn import functional as F
 
 from mcpref.datasets.clips.io import Clip
 from mcpref.gui.mask import Masks
+from mcpref.models.policy.change import change_cross_entropy
 from mcpref.models.policy.config import PolicyConfig
 from mcpref.models.policy.targets import targets, weights
 
@@ -53,6 +54,17 @@ class PolicyLoss(torch.nn.Module):
         q = torch.tensor(np.stack(q), dtype=logits.dtype, device=logits.device)
         chi = torch.tensor(np.stack(chi), device=logits.device)
         ce = cross_entropy(logits[:, : L - 1], q)
+        change = torch.zeros_like(ce)
+        if len(shared) > 1:
+            known = torch.ones_like(ce, dtype=torch.bool)
+            known[:, 0] = False
+            change = change_cross_entropy(
+                logits[:, : L - 1],
+                q,
+                shared[1][:, : L - 1],
+                current[..., :-1] > 0,
+                known,
+            )
         factual = (Z[:, 1:] - Z[:, :-1]).detach()
         d2 = self.metric(shift[:, : L - 1] - factual).square()
         factual_d2 = self.metric(factual).square()
@@ -61,6 +73,7 @@ class PolicyLoss(torch.nn.Module):
         terms = {
             "action": ce.sum(dim=1) / (L - 1),
             "shift": shift_term.sum(dim=1) / (L - 1),
+            "change": change.sum(dim=1) / (L - 1),
             "total": (ce + shift_term).sum(dim=1) / (L - 1),
         }
         valid = {"action_valid": q.sum(dim=-1) > 0, "shift_valid": chi}

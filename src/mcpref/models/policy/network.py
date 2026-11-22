@@ -69,6 +69,7 @@ class Policy(torch.nn.Module):
                 sparse=False,
             )
             self.dynamics = Dynamics(d, cfg.shift_hidden, latent, cfg.norm_eps)
+            self.change_head = torch.nn.Linear(d, 1, bias=False)
 
     def dropped(self, Y: Tensor, C: Tensor) -> Tensor:
         """(2): in training mode, c_j replaced by the one-hot of no action where
@@ -95,6 +96,10 @@ class Policy(torch.nn.Module):
         """(5): lambda = r W_lambda, (..., d) -> (..., |A|)."""
         return self.head(R)
 
+    def change(self, R: Tensor) -> Tensor:
+        """Probability of an action change from the same causal readout."""
+        return torch.sigmoid(self.change_head(R).squeeze(-1))
+
     def shift(self, R: Tensor, a: Tensor) -> Tensor:
         """(6): the shift in z of action a[...] at readout R[...], shape (..., D)."""
         return self.dynamics(torch.cat([R, self.actions(a)], dim=-1))
@@ -110,13 +115,18 @@ class Policy(torch.nn.Module):
         rows = [self.readout(Z[:, : s + 1], C[:, : s + 1])[:, -1] for s in range(L)]
         return torch.stack(rows, dim=1)
 
-    def forward(self, Z: Tensor, clips: list[Clip]) -> tuple[Tensor, Tensor, Tensor]:
+    def forward(self, Z: Tensor, clips: list[Clip]) -> tuple[Tensor, ...]:
         """(7): logits and shifts for interval s, with preceding actions as inputs."""
         C = np.stack([weights(clip, self.index) for clip in clips])
         a = np.stack([next_actions(clip, self.index) for clip in clips])
         C = torch.tensor(C, dtype=Z.dtype, device=Z.device)
         R = self.clip_readout(Z, C)
-        return self.logits(R), self.shift(R, torch.tensor(a, device=Z.device)), C
+        return (
+            self.logits(R),
+            self.shift(R, torch.tensor(a, device=Z.device)),
+            C,
+            self.change(R),
+        )
 
     def groups(self) -> dict[str, list[torch.nn.Parameter]]:
         """(11): pi - the weights of the Linears and E, pi_no_decay - the gains, each in

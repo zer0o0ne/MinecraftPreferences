@@ -183,6 +183,7 @@ def train(
                     n_delta=counts["fresh"],
                     r_c=counts["preference"],
                     w_ppo=cfg.w_ppo,
+                    w_change=cfg.w_change,
                     w_delta=cfg.w_delta,
                     w_metra=cfg.w_metra,
                     w_P=cfg.w_P,

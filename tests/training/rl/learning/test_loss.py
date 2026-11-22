@@ -43,6 +43,7 @@ def call(
     r_c=1,
     horizon=2,
     fixed_advantages=None,
+    w_change=0.0,
 ):
     w_ppo, w_delta, w_metra, w_pref = WEIGHTS
     return step_gradients(
@@ -60,6 +61,7 @@ def call(
         n_delta=n_delta,
         r_c=r_c,
         w_ppo=w_ppo,
+        w_change=w_change,
         w_delta=w_delta,
         w_metra=w_metra,
         w_P=w_pref,
@@ -69,7 +71,7 @@ def call(
 
 
 def assert_result(result, total, means):
-    assert set(result) == {"ppo", "shift", "metra", "P", "loss"}
+    assert set(result) == {"ppo", "change", "shift", "metra", "P", "loss"}
     assert result["loss"] == pytest.approx(total.detach().item())
     for role, value in means.items():
         if value is None:

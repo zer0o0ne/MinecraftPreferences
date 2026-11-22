@@ -120,7 +120,7 @@ class OwnSummary:
         losses = {}
         for prefix, keys, population in (
             ("phi", ("total", "push", "constraint", "dual", "norm"), "phi"),
-            ("pi", ("action",), "ce"),
+            ("pi", ("action", "change"), "ce"),
             ("pi", ("shift",), "shift"),
             ("P", ("total", "inc", "succ"), "P"),
         ):

@@ -50,6 +50,7 @@ class TrainingConfig:
     latent_init_scale: float
     w_phi: float
     w_pi: float
+    w_change: float
     w_P: float
     groups: dict[str, dict[str, float]]
     betas: tuple[float, float]
@@ -94,6 +95,9 @@ def parse_values(raw: dict, positive_ints=POSITIVE_INTS) -> dict:
     read["w_phi"] = number("w_phi", raw["w_phi"])
     if not read["w_phi"] >= 0:
         raise ValueError("w_phi must be >= 0")
+    read["w_change"] = number("w_change", raw["w_change"])
+    if not math.isfinite(read["w_change"]) or read["w_change"] < 0:
+        raise ValueError("w_change must be finite and nonnegative")
     if not math.isfinite(read["latent_init_scale"]):
         raise ValueError("latent_init_scale must be finite")
     read |= {"seed": integer("seed", raw["seed"], 0, 2**32 - 1)}

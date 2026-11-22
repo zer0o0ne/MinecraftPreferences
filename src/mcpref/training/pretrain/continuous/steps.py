@@ -20,6 +20,7 @@ def factors(cfg, population: dict) -> dict:
         for key, name, weight in (
             ("phi", "N_phi", cfg.w_phi),
             ("pi", "N_pi", cfg.w_pi),
+            ("pi_change", "N_pi", cfg.w_change),
             ("P", "N_P", cfg.w_P),
         )
     }
@@ -69,9 +70,24 @@ def own_losses(context, stream, observation, z, result):
     )
     stream.policy = stream.policy[-pi.history :]
     if eligible(observation):
-        ce, stream.pending, row = policy_ce(pi, stream, observation, z)
+        ce, change, stream.pending, row = policy_ce(
+            pi,
+            stream,
+            observation,
+            z,
+            incoming if adjacent else None,
+            context.cfg.w_change > 0,
+        )
         own["pi"] = own.get("pi", 0) + ce
-        result.add("pi", {"action": ce})
+        result.add(
+            "pi",
+            {
+                "action": ce,
+                "change": change if change is not None else ce.new_zeros(()),
+            },
+        )
+        if change is not None:
+            own["pi_change"] = change
         result.ce_rows.append(row)
         result.counts["ce"] += 1
     return own
@@ -90,7 +106,8 @@ def window(context, stream, archive, observations, population, hooks=None):
         )
         own = own_losses(context, stream, observation, z, result)
         for key, value in own.items():
-            live[key] = live.get(key, 0) + weights[key] * value
+            component = "pi" if key == "pi_change" else key
+            live[component] = live.get(component, 0) + weights[key] * value
         stream.remember(observation.id, z, preference_history)
         if observation.endpoints:
             endpoints(

@@ -200,7 +200,7 @@ def test_step_diagnostic_nested_schemas(tmp_path):
                                     "action_targets", "shift_targets", "phi_changed", "phi_state_pairs"}  # fmt: skip
     assert set(entry["components"]) == {"phi", "pi", "P"}
     assert set(entry["components"]["phi"]) == {"push", "constraint", "dual", "norm"}
-    assert set(entry["components"]["pi"]) == {"action", "shift"}
+    assert set(entry["components"]["pi"]) == {"action", "shift", "change"}
     assert set(entry["components"]["P"]) == {"inc", "succ"}
     assert set(entry["outputs"]) == {"P_inc", "P_succ", "pi_action"}
     assert set(entry["outputs"]["pi_action"]) == {

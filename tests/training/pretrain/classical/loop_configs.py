@@ -99,6 +99,7 @@ CONFIG = {
     "warmup_steps": 3,
     "w_phi": 0.4,
     "w_pi": 0.7,
+    "w_change": 0.0,
     "w_P": 1.9,
     "grad_clip": 1.0,
     "adam_eps": 1.0e-4,

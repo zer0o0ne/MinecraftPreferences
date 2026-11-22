@@ -88,6 +88,7 @@ class PiLossStart(Fake):
             {
                 "action": action,
                 "shift": shift_term,
+                "change": torch.zeros_like(action),
                 "total": pi_terms(logits, shift, Z, clips),
             },
             {"action_valid": valid, "shift_valid": valid},

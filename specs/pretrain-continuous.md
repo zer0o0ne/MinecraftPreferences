@@ -107,6 +107,28 @@ The initial observation and the first observation after unknown/disconnected
 action metadata use the no-action input. A known idle interval preserves the
 history and supplies the same no-action input to its successor.
 
+At the same CE event, evaluate the policy change probability `p_j` on exactly
+the same readout/dropout realization. For each allowed occurrence of a current
+action a, let `r_{j,a}` indicate membership of its name in the preceding raw
+interval. Previous multiplicities and masks do not change that indicator;
+current duplicates retain their multiplicity in the frequency target `q_{j,a}`.
+Let `g_j` indicate that this preceding interval exists, is adjacent and has known
+action metadata. Its own loss validity is not required. Define
+
+\[
+ \ell^{change}_j=g_j\sum_a q_{j,a}
+ [r_{j,a}p_j+(1-r_{j,a})(1-p_j)]
+ [-\log\operatorname{softmax}(\lambda_j)_a].
+\]
+
+This auxiliary term differentiates both the action CE and change probability;
+it does not replace ordinary CE or shift. First/unknown/disconnected predecessors
+exclude only this term. A known idle predecessor has an empty membership set,
+so every current action is a change. The membership mask is independent of
+action-input dropout. Score this term in j's own window, retaining the same
+within-window phi gradients as CE, including K=1. `w_change=0` omits its graph
+and leaves otherwise unused change-head parameters without gradients.
+
 Clips exist only as preference endpoints. At completion of a mapped clip, gather
 the final `preference.history` latents of its mapped full history (or the shorter
 stored history as allowed by the preference model). For every original labeled
@@ -135,6 +157,7 @@ populations, and M the number of K-windows per epoch. For update window B,
  \frac{w_\phi}{N_\phi}\sum_{j\in I_\phi(B)}\ell^\phi_j+
  \frac{w_\pi}{N_\pi}\left[\sum_{j\in C(B)}\mathrm{CE}_j+
  \sum_{j\in S(B)}w_\Delta\chi_j d^2_j\right]+
+ \frac{w_{change}}{N_\pi}\sum_{j\in C(B)}\ell^{change}_j+
  \frac{w_P}{N_P}\sum_{r\in R(B)}\ell^P_r\right].
 \]
 
@@ -144,7 +167,8 @@ the same N_pi denominator. Count these two event streams separately.
 Omit an empty population and its denominator. An entirely empty loss window
 advances the stream/schedule with all gradients `None`; it performs no parameter
 decay/update. For fixed realized losses, the arithmetic mean over windows equals
-the three population means. Do not divide by a clip's degree, event-local pair
+the weighted population means, with the auxiliary term using the same N_pi
+denominator and its independent nonnegative `w_change`. Do not divide by a clip's degree, event-local pair
 count, fragment length or current window size. There is no extra own loss when
 a preference endpoint completes. Pair micro-batching may bound P's working
 memory but uses these same denominators and sums gradients before the update.
@@ -181,6 +205,11 @@ an independently shuffled/split part of the same recurrent history.
   of selected fragments in chronological order. It never encodes a reference
   clip independently or contaminates training RNG/state. Gradient diagnostics
   must include the same truncated and detached paths as the actual update.
+  Raw components report `pi_change` separately, averaged over CE events including
+  excluded predecessors as zero; raw `pi` remains ordinary CE plus shift.
+  The weighted `pi` component and its gradient
+  role include both `w_pi`-weighted CE/shift and `w_change`-weighted auxiliary loss,
+  counted only once in the total loss.
 - With `retrain: true`, keep the existing frozen-phi phase: regenerate continuous
   latents from fragment starts with final frozen phi; retain pi/P weights, use
   a fresh heads-only optimizer/schedule and the same retained labels. The phase
@@ -205,6 +234,11 @@ Continuous indexes use `mcpref-continuous-index-v2`: `N_pi` counts every valid c
 - Own transitions crossing episode, shard and K-window boundaries are counted
   once; invalid/idle intervals and fragment ends have the stated masks. Changing
   preference degree does not change own-loss population weights.
+- Per-occurrence change weighting preserves current duplicate counts and ignores
+  previous multiplicity/masks/dropout. Unknown predecessors exclude only the
+  auxiliary term; known idle predecessors mark all current actions as changes.
+  Independent gradients, K=1 continuation, frozen-phi retraining, zero auxiliary
+  weight and exact checkpoint resume preserve these semantics.
 - Every retained original edge is consumed once, including cross-fragment edges,
   ties, aliased endpoints and both A/B temporal orders. The older history has
   no gradient; the current history has exactly the permitted K-window gradient.

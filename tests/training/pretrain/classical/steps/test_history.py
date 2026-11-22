@@ -56,7 +56,11 @@ def test_stored_clip_suffix_trains_all_heads_with_aligned_targets(tmp_path, mask
         "P_loss": PreferenceLoss().double(),
     }
     loss, result = micro_loss(
-        modules, [tail, tail, tail], [(1, 2, {"p": 0.5, "inc": 0})], (1, 1, 1, 1)
+        modules,
+        [tail, tail, tail],
+        [(1, 2, {"p": 0.5, "inc": 0})],
+        (1, 1, 1, 1),
+        w_change=0.0,
     )
     assert result.phi["z_norm"].shape == (1, 3)
     assert result.phi["changed"].shape == (1, 2)

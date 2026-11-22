@@ -21,7 +21,7 @@ def keys(cfg) -> list[str]:
     layers = [f"layers.{i}.{k}.weight" for i in range(cfg.layers) for k in PER_LAYER]
     return ["embed.weight", "executed.weight", *layers, "norm.weight", "head.weight",
             "actions.weight", "dynamics.norm.weight", "dynamics.w1.weight",
-            "dynamics.w3.weight", "dynamics.w2.weight"]  # fmt: skip
+            "dynamics.w3.weight", "dynamics.w2.weight", "change_head.weight"]  # fmt: skip
 
 
 def test_state_dict_keys_shapes_and_no_buffers():
@@ -31,7 +31,8 @@ def test_state_dict_keys_shapes_and_no_buffers():
     shapes = {"embed.weight": (d, D), "executed.weight": (d, A + 1), "norm.weight": (d,),
               "head.weight": (A, d), "actions.weight": (A, d),
               "dynamics.norm.weight": (2 * d,), "dynamics.w1.weight": (g, 2 * d),
-              "dynamics.w3.weight": (g, 2 * d), "dynamics.w2.weight": (D, g)}  # fmt: skip
+              "dynamics.w3.weight": (g, 2 * d), "dynamics.w2.weight": (D, g),
+              "change_head.weight": (1, d)}  # fmt: skip
     layer = {"q": (d, d), "k": (d, d), "v": (d, d), "o": (d, d), "w1": (f, d), "w3": (f, d),
              "w2": (d, f), "attn_norm": (d,), "mlp_norm": (d,)}  # fmt: skip
     state = net.state_dict()
@@ -51,7 +52,15 @@ def test_module_kinds():
     assert all(type(x) is LayerC and isinstance(x, Layer) for x in net.layers)
     assert type(net.dynamics) is Dynamics
     dyn = net.dynamics
-    linears = [net.embed, net.executed, net.head, dyn.w1, dyn.w3, dyn.w2]
+    linears = [
+        net.embed,
+        net.executed,
+        net.head,
+        dyn.w1,
+        dyn.w3,
+        dyn.w2,
+        net.change_head,
+    ]
     linears += [getattr(x, k) for x in net.layers for k in ("q", "k", "v", "o", "w1", "w3", "w2")]  # fmt: skip
     assert all(type(x) is nn.Linear and x.bias is None for x in linears)
     norms = [net.norm, dyn.norm] + [getattr(x, k) for x in net.layers for k in ("attn_norm", "mlp_norm")]  # fmt: skip
@@ -99,6 +108,7 @@ def test_initialisation_by_hand():
         want["dynamics.w1.weight"] = lin(2 * d, g)
         want["dynamics.w3.weight"] = lin(2 * d, g)
         want["dynamics.w2.weight"] = lin(g, D)
+        want["change_head.weight"] = lin(d, 1)
     state = net.state_dict()
     for name, value in want.items():
         assert torch.equal(state[name], value.detach()), name

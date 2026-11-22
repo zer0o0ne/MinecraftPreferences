@@ -27,7 +27,7 @@ from mcpref.training.pretrain.gradients.work import collect_micro
 
 COMPONENT_KEYS = {
     "phi": ("push", "constraint", "dual", "norm"),
-    "pi": ("action", "shift"),
+    "pi": ("action", "shift", "change"),
     "P": ("inc", "succ"),
 }
 
@@ -107,7 +107,7 @@ def finish_scalars(
     components = {
         name: dict.fromkeys(keys, 0.0) for name, keys in COMPONENT_KEYS.items()
     }
-    offsets = {"phi": 4, "pi": 8, "P": 10}
+    offsets = {"phi": 4, "pi": 8, "P": 11}
     for j, row in enumerate(values):
         totals = [a + b for a, b in zip(totals, row[:4])]
         for name, keys in COMPONENT_KEYS.items():
@@ -155,7 +155,12 @@ def gradient_steps(
                 else nullcontext()
             ):
                 loss, result = micro_loss(
-                    modules, clips, pairs, factors, compile_tensors=selected is None
+                    modules,
+                    clips,
+                    pairs,
+                    factors,
+                    w_change=cfg.w_change,
+                    compile_tensors=selected is None,
                 )
                 if selected is None:
                     with phase("backward"):

@@ -9,7 +9,7 @@ def canonical(metric: str) -> str:
     metric = metric.removeprefix("losses.")
     for head, components in (
         ("phi", ("push", "constraint", "dual", "norm")),
-        ("pi", ("action", "shift")),
+        ("pi", ("action", "shift", "change")),
         ("P", ("inc", "succ")),
     ):
         if metric == f"components.{head}.total":

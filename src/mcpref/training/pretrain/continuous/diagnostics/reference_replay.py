@@ -96,7 +96,7 @@ def replay(cfg, modules, index, selection):
     plan = prefix_plan(index, selection)
     summaries = {part: OwnSummary(cfg) for part in ("train", "validation")}
     reader = StreamReader(index, modules["phi"].cfg, modules["phi"].sprite)
-    histories, context = {}, SimpleNamespace(modules=modules)
+    histories, context = {}, SimpleNamespace(cfg=cfg, modules=modules)
     if not plan:
         print("Continuous reference prefixes: empty", file=sys.stderr)
     for key, needed in tqdm(

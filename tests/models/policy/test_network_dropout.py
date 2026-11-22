@@ -114,10 +114,12 @@ def test_forward_in_training_mode():
     torch.manual_seed(11)
     b = oracle.draw(2, 4, 0.5)
     torch.manual_seed(11)
-    lam, sh, _ = net(Z, CLIPS)
+    lam, sh, C, change = net(Z, CLIPS)
     want = oracle.forward(net, HALF, NAMES, Z, CLIPS, b)
     assert_close(lam, want[0])
     assert_close(sh, want[1])
+    R = oracle.readout(net, HALF, Z, oracle.dropped(C, b))
+    assert_close(change, torch.sigmoid(R @ net.change_head.weight.T).squeeze(-1))
 
 
 def test_forward_without_history_in_training_mode():
@@ -129,8 +131,13 @@ def test_forward_without_history_in_training_mode():
     torch.manual_seed(13)
     b = oracle.draw(2 * 4, 1, 0.5).reshape(2, 4)
     torch.manual_seed(13)
-    lam, sh, _ = net(Z, CLIPS)
+    lam, sh, C, change = net(Z, CLIPS)
     want = oracle.forward(net, cfg, NAMES, Z, CLIPS, b)
     assert_close(lam, want[0])
     assert_close(sh, want[1])
     assert torch.equal(torch.get_rng_state(), state_after_draw(13, 2 * 4, 1))
+    R = oracle.readout(
+        net, cfg, Z.flatten(0, 1)[:, None], oracle.dropped(C, b).flatten(0, 1)[:, None]
+    )
+    expected = torch.sigmoid(R @ net.change_head.weight.T).reshape(2, 4)
+    assert_close(change, expected)

@@ -239,6 +239,7 @@ def test_rl_builder_and_all_roles(setup, masks, monkeypatch):
         n_delta=1,
         r_c=1,
         w_ppo=1.0,
+        w_change=1.0,
         w_delta=1.0,
         w_metra=1.0,
         w_P=1.0,

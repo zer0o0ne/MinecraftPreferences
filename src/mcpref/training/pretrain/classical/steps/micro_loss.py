@@ -27,7 +27,7 @@ def component_sums(terms: dict[str, Tensor]) -> dict[str, Tensor]:
     return {key: value.detach().sum() for key, value in terms.items() if key != "total"}
 
 
-def clip_loss(modules, Z, clips, states, factors, compiled, result) -> Tensor:
+def clip_loss(modules, Z, clips, states, factors, w_change, compiled, result) -> Tensor:
     """Compute own losses only for standalone clip rows; preserve their autograd paths."""
     k_factor, w_phi, w_pi, _ = factors
     phi_loss = (
@@ -40,6 +40,10 @@ def clip_loss(modules, Z, clips, states, factors, compiled, result) -> Tensor:
     l_phi, l_pi = phi_terms["total"], pi_terms["total"]
     result.weighted["phi"] = k_factor * w_phi * l_phi.sum()
     result.weighted["pi"] = k_factor * w_pi * l_pi.sum()
+    if w_change:
+        result.weighted["pi"] = (
+            result.weighted["pi"] + k_factor * w_change * pi_terms["change"].sum()
+        )
     result.sums[:2] = [l_phi.detach().sum(), l_pi.detach().sum()]
     result.components["phi"] = component_sums(phi_terms)
     result.components["pi"] = component_sums(pi_terms)
@@ -51,7 +55,10 @@ def clip_loss(modules, Z, clips, states, factors, compiled, result) -> Tensor:
         diagnostics["zero_shift"].detach(),
     )
     result.phi = {key: value.detach() for key, value in phi_diagnostics.items()}
-    return k_factor * (w_phi * l_phi + w_pi * l_pi).sum()
+    loss = k_factor * (w_phi * l_phi + w_pi * l_pi).sum()
+    if w_change:
+        loss = loss + k_factor * w_change * pi_terms["change"].sum()
+    return loss
 
 
 @measured("micro.forward")
@@ -60,6 +67,8 @@ def micro_loss(
     clips: list[Clip],
     pairs: Pairs,
     factors: tuple[float, float, float, float],
+    *,
+    w_change: float,
     compile_tensors: bool = False,
 ) -> tuple[torch.Tensor, MicroResult]:
     """Encode every required history; route each item to its own objective."""
@@ -87,6 +96,7 @@ def micro_loss(
             [clips[i] for i in indices],
             [states[i] for i in indices],
             factors,
+            w_change,
             compiled,
             result,
         )

@@ -386,9 +386,9 @@ def test_tensor_compilation_is_limited_to_ordinary_steps(monkeypatch, tmp_path):
     calls = []
     real_micro = loss_module.micro_loss
 
-    def record_micro(*args, compile_tensors=False):
+    def record_micro(*args, w_change, compile_tensors=False):
         calls.append(compile_tensors)
-        return real_micro(*args, compile_tensors=compile_tensors)
+        return real_micro(*args, w_change=w_change, compile_tensors=compile_tensors)
 
     monkeypatch.setattr(loss_module, "micro_loss", record_micro)
     monkeypatch.setattr(loss_module, "collect_micro", lambda *args: {"micro": args[-1]})

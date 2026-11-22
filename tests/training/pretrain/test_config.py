@@ -26,7 +26,7 @@ PATHS = [
 NAMES = [*PATHS, "seed", "epochs", "retrain", "batch", "micro_batch", "gradient_diagnostics", "diagnostic_window",
          "reference_steps", "reference_pairs", "calibration_bins", "saturation_threshold",
          "inc_classification_threshold", "quantiles", "action_copy_eps", "latent_init_scale",
-         "checkpoint_steps", "keep_checkpoints", "warmup_steps", "w_phi", "w_pi", "w_P", "grad_clip",
+         "checkpoint_steps", "keep_checkpoints", "warmup_steps", "w_phi", "w_pi", "w_change", "w_P", "grad_clip",
          "adam_eps", "lr_floor", "betas", "groups", "device"]  # fmt: skip
 VALID = {  # YAML lines of a valid config
     "index_dir": "./x/index",
@@ -56,6 +56,7 @@ VALID = {  # YAML lines of a valid config
     "warmup_steps": "0",
     "w_phi": "3",
     "w_pi": "2",
+    "w_change": "0.25",
     "w_P": "0.5",
     "grad_clip": "1.0e+9",
     "adam_eps": "1.0e-8",
@@ -94,6 +95,7 @@ def test_reads_every_field(tmp_path):
     assert ints == (2**32 - 1, 1, 3, 2, 1, 1, 1, 10, 1, 1, 0)
     assert all(type(v) is int for v in ints)
     assert (cfg.saturation_threshold, cfg.inc_classification_threshold, cfg.action_copy_eps) == (0.01, 0.5, 0.1)  # fmt: skip
+    assert cfg.w_change == 0.25
     assert cfg.latent_init_scale == 1.0 and type(cfg.latent_init_scale) is float
     assert cfg.quantiles == (0.05, 0.5, 0.95) and type(cfg.quantiles) is tuple
     assert (cfg.w_phi, cfg.w_pi, cfg.w_P, cfg.grad_clip, cfg.adam_eps, cfg.lr_floor) == (
@@ -116,6 +118,8 @@ ACCEPTED = {  # boundaries inside the domain: field, YAML, value
     "lr_floor 1": ("lr_floor", "1", 1),
     "lr_floor 0.5": ("lr_floor", "0.5", 0.5),
     "grad_clip inf": ("grad_clip", ".inf", math.inf),
+    "w_change zero": ("w_change", "0", 0.0),
+    "w_change positive": ("w_change", "0.25", 0.25),
     "w_phi zero": ("w_phi", "0", 0.0),
     "w_phi tiny": ("w_phi", "1.0e-300", 1e-300),
     "w_pi tiny": ("w_pi", "1.0e-300", 1e-300),
@@ -198,15 +202,15 @@ BAD = {
     "w_phi nan": {"w_phi": ".nan"},
     **{
         f"{k} negative": {k: "-0.5"}
-        for k in ("w_phi", "w_pi", "w_P", "grad_clip", "adam_eps")
+        for k in ("w_phi", "w_pi", "w_change", "w_P", "grad_clip", "adam_eps")
     },
     **{
         f"{k} a string": {k: '"1"'}
-        for k in ("w_phi", "w_pi", "w_P", "grad_clip", "adam_eps")
+        for k in ("w_phi", "w_pi", "w_change", "w_P", "grad_clip", "adam_eps")
     },
     **{
         f"{k} a boolean": {k: "true"}
-        for k in ("w_phi", "w_pi", "w_P", "grad_clip", "adam_eps")
+        for k in ("w_phi", "w_pi", "w_change", "w_P", "grad_clip", "adam_eps")
     },
     "w_phi missing": {"w_phi": None},
     "grad_clip nan": {"grad_clip": ".nan"},
@@ -328,7 +332,7 @@ def test_starting_values_from_test_owned_config(tmp_path):
         "calibration_bins": 10, "saturation_threshold": 0.01,
         "inc_classification_threshold": 0.5, "quantiles": [0.05, 0.5, 0.95],
         "action_copy_eps": 0.1, "latent_init_scale": 1.0, "checkpoint_steps": 100,
-        "keep_checkpoints": 2, "warmup_steps": 100, "w_phi": 1.0, "w_pi": 1.0, "w_P": 1.0,
+        "keep_checkpoints": 2, "warmup_steps": 100, "w_phi": 1.0, "w_pi": 1.0, "w_change": 1.0, "w_P": 1.0,
         "grad_clip": 1.0, "adam_eps": 1.0e-8, "lr_floor": 0.1, "betas": [0.9, 0.999],
         "groups": STARTING_GROUPS, "device": "cuda",
     }  # fmt: skip
@@ -389,3 +393,11 @@ def test_integer_moved_from_clips():
         getattr(mcpref.datasets.clips.collect, "integer", config.integer)
         is config.integer
     )
+
+
+@pytest.mark.parametrize(
+    "value", [".nan", ".inf", "-.inf", "-1", "true", "null", '"1.0"']
+)
+def test_invalid_change_weight(tmp_path, value):
+    with pytest.raises(ValueError):
+        load(tmp_path, w_change=value)

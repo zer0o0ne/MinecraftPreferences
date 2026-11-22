@@ -4,6 +4,7 @@ import torch
 from torch.nn import functional as F
 
 from mcpref.models.perception.loss import _terms, changed
+from mcpref.models.policy.change import change_cross_entropy
 from mcpref.models.policy.targets import frequencies
 
 
@@ -38,7 +39,19 @@ def eligible(observation) -> bool:
     return bool(observation.interval and observation.interval["valid"])
 
 
-def policy_ce(pi, stream, observation, z):
+def policy_change(pi, readout, logits, q, incoming, enabled):
+    if not enabled or incoming is None or not incoming["known"]:
+        return None
+    actions = set(incoming["actions"])
+    repeated = torch.tensor(
+        [[name in actions for name in pi.names]], device=logits.device
+    )
+    probability = pi.change(readout)
+    known = torch.ones_like(probability, dtype=torch.bool)
+    return change_cross_entropy(logits, q[None], probability, repeated, known).sum()
+
+
+def policy_ce(pi, stream, observation, z, incoming, change_enabled):
     interval = observation.interval
     kept = [a for a in interval["actions"] if observation.mask[pi.index[a]]]
     q = z.new_tensor(frequencies(kept, pi.index, len(pi.names)))
@@ -47,6 +60,7 @@ def policy_ce(pi, stream, observation, z):
     readout = pi.readout(Y, C)[:, -1]
     logits = pi.logits(readout)
     ce = F.cross_entropy(logits, q[None], reduction="sum", label_smoothing=0.0)
+    change = policy_change(pi, readout, logits, q, incoming, change_enabled)
     valid = interval["n"] == len(kept) == 1
     action = pi.index[interval["actions"][0]] if interval["n"] == 1 else 0
     pending = {
@@ -71,7 +85,7 @@ def policy_ce(pi, stream, observation, z):
         "shift_valid": valid,
         "source": observation.source,
     }
-    return ce, pending, row
+    return ce, change, pending, row
 
 
 def policy_shift(pi, loss, pending, z):

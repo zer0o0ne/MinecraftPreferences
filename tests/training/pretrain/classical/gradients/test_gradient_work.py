@@ -22,7 +22,7 @@ def test_micro_loss_weighted_scalars_preserve_original_bitwise():
     mods = fakes(noise=False, stateful=False)
     factors = (0.5, 0.4, 0.7, 1.9)
     original, result = micro_loss(mods, [clip(item["a"]), clip(item["b"]), clip(item["a"])],
-                                  [(0, 1, item["labels"])], factors)  # fmt: skip
+                                  [(0, 1, item["labels"])], factors, w_change=0.0)  # fmt: skip
     training, l_phi, l_pi, l_P = terms(
         [item, {"clip": item["a"]}],
         fakes(noise=False, stateful=False),
@@ -40,7 +40,7 @@ def test_micro_loss_weighted_scalars_preserve_original_bitwise():
     assert result.weighted["pi"].equal(0.5 * 0.7 * l_pi.sum())
     assert result.weighted["P"].equal(1.9 * l_P.sum())
     _, result = micro_loss(
-        fakes(noise=False, stateful=False), [clip(item["a"])], [], factors
+        fakes(noise=False, stateful=False), [clip(item["a"])], [], factors, w_change=0.0
     )
     assert result.weighted["P"] is None
 

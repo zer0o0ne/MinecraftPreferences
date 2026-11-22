@@ -42,8 +42,8 @@ def test_current_action_cannot_leak_into_its_logits():
     latents = torch.randn(
         1, 4, 3, generator=torch.Generator().manual_seed(51), dtype=torch.float64
     )
-    before, _, _ = net(latents, [clip])
-    after, _, _ = net(latents, [changed])
+    before, _, _, _ = net(latents, [clip])
+    after, _, _, _ = net(latents, [changed])
     assert_close(before[:, :2], after[:, :2], rtol=0, atol=0)
     assert not torch.allclose(before[:, 2], after[:, 2])
 

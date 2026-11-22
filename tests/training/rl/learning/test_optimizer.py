@@ -25,7 +25,14 @@ GRADIENT = 0.375
 def install_constant_gradient(monkeypatch, value=GRADIENT):
     def fake(items, mods, **kwargs):
         mods["phi"].scale.grad = torch.full_like(mods["phi"].scale, value)
-        return {"ppo": 0.0, "shift": None, "metra": None, "P": None, "loss": 0.0}
+        return {
+            "ppo": 0.0,
+            "change": 0.0,
+            "shift": None,
+            "metra": None,
+            "P": None,
+            "loss": 0.0,
+        }
 
     monkeypatch.setattr("mcpref.training.rl.learning.loop.step_gradients", fake)
 

@@ -15,6 +15,7 @@ from mcpref.models.perception.config import load_config as load_perception_confi
 from mcpref.models.perception.continuous import ContinuousPhiStream
 from mcpref.models.perception.phi import Phi
 from mcpref.models.perception.stream import PhiStream
+from mcpref.models.policy.checkpoints import load_policy_weights
 from mcpref.models.policy.config import load_config as load_policy_config
 from mcpref.models.policy.network import Policy
 from mcpref.models.preference.config import load_config as load_preference_config
@@ -58,7 +59,10 @@ def load_pretrained(cfg: SamplingConfig) -> SamplingModules:
         latent_init_scale=pretrain.latent_init_scale,
     )
     for name in ("phi", "pi", "P"):
-        built[name].load_state_dict(weights[name])
+        if name == "pi":
+            load_policy_weights(built[name], weights[name])
+        else:
+            built[name].load_state_dict(weights[name])
         built[name].eval()
     return SamplingModules(built["phi"], built["pi"], built["P"], sha256(path))
 

@@ -31,6 +31,7 @@ class RefPi(nn.Module):
         self.embed, self.executed, self.layers = net.embed, net.executed, net.layers
         self.norm, self.head, self.actions = net.norm, net.head, net.actions
         self.dynamics, self.names = net.dynamics, names
+        self.change_head = net.change_head
 
     def forward(self, Z: torch.Tensor, clips: list) -> tuple:
         b = oracle.draw(len(clips), L, CFG.action_dropout) if self.training else None
@@ -71,5 +72,10 @@ def test_policy_in_the_loop(tmp_path):
     start = Policy(CFG, D, masks.names).double().state_dict()
     trained = loop.model()["pi"]
     assert list(trained) == list(start)
-    assert all(not torch.equal(trained[k], start[k]) for k in start)
+    assert all(
+        not torch.equal(trained[k], start[k])
+        for k in start
+        if k != "change_head.weight"
+    )
+    assert torch.equal(trained["change_head.weight"], start["change_head.weight"])
     assert loop.model()["pi_loss"] == {}

@@ -66,7 +66,7 @@ def record(
         "loss": 3.0,
         "components": {
             "phi": {"push": 1.0, "constraint": 2.0, "dual": 3.0, "norm": 4.0},
-            "pi": {"action": 5.0, "shift": 6.0},
+            "pi": {"action": 5.0, "shift": 6.0, "change": 0.25 * step},
             "P": {
                 "inc": float(step) if paired else null,
                 "succ": 2.0 if paired else null,

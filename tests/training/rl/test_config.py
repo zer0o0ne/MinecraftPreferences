@@ -59,6 +59,10 @@ POSITIVE = ["epochs", "batch", "micro_batch", "items_per_shard", "checkpoint_ste
             "keep_checkpoints"]  # fmt: skip
 WEIGHTS = ["w_ppo", "w_delta", "w_metra", "w_P", "adam_eps", "grad_clip"]
 BAD = {
+    **{
+        f"change {raw}": {"w_change": raw}
+        for raw in [-0.5, True, "1", float("nan"), float("inf")]
+    },
     **{f"{key} {raw}": {key: raw} for key in FIELDS[:4] for raw in PATH_BAD},
     "seed negative": {"seed": -1},
     "seed too large": {"seed": 2**32},
@@ -111,9 +115,10 @@ def test_invalid_values(tmp_path, changes):
 
 
 def test_valid_boundaries(tmp_path):
-    cfg = load(tmp_path, seed=0, warmup_steps=0, lr_floor=1, betas=[0, 0],
+    cfg = load(tmp_path, seed=0, warmup_steps=0, lr_floor=1, betas=[0, 0], w_change=0,
                **{key: 1 for key in POSITIVE})  # fmt: skip
     assert cfg.lr_floor == 1 and cfg.betas == (0.0, 0.0)
+    assert cfg.w_change == 0
     assert all(getattr(cfg, key) == 1 for key in POSITIVE)
 
 

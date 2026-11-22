@@ -10,6 +10,7 @@ from mcpref.diagnostics.core.observations import PpoObservations, ShiftObservati
 from mcpref.infrastructure.profiling.scopes import measured, phase
 from mcpref.models.perception.config import PerceptionConfig
 from mcpref.models.perception.loss import latent_metric
+from mcpref.models.policy.change import change_loss
 from mcpref.runtime.sampling.config import SamplingConfig
 from mcpref.runtime.sampling.shards import load_step
 from mcpref.training.rl.learning.encoding import (
@@ -21,7 +22,7 @@ from mcpref.training.rl.ppo.config import PpoConfig
 from mcpref.training.rl.ppo.loss import ppo_loss, shift_loss
 from mcpref.training.rl.ppo.reward import reward
 
-ROLES = ("ppo", "shift", "metra", "P")
+ROLES = ("ppo", "change", "shift", "metra", "P")
 
 
 @measured("micro.forward")
@@ -101,6 +102,13 @@ def micro_loss(
                 value = ppo_loss(logits, actions, behavior, advantage, ppo.clip)[0]
                 terms["ppo"].append(value)
                 logged["ppo"].append(value.detach())
+                preceding = origin.C[0, -1]
+                change = change_loss(
+                    pi.change(R)[0], preceding[record.action] > 0, value
+                )
+                change = torch.where(preceding[-1] == 0, change, 0.0)
+                terms["change"].append(change)
+                logged["change"].append(change.detach())
                 if observations is not None:
                     probability = torch.softmax(logits, dim=-1, dtype=None)
                     ratio = probability[0, record.action] / behavior[0]
@@ -172,6 +180,7 @@ def step_gradients(
     n_delta: int,
     r_c: int,
     w_ppo: float,
+    w_change: float,
     w_delta: float,
     w_metra: float,
     w_P: float,
@@ -203,6 +212,8 @@ def step_gradients(
         total = None
         if n_a and terms["ppo"]:
             total = m * w_ppo / n_a * sum(terms["ppo"])
+            if w_change:
+                total = total + m * w_change / n_a * sum(terms["change"])
         if terms["shift"]:
             transition = sum(
                 w_delta * shift + w_metra * metra

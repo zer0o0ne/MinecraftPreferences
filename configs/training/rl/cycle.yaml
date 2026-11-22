@@ -10,6 +10,7 @@ continuous:
   replay_stride: 64
 w_P: 1.0
 w_ppo: 1.0
+w_change: 1.0
 w_delta: 1.0
 w_metra: 1.0
 sampling: "configs/runtime/sampling.yaml"

@@ -43,7 +43,7 @@ def install_retrain(monkeypatch, calls):
             for parameter in mods[name].parameters():
                 parameter.grad = torch.full_like(parameter, draw)
         value = float(draw)
-        return {"ppo": value, "shift": value + 1, "metra": None,
+        return {"ppo": value, "change": value, "shift": value + 1, "metra": None,
                 "P": value + 2, "loss": value + 3}  # fmt: skip
 
     monkeypatch.setattr(

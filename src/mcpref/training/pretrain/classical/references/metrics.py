@@ -23,7 +23,7 @@ def empty_part(conditions: tuple[str, ...]) -> dict:
         },
         "micro": [],
         "phi": {key: [] for key in ("push", "constraint", "dual", "norm", "total")},
-        "pi": {key: [] for key in ("action", "shift", "total")},
+        "pi": {key: [] for key in ("action", "shift", "change", "total")},
     }
 
 
@@ -79,6 +79,7 @@ def finish_part(
         "pi": mean(part["pi"]["total"]),
         "pi_action": mean(part["pi"]["action"]),
         "pi_shift": mean(part["pi"]["shift"]),
+        "pi_change": mean(part["pi"]["change"]),
     }
     observations = step_observation(part["micro"], 2 * cfg.reference_pairs)
     joint["pi"] = policy_suite(

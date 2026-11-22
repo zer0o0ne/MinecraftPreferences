@@ -46,6 +46,7 @@ class Pi(nn.Module):
         self.project = nn.Linear(5, 2)
         self.output = nn.Linear(2, 2)
         self.dynamics = nn.Linear(2, 2)
+        self.change_head = nn.Linear(2, 1)
         self.dropout = nn.Dropout(dropout)
 
     def readout(self, Y, C):
@@ -56,6 +57,9 @@ class Pi(nn.Module):
 
     def shift(self, value, action):
         return self.dynamics(value) + action[:, None] * 0.1
+
+    def change(self, value):
+        return self.change_head(value).squeeze(-1).sigmoid()
 
     def groups(self):
         return {"pi": list(self.parameters())}
@@ -114,6 +118,7 @@ def config(**changes):
                 "gradient_diagnostics": False,
                 "w_phi": 0.4,
                 "w_pi": 0.7,
+                "w_change": 1.0,
                 "w_P": 1.3,
                 "groups": {
                     key: {"lr": 0.01, "weight_decay": 0.03}

@@ -25,7 +25,7 @@ COUNT_KEYS = (
 LOSS_PATHS = {key: (key,) for key in ("phi", "pi", "P", "loss")}
 COMPONENT_PATHS = {
     "phi": ("push", "constraint", "dual", "norm"),
-    "pi": ("action", "shift"),
+    "pi": ("action", "shift", "change"),
     "P": ("inc", "succ"),
 }
 

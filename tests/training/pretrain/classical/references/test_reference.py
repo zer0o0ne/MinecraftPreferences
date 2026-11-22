@@ -368,7 +368,7 @@ def test_initial_artifacts_and_four_conditions_after_update(
             key: joint["losses"][key] for key in ("P", "P_inc", "P_succ")
         } == initial_part["losses"]
     assert set(metrics["conditions"]) == {"joint", "P_only", "phi_only", "initial"}
-    assert set(metrics["conditions"]["joint"]["train"]["losses"]) == {"P", "P_inc", "P_succ", "phi", "phi_push", "phi_constraint", "phi_dual", "phi_norm", "pi", "pi_action", "pi_shift"}  # fmt: skip
+    assert set(metrics["conditions"]["joint"]["train"]["losses"]) == {"P", "P_inc", "P_succ", "phi", "phi_push", "phi_constraint", "phi_dual", "phi_norm", "pi", "pi_action", "pi_shift", "pi_change"}  # fmt: skip
 
     with torch.no_grad():
         mods["phi"].A.add_(0.03125)
