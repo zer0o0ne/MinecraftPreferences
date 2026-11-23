@@ -39,6 +39,7 @@ def setup(site, monkeypatch):
                 "preference_micro_batch": 2,
                 "archive_shard_size": 4,
                 "archive_cache_size": 4,
+                "archive_keep_shards": 2,
             },
         ),
     ):

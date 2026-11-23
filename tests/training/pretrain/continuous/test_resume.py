@@ -4,6 +4,7 @@ import json
 
 import pytest
 import torch
+from training.pretrain.classical.references.test_reference_resume import nested_equal
 from training.pretrain.continuous.engine_world import (
     Index,
     Reader,
@@ -15,7 +16,7 @@ from training.pretrain.continuous.engine_world import (
     observations,
 )
 
-from mcpref.training.pretrain.continuous import loop, steps
+from mcpref.training.pretrain.continuous import checkpoints, loop, steps
 
 
 def world(k):
@@ -139,3 +140,28 @@ def test_retrain_replays_fragments_with_frozen_phi(tmp_path, monkeypatch):
     )
     assert len(saved["optimizer"]["param_groups"]) == 2
     assert saved["position"]["step"] == 4
+
+
+def test_gc_preserves_model_optimizer_rng_and_coverage(tmp_path, monkeypatch):
+    monkeypatch.setenv("MCPREF_PROFILE", "")
+    monkeypatch.setattr(loop, "StreamReader", Reader)
+    monkeypatch.setattr(steps, "observation_step", observation_step)
+    cfg, index = config(tbptt_states=1, archive_keep_shards=1), world(1)
+    total = index.run["populations"]["train"]["M"] * cfg.epochs
+    for name in ("collected", "uncollected"):
+        ctx = context(tmp_path / name, cfg, modules(dropout=0.3), index, total)
+        ctx.root.mkdir()
+        torch.manual_seed(39)
+        with monkeypatch.context() as patch:
+            if name == "uncollected":
+                patch.setattr(checkpoints, "collect", lambda *args: None)
+            loop.train(ctx)
+    collected, uncollected = tmp_path / "collected", tmp_path / "uncollected"
+    compare(collected, uncollected)
+    for path in collected.glob("checkpoints/*/checkpoint.pt"):
+        a = torch.load(path, weights_only=False)
+        b = torch.load(uncollected / path.relative_to(collected), weights_only=False)
+        for key in ("modules", "optimizer", "position", "torch_rng", "cuda_rng"):
+            assert nested_equal(a[key], b[key]), key
+    pattern = "archive/epoch-*/shards/*/histories.pt"
+    assert len(list(collected.glob(pattern))) < len(list(uncollected.glob(pattern)))

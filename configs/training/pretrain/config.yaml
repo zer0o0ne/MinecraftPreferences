@@ -1,5 +1,5 @@
 # One entry point: scripts/pretrain.sh. Change mode to select the training loop.
-mode: classical
+mode: continuous
 classical:
   config: configs/training/pretrain/classical/config.yaml
   index: configs/training/pretrain/classical/index/shared.yaml

@@ -13,6 +13,7 @@ class ContinuousConfig(TrainingConfig):
     preference_micro_batch: int
     archive_shard_size: int
     archive_cache_size: int
+    archive_keep_shards: int
 
 
 def load_config(path: Path) -> ContinuousConfig:
@@ -23,5 +24,6 @@ def load_config(path: Path) -> ContinuousConfig:
         "preference_micro_batch",
         "archive_shard_size",
         "archive_cache_size",
+        "archive_keep_shards",
     )
     return ContinuousConfig(**parse_values(raw, positive))

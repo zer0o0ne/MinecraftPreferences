@@ -85,3 +85,19 @@ def test_materialized_continuous_leaf_still_rejects_classical_consumers(tmp_path
     assert modes.selected_config(path) == ("continuous", path)
     with pytest.raises(RuntimeError, match="requires classical pretraining"):
         modes.classical_config_path(path)
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 1.5, "2", None])
+def test_archive_retention_requires_a_positive_integer(repo, tmp_path, value):
+    settings = asdict(
+        continuous(repo / "configs/training/pretrain/continuous/config.yaml")
+    )
+    settings["betas"], settings["quantiles"] = (
+        list(settings["betas"]),
+        list(settings["quantiles"]),
+    )
+    settings["archive_keep_shards"] = value
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(settings))
+    with pytest.raises(ValueError, match="archive_keep_shards"):
+        continuous(path)

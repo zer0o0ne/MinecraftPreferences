@@ -145,6 +145,18 @@ original edges are not averaged or deduplicated after mapping. The archive
 survives fragment changes, including comparisons between fragments/world groups;
 clear it at the next epoch. Store it in bounded-memory disk shards, with pending
 edge counts, and retire histories only after every incident edge is consumed.
+`archive_keep_shards` is a required positive integer, initially 2. After a
+checkpoint is durably published and old checkpoint payloads are pruned, keep
+the newest `archive_keep_shards` latent shards of the current epoch **plus**
+every shard required by current live histories or any retained checkpoint.
+This is a retention floor for recent shards, not a hard disk quota; necessary
+histories may exceed it. Older epochs keep only checkpoint-required payloads.
+Delete other `histories.pt` files and unreferenced metadata snapshots, preserving
+numbered directories for contiguous shard publication and rollback. Old epochs'
+working metadata databases may be removed; checkpoint snapshots remain the
+recovery authority. Validate retained snapshot checksums and the presence of
+all referenced payloads before deleting anything. Garbage collection never drops a comparison,
+re-encodes a history, or changes the loss, update order or RNG state.
 The continuous index also excludes `collapsed_pair` edges whose actual P input
 observation-ID suffixes coincide, even if their full annotated histories differ.
 Fingerprint `preference.history` and report this filtering separately.
@@ -195,6 +207,12 @@ an independently shuffled/split part of the same recurrent history.
   consumed-edge position. Checkpoints are taken only after complete updates and
   detach. Archive publication and checkpoint references must recover together;
   a restart neither repeats nor skips a labeled edge or ordinary target.
+  Checkpoint `metadata.json` also records the epoch and archive descriptor so
+  garbage collection can discover dependencies without loading model weights.
+  Older checkpoint headers fall back to their checkpoint payload. Restoring
+  an archive rejects a missing payload referenced by its live histories, while
+  accepting collected payloads that its snapshot no longer needs. Config
+  fingerprint checks remain unchanged, including for the new retention field.
 - Model/run metadata declares `pretrain_mode: continuous` and the perception
   attention/state semantics. Existing consumers must use the compatible stream
   adapter or reject that artifact, never silently reset every classical history
@@ -218,6 +236,13 @@ an independently shuffled/split part of the same recurrent history.
 Continuous indexes use `mcpref-continuous-index-v2`: `N_pi` counts every valid current interval. Version 1 indexes must be rebuilt in a new index output directory from the existing raw dataset. Training run headers and checkpoints carry `policy_alignment: "preceding-action-v1"`; old or missing alignment tags reject resume. A new output directory is required for the revised objective; existing saved weights are not retroactively retrained.
 
 ## Acceptance
+
+- Archive collection preserves old live histories and every retained checkpoint,
+  frees unreferenced payloads across epochs, retains the current epoch's recent
+  shard floor, and preserves continuation after interrupted publication or GC.
+  Missing protected payloads or missing/corrupt metadata snapshots abort
+  collection before any deletion. Restored model, optimizer, RNG and comparison
+  coverage match an uninterrupted run without garbage collection.
 
 - Both pretraining modes follow the preceding-action input and current-transition
   target contract of `specs/policy.md`; classical scheduling and resume oracles

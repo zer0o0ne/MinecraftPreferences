@@ -87,7 +87,7 @@ def test_retirement_is_exact_and_membership_metadata_does_not_accumulate_in_pyth
         archive.close()
 
 
-def test_snapshots_are_immutable_and_old_payloads_can_be_pruned(tmp_path):
+def test_snapshots_are_immutable(tmp_path):
     archive = Archive(tmp_path / "shards", 2, 1)
     try:
         archive.restore(EMPTY)
@@ -99,8 +99,6 @@ def test_snapshots_are_immutable_and_old_payloads_can_be_pruned(tmp_path):
         states.append(archive.snapshot())
         archive.consume("e2", "a")
         states.append(archive.snapshot())
-        archive.prune_metadata(2)
-        assert not (tmp_path / "metadata/000000/state.sqlite").exists()
         archive.restore(states[1])
         assert archive.live["a"]["remaining"] == 1
         assert archive.get("a", value).item() == 1

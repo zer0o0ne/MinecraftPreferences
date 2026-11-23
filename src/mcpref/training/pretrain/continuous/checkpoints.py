@@ -12,6 +12,7 @@ from mcpref.infrastructure.shards.store import (
 )
 from mcpref.models.policy.targets import ALIGNMENT
 from mcpref.training.checkpoints import cpu_states, prune, restore_rng
+from mcpref.training.pretrain.continuous.archive_gc import collect
 from mcpref.training.pretrain.continuous.events import notify
 
 
@@ -39,6 +40,8 @@ def save(context, position, stream, archive, results, hooks) -> None:
                     "pretrain_mode": "continuous",
                     "attention": "observation",
                     "memory": "fragment",
+                    "epoch": position["epoch"],
+                    "archive": archive_state,
                 }
             )
         )
@@ -47,7 +50,7 @@ def save(context, position, stream, archive, results, hooks) -> None:
         notify(hooks, "checkpoint", context, staged, [result for _, result in results])
     notify(hooks, "published", context, k)
     prune(directory, k, context.cfg.keep_checkpoints)
-    archive.prune_metadata(context.cfg.keep_checkpoints)
+    collect(context.root, archive, context.cfg.archive_keep_shards)
 
 
 def restore(context):

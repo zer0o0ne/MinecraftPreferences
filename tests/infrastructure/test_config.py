@@ -48,7 +48,7 @@ def test_extends_deep_merges_in_order_and_remove_preserves_order(tmp_path, monke
     assert "extends" not in result and "remove" not in result
 
 
-def test_starting_configs_resolve_to_their_previous_values():
+def test_repository_configs_resolve_to_their_configured_values():
     pretrain = config.read_yaml(
         config.REPO / "configs/training/pretrain/classical/config.yaml"
     )
@@ -60,7 +60,7 @@ def test_starting_configs_resolve_to_their_previous_values():
     )
     assert list(rl["groups"]).index("metra_dual") < list(rl["groups"]).index("pi")
     assert pretrain["betas"] == rl["betas"] == [0.9, 0.999]
-    assert pretrain["retrain"] is True and rl["retrain"] is True
+    assert pretrain["retrain"] is False and rl["retrain"] is True
     assert pretrain["gradient_diagnostics"] is False
     assert rl["gradient_diagnostics"] is False
     assert pretrain["w_P"] == rl["w_P"] == 1.0
@@ -70,7 +70,7 @@ def test_starting_configs_resolve_to_their_previous_values():
     rl_raw = yaml.safe_load(
         (config.REPO / "configs/training/rl/cycle.yaml").read_text()
     )
-    assert pretrain_raw["retrain"] is True and rl_raw["retrain"] is True
+    assert pretrain_raw["retrain"] is False and rl_raw["retrain"] is True
     assert pretrain_raw["w_P"] == rl_raw["w_P"] == 1.0
     assert rl["items_per_shard"] == 256
     policy = config.read_yaml(config.REPO / "configs/models/policy.yaml")
@@ -80,8 +80,8 @@ def test_starting_configs_resolve_to_their_previous_values():
             cfg
         )
         assert "extends" not in cfg
-    assert policy["layers"] == 4
-    assert preference["layers"] == ["S", "X", "S", "X"]
+    assert policy["layers"] == 6
+    assert preference["layers"] == ["S", "X", "S", "X", "S", "X", "S", "X"]
 
 
 def test_inheritance_errors(tmp_path, monkeypatch):

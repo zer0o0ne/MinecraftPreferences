@@ -118,16 +118,13 @@ class Archive:
             raise RuntimeError(
                 "Checkpoint archive metadata references an unpublished shard"
             )
+        for (shard,) in self.metadata.db.execute("SELECT DISTINCT shard FROM live"):
+            if not (shard_path(self.root, shard) / "histories.pt").is_file():
+                raise RuntimeError(
+                    "Checkpoint references missing latent archive payload"
+                )
         self.buffer.clear()
         self.cache.clear()
-
-    def prune_metadata(self, keep: int) -> None:
-        directory = self.root.parent / "metadata"
-        for k in range(max(0, complete_shards(directory) - keep)):
-            path = shard_path(directory, k) / "state.sqlite"
-            if path.exists():
-                path.unlink()
-                sync(path.parent)
 
     def close(self):
         self.metadata.close()

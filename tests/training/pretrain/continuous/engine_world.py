@@ -113,6 +113,7 @@ def config(**changes):
                 "preference_micro_batch": 2,
                 "archive_shard_size": 1,
                 "archive_cache_size": 1,
+                "archive_keep_shards": 1,
                 "checkpoint_steps": 1,
                 "keep_checkpoints": 2,
                 "gradient_diagnostics": False,
