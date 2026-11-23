@@ -30,12 +30,14 @@ class References:
         self.context, self.diagnostics, self.channel = context, diagnostics, channel
         self.directory = context.root / "reference"
         self.fit = self.selection = self.initial = None
+        self.count = 0
 
     def start(self):
         context = self.context
         if not context.index.run["populations"]["train"]["N_P"]:
             return
         count = complete_shards(self.directory)
+        self.count = count
         if not count:
             if context.step:
                 raise RuntimeError(
@@ -67,7 +69,7 @@ class References:
             for file in ("metrics.json", "pairs.json")
         ]
         i = ordinal * 8
-        for part in ("train", "validation"):
+        for part in ("train", "validation") if self.diagnostics is not None else ():
             chosen = [
                 (j, edge)
                 for j, edge in enumerate(self.selection["items"])
@@ -111,15 +113,17 @@ class References:
                 (staged / "selection.json").write_bytes(json_bytes(self.selection))
                 (staged / "baselines.json").write_bytes(json_bytes(asdict(self.fit)))
                 torch.save(initial, staged / "initial.pt")
-        self.diagnostics.accept(
-            self.channel, f"reference:{ordinal}", join=join_reference
-        )
+        self.count = ordinal + 1
+        if self.diagnostics is not None:
+            self.diagnostics.accept(
+                self.channel, f"reference:{ordinal}", join=join_reference
+            )
 
     def due(self):
         context = self.context
         if self.initial is None:
             return
-        count = complete_shards(self.directory)
+        count = self.count
         expected = context.step // context.cfg.reference_steps + 1
         if count == expected:
             return

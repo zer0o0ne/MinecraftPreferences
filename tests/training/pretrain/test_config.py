@@ -23,7 +23,7 @@ PATHS = [
     "preference",
     "diagnostics",
 ]
-NAMES = [*PATHS, "seed", "epochs", "retrain", "batch", "micro_batch", "gradient_diagnostics", "diagnostic_window",
+NAMES = [*PATHS, "seed", "epochs", "retrain", "precision", "batch", "micro_batch", "gradient_diagnostics", "diagnostic_window",
          "reference_steps", "reference_pairs", "calibration_bins", "saturation_threshold",
          "inc_classification_threshold", "quantiles", "action_copy_eps", "latent_init_scale",
          "checkpoint_steps", "keep_checkpoints", "warmup_steps", "w_phi", "w_pi", "w_change", "w_P", "grad_clip",
@@ -39,6 +39,7 @@ VALID = {  # YAML lines of a valid config
     "seed": "4294967295",
     "epochs": "1",
     "retrain": "false",
+    "precision": "bf16",
     "batch": "3",
     "micro_batch": "2",
     "gradient_diagnostics": "false",
@@ -148,6 +149,9 @@ def test_betas_from_integers(tmp_path):
 
 
 BAD = {
+    "precision missing": {"precision": None},
+    "precision unknown": {"precision": "fp16"},
+    "precision boolean": {"precision": "true"},
     "missing key": {"seed": None},
     "missing groups": {"groups": None},
     "unknown key": {"lr": "0.1"},
@@ -328,6 +332,7 @@ def test_starting_values_from_test_owned_config(tmp_path):
         "diagnostics": "configs/diagnostics.yaml", "seed": 0,
         "epochs": 1, "retrain": False, "batch": 32, "micro_batch": 1,
         "gradient_diagnostics": False,
+        "precision": "fp32",
         "diagnostic_window": 100, "reference_steps": 500, "reference_pairs": 64,
         "calibration_bins": 10, "saturation_threshold": 0.01,
         "inc_classification_threshold": 0.5, "quantiles": [0.05, 0.5, 0.95],
@@ -401,3 +406,8 @@ def test_integer_moved_from_clips():
 def test_invalid_change_weight(tmp_path, value):
     with pytest.raises(ValueError):
         load(tmp_path, w_change=value)
+
+
+@pytest.mark.parametrize("precision", ["fp32", "bf16"])
+def test_parameter_storage_precision(tmp_path, precision):
+    assert load(tmp_path, precision=precision).precision == precision

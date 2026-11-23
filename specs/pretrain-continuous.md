@@ -241,6 +241,20 @@ an independently shuffled/split part of the same recurrent history.
   of selected fragments in chronological order. It never encodes a reference
   clip independently or contaminates training RNG/state. Gradient diagnostics
   must include the same truncated and detached paths as the actual update.
+  `gradient_diagnostics: false` skips gradient-flow selection/collection and all
+  gradient/update statistics; their record fields are null, without changing
+  weights, optimizer, RNG or loss/reference records.
+  Observations with preference endpoints, and all observations when gradient
+  diagnostics are enabled, run their complete sliding forward/backward in eager
+  compiler stance so retained graphs survive repeated backward. FP8 arithmetic
+  remains active; ordinary observations with diagnostics disabled may compile.
+  The required boolean `publish_diagnostics`, initially false, independently
+  controls the shared diagnostic publisher. When false, no DiagnosticRun is
+  loaded, registered, recovered, staged or accepted; no global catalogue/index
+  scans or source hashing run. Local losses, window aggregates and fixed-reference
+  artifacts remain available. The reference shard count is scanned once on startup
+  and advanced after each atomic publication. Disabling publication preserves
+  local results and checkpoint continuation.
   Raw components report `pi_change` separately, averaged over CE events including
   excluded predecessors as zero; raw `pi` remains ordinary CE plus shift.
   The weighted `pi` component and its gradient

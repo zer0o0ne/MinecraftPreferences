@@ -3,12 +3,13 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from mcpref.config import config_mapping, read_yaml
+from mcpref.config import boolean, config_mapping, read_yaml
 from mcpref.training.pretrain.config import POSITIVE_INTS, TrainingConfig, parse_values
 
 
 @dataclass(frozen=True)
 class ContinuousConfig(TrainingConfig):
+    publish_diagnostics: bool
     tbptt_states: int
     batch_size: int
     preference_micro_batch: int
@@ -28,4 +29,8 @@ def load_config(path: Path) -> ContinuousConfig:
         "archive_cache_size",
         "archive_keep_shards",
     )
-    return ContinuousConfig(**parse_values(raw, positive))
+    values = parse_values(raw, positive)
+    values["publish_diagnostics"] = boolean(
+        "publish_diagnostics", raw["publish_diagnostics"]
+    )
+    return ContinuousConfig(**values)

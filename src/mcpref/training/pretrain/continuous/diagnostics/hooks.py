@@ -20,7 +20,11 @@ from mcpref.training.pretrain.update import gradient_stats, update_stats
 class Diagnostics:
     def start(self, context):
         self.pending = []
-        self.diagnostics = DiagnosticRun.load(REPO / context.cfg.diagnostics)
+        self.diagnostics = (
+            DiagnosticRun.load(REPO / context.cfg.diagnostics)
+            if context.cfg.publish_diagnostics
+            else None
+        )
         prefix = f"pretrain-continuous-{context.phase}"
         self.step_channel, self.reference_channel = (
             f"{prefix}-step",
@@ -30,25 +34,33 @@ class Diagnostics:
             (self.step_channel, 1, join_step),
             (self.reference_channel, 0, join_reference),
         ):
-            self.diagnostics.register(channel, watermark=watermark, next=watermark)
-            self.diagnostics.recover(channel, join=join)
+            if self.diagnostics is not None:
+                self.diagnostics.register(channel, watermark=watermark, next=watermark)
+                self.diagnostics.recover(channel, join=join)
         self.reference = References(context, self.diagnostics, self.reference_channel)
         self.reference.start()
-        self.gradients = Gradients(context)
+        self.gradients = (
+            Gradients(context) if context.cfg.gradient_diagnostics else None
+        )
 
     def before_backward(self, context, components, events):
-        self.gradients.collect(context, components)
+        if self.gradients is not None:
+            self.gradients.collect(context, components)
 
     def before_update(self, context, result):
-        result.gradients = gradient_stats(
-            context.groups, context.cfg.grad_clip, preference=context.modules.get("P")
-        )
+        if self.gradients is not None:
+            result.gradients = gradient_stats(
+                context.groups,
+                context.cfg.grad_clip,
+                preference=context.modules.get("P"),
+            )
 
     def after_update(self, context, result):
-        result.updates = update_stats(
-            context.cfg, context.optimizer, context.groups, result.lr
-        )
-        self.gradients.finish_step(context, result)
+        if self.gradients is not None:
+            result.updates = update_stats(
+                context.cfg, context.optimizer, context.groups, result.lr
+            )
+            self.gradients.finish_step(context, result)
         record, rows = decorate(context, result, self.reference.fit)
         self.pending.append((context.step, result, record, rows))
 
@@ -68,7 +80,9 @@ class Diagnostics:
         )
         (staged / "diagnostics.json").write_bytes(json_bytes(windows))
         final = staged.with_name(staged.name.removesuffix(".part"))
-        for step, result, _, rows in self.pending:
+        for step, result, _, rows in (
+            self.pending if self.diagnostics is not None else ()
+        ):
             sources = [str((final / "losses.json").relative_to(REPO))]
             if step % context.cfg.diagnostic_window == 0 or step == context.total:
                 sources.append(str((final / "diagnostics.json").relative_to(REPO)))
@@ -81,13 +95,17 @@ class Diagnostics:
                 sources,
                 self.step_channel,
             )
-        self.gradients.checkpoint(staged)
+        if self.gradients is not None:
+            self.gradients.checkpoint(staged)
         self.pending = []
 
     def published(self, context, ordinal):
-        self.diagnostics.recover(self.step_channel, join=join_step)
+        if self.diagnostics is not None:
+            self.diagnostics.recover(self.step_channel, join=join_step)
         self.reference.due()
 
     def finish(self, context):
+        if self.diagnostics is None:
+            return
         for channel in (self.step_channel, self.reference_channel):
             self.diagnostics.finish(channel, source_complete=True, done=True)

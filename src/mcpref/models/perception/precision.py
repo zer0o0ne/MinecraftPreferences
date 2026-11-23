@@ -8,8 +8,15 @@ from torchao.float8.config import Float8GemmConfig
 from transformers import Qwen3_5Model
 
 
+def _cpu_autocast_input(module, args):
+    """torchao 0.18 Float8Linear only applies CUDA autocast itself."""
+    if torch.is_autocast_enabled("cpu"):
+        return (args[0].to(torch.get_autocast_dtype("cpu")),)
+    return args
+
+
 def enable_fp8_mlp(backbone: Qwen3_5Model) -> None:
-    """Keep BF16 parameters and weight-gradient GEMMs; CPU uses FP8 emulation."""
+    """Preserve parameter storage; CPU uses FP8 emulation."""
     device = next(backbone.parameters()).device
     if device.type not in ("cpu", "cuda"):
         raise ValueError(f"FP8 MLP requires CPU emulation or CUDA, got {device}")
@@ -33,6 +40,9 @@ def enable_fp8_mlp(backbone: Qwen3_5Model) -> None:
                     "FP8 MLP projection dimensions must be divisible by 16"
                 )
         convert_to_float8_training(mlp, config=config)
+        if device.type == "cpu":
+            for projection in (mlp.gate_proj, mlp.up_proj, mlp.down_proj):
+                projection.register_forward_pre_hook(_cpu_autocast_input)
         mlp.train(mlp.training)
         if device.type == "cuda":
             mlp.compile(

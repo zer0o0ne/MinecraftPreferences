@@ -82,6 +82,7 @@ CONFIG = {
     "seed": 5,
     "epochs": 2,
     "retrain": False,
+    "precision": "bf16",
     "batch": 2,
     "micro_batch": 1,
     "gradient_diagnostics": True,

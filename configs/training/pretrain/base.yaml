@@ -4,6 +4,7 @@ extends:
 remove:
   - groups.metra_dual
 retrain: false
+precision: fp32
 w_P: 1.0
 w_phi: 0.3
 w_pi: 1.0

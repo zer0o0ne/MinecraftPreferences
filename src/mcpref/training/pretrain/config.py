@@ -38,6 +38,7 @@ class TrainingConfig:
     seed: int
     epochs: int
     retrain: bool
+    precision: str
     gradient_diagnostics: bool
     diagnostic_window: int
     reference_steps: int
@@ -102,6 +103,8 @@ def parse_values(raw: dict, positive_ints=POSITIVE_INTS) -> dict:
         raise ValueError("latent_init_scale must be finite")
     read |= {"seed": integer("seed", raw["seed"], 0, 2**32 - 1)}
     read |= {"retrain": boolean("retrain", raw["retrain"])}
+    if raw["precision"] not in ("fp32", "bf16"):
+        raise ValueError("precision must be fp32 or bf16")
     read["gradient_diagnostics"] = boolean(
         "gradient_diagnostics", raw["gradient_diagnostics"]
     )

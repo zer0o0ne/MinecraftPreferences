@@ -85,7 +85,7 @@ def built(tmp_path, monkeypatch) -> list:
     """build_phi faked where run.py may look it up: the configs it was given."""
     calls = []
 
-    def build_phi(cfg):
+    def build_phi(cfg, *, dtype):
         calls.append(cfg)
         return PhiHead(cfg.alpha)
 
@@ -170,7 +170,7 @@ def test_latent_init_exact_rows_other_state_identity_and_rng(
     constructed = {"phi": phi}
     identities = {"phi": {name: id(p) for name, p in phi.named_parameters()}}
 
-    def build_phi(cfg):
+    def build_phi(cfg, *, dtype):
         return phi
 
     def recorder(name, constructor):

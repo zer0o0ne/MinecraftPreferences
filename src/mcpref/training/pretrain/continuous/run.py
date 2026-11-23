@@ -30,6 +30,7 @@ def run(path: Path) -> None:
             index.run["populations"]["train"]["N_P"] > 0,
             cfg.device,
             cfg.latent_init_scale,
+            cfg.precision,
         )
         pretrain(cfg, path, modules, index, Diagnostics())
     finally:

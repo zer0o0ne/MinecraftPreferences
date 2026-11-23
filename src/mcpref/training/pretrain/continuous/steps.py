@@ -1,5 +1,9 @@
 """Sliding per-observation backward and independent optimizer accumulation."""
 
+from contextlib import nullcontext
+
+import torch
+
 from mcpref.models.perception.continuous import observation_step
 from mcpref.training.optim import update
 from mcpref.training.pretrain.continuous.events import WindowResult, backward, notify
@@ -105,28 +109,34 @@ def window(context, stream, archive, observations, population, hooks=None):
             if stream.pending is not None:
                 raise RuntimeError("Unfinished policy target at a fragment boundary")
             stream = Stream()
-        z = replay_observation(context, stream, observation, observation_step)
-        own = own_losses(context, stream, observation, z, result)
-        live = {}
-        for key, value in own.items():
-            component = "pi" if key == "pi_change" else key
-            live[component] = live.get(component, 0) + weights[key] * value
-        stream.remember(observation.id, z, preference_history)
-        if observation.endpoints:
-            endpoints(
-                context, hooks, archive, stream, observation, result, weights["P"]
-            )
-        backward(context, hooks, live, {"own": result}, retain=False)
-        for key, value in live.items():
-            result.weighted[key] = result.weighted.get(key, 0) + value.detach()
-        stream.previous = {
-            "id": observation.id,
-            "z": z,
-            "frame": observation.frame,
-            "meta": observation.meta,
-            "interval": observation.interval,
-        }
-        stream = stream.detach()
+        # Compiled backward donates buffers needed by P/own and diagnostic passes.
+        with (
+            torch.compiler.set_stance("force_eager")
+            if observation.endpoints or context.cfg.gradient_diagnostics
+            else nullcontext()
+        ):
+            z = replay_observation(context, stream, observation, observation_step)
+            own = own_losses(context, stream, observation, z, result)
+            live = {}
+            for key, value in own.items():
+                component = "pi" if key == "pi_change" else key
+                live[component] = live.get(component, 0) + weights[key] * value
+            stream.remember(observation.id, z, preference_history)
+            if observation.endpoints:
+                endpoints(
+                    context, hooks, archive, stream, observation, result, weights["P"]
+                )
+            backward(context, hooks, live, {"own": result}, retain=False)
+            for key, value in live.items():
+                result.weighted[key] = result.weighted.get(key, 0) + value.detach()
+            stream.previous = {
+                "id": observation.id,
+                "z": z,
+                "frame": observation.frame,
+                "meta": observation.meta,
+                "interval": observation.interval,
+            }
+            stream = stream.detach()
     notify(hooks, "before_update", context, result)
     result.lr = update(
         context.cfg, context.optimizer, context.groups, context.step, context.total

@@ -57,6 +57,7 @@ def load_pretrained(cfg: SamplingConfig) -> SamplingModules:
         paired=True,
         device=pretrain.device,
         latent_init_scale=pretrain.latent_init_scale,
+        precision=pretrain.precision,
     )
     for name in ("phi", "pi", "P"):
         if name == "pi":

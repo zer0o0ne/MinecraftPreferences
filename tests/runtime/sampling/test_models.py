@@ -73,6 +73,7 @@ def test_pretrained_loading_eval_fingerprint_and_explicit_cpu_load(site, monkeyp
         "paired": True,
         "device": "cpu",
         "latent_init_scale": pretrain["latent_init_scale"],
+        "precision": pretrain["precision"],
     }
     assert loads == [{"map_location": "cpu", "weights_only": True}]
     assert got.fingerprint == hashlib.sha256(model.read_bytes()).hexdigest()

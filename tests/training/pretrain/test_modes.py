@@ -77,6 +77,8 @@ def test_repository_modes_share_model_and_optimizer_settings(repo):
     assert {k: aa[k] for k in common} == {k: bb[k] for k in common}
     assert a.index_dir != b.index_dir and a.out_dir != b.out_dir
     assert "batch" not in bb and "tbptt_states" not in aa
+    assert a.precision == b.precision == "fp32"
+    assert b.publish_diagnostics is False
 
 
 def test_materialized_continuous_leaf_still_rejects_classical_consumers(tmp_path):
@@ -101,3 +103,20 @@ def test_archive_retention_requires_a_positive_integer(repo, tmp_path, value):
     path.write_text(yaml.safe_dump(settings))
     with pytest.raises(ValueError, match="archive_keep_shards"):
         continuous(path)
+
+
+@pytest.mark.parametrize("value", [True, False, "false", 0, None])
+def test_continuous_publication_requires_a_yaml_boolean(repo, tmp_path, value):
+    settings = asdict(
+        continuous(repo / "configs/training/pretrain/continuous/config.yaml")
+    )
+    settings["betas"] = list(settings["betas"])
+    settings["quantiles"] = list(settings["quantiles"])
+    settings["publish_diagnostics"] = value
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(settings))
+    if type(value) is bool:
+        assert continuous(path).publish_diagnostics is value
+    else:
+        with pytest.raises(ValueError, match="publish_diagnostics"):
+            continuous(path)

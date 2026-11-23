@@ -33,9 +33,10 @@ def assert_fla():
     assert chosen is fla.chunk_gated_delta_rule
 
 
-def test_cuda_sliding_replay_crosses_optimizer_updates():
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+def test_cuda_sliding_replay_crosses_optimizer_updates(dtype):
     assert_fla()
-    assert_sliding("cuda", torch.bfloat16)
+    assert_sliding("cuda", dtype, autocast=dtype == torch.float32)
     torch.cuda.synchronize()
 
 

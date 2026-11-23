@@ -12,7 +12,7 @@ from mcpref.training.pretrain.continuous.replay import observation
 from mcpref.training.pretrain.continuous.state import Stream
 
 
-def assert_sliding(device, dtype):
+def assert_sliding(device, dtype, autocast=False):
     model = text_model(dtype, device).train()
     model.gradient_checkpointing_enable(
         gradient_checkpointing_kwargs={"use_reentrant": False}
@@ -27,9 +27,10 @@ def assert_sliding(device, dtype):
     def forward(phi, frame, line, state):
         x = frame.detach().clone().requires_grad_()
         active.append((line["index"], x))
-        out, memory = text_step(
-            phi, x, position(x), () if state is None else state.layers
-        )
+        with torch.autocast(device, dtype=torch.bfloat16, enabled=autocast):
+            out, memory = text_step(
+                phi, x, position(x), () if state is None else state.layers
+            )
         return out[0, -1], ContinuousState(memory, {})
 
     for t in range(6):

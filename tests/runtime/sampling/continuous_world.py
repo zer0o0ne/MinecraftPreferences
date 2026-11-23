@@ -35,6 +35,7 @@ def setup(site, monkeypatch):
                 if key not in ("batch", "micro_batch")
             }
             | {
+                "publish_diagnostics": False,
                 "tbptt_states": 2,
                 "batch_size": 3,
                 "preference_micro_batch": 2,

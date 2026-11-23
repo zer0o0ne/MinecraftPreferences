@@ -37,10 +37,20 @@ builds/resumes that mode's index and starts/resumes that mode's training.
 - `classical/config.yaml` uses clip batches and writes `data/pretrain_classical`.
   Its `index/` directory contains the original `config.yaml` and the shared-data
   variants `shared.yaml` and `shared-labeled.yaml`.
-- `continuous/config.yaml` uses `tbptt_states` observations per update (initially 4),
-  keeps GDN memory through each fragment, and writes `data/pretrain_continuous`.
+- `continuous/config.yaml` accumulates gradients for `batch_size` new observations
+  per update (currently 16). Each observation replays its own sliding window of
+  `tbptt_states` observations (currently 4), including across optimizer updates,
+  from the saved detached memory immediately before that window. Older GDN memory
+  persists through the fragment. Output is `data/pretrain_continuous`.
   `preference_micro_batch` bounds the number of preference pairs per call.
   Archive shard/cache limits bound the historical-latent working set.
+- `precision: fp32` in `base.yaml` stores weights, gradients and Adam moments in
+  FP32; `bf16` selects BF16 storage. Backbone forward still uses BF16 autocast.
+  Changing precision requires a fresh training output directory.
+- `gradient_diagnostics: false` skips gradient/update measurements and gradient-flow
+  artifacts. Continuous `publish_diagnostics: false` also disables the shared
+  catalogue publisher and its repeated historical scans. Local losses and fixed
+  reference evaluation remain enabled.
 - `retrain: true` adds a resumable frozen-perception phase. The final `model.pt`
   includes its trained heads; continuous also retains `joint-model.pt`.
 
@@ -50,9 +60,10 @@ path-only changes, including inherited configs. Existing dataset/index metadata
 does not need migration; changes to configuration contents still invalidate resume.
 
 Switching modes selects separate index, checkpoint and diagnostic directories.
-The continuous index fingerprints the complete selected training and preference
-configs, including K and preference history; choose new index/training output
-directories when changing them for an experiment. The
+The continuous index fingerprints its dataset and preference semantics; changing
+K, B or training precision alone does not rebuild the index. Training checkpoints
+fingerprint the complete selected configuration, so use a new training output
+directory when changing it. The
 continuous index's `training_config` must point to the selected continuous leaf.
 `checkpoint_steps` must be divisible by `diagnostic_window`, and
 `reference_steps` by `checkpoint_steps`.

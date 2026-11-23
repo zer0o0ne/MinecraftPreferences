@@ -105,7 +105,7 @@ class Site(Loop):
         """build_phi faked (recording its config); `phi_loss`: PhiLoss faked too; `loop`:
         a replacement of `pretrain`. Patched in their modules and in run.py."""
 
-        def build_phi(cfg):
+        def build_phi(cfg, *, dtype):
             self.built.append(cfg)
             return PhiFloat32()
 

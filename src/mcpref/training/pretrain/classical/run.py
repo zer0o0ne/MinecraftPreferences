@@ -32,7 +32,14 @@ def run(path: Path) -> None:
     paired = index["counts"]["train"]["pairs"] >= 1
     check_lengths(index["states"], policy, preference, paired, cfg.index_dir)
     modules = build_modules(
-        perception, masks, policy, preference, paired, cfg.device, cfg.latent_init_scale
+        perception,
+        masks,
+        policy,
+        preference,
+        paired,
+        cfg.device,
+        cfg.latent_init_scale,
+        cfg.precision,
     )
     pretrain(cfg, path, modules)
 

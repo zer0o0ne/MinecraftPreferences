@@ -63,11 +63,12 @@ def build_modules(
     paired: bool,
     device: str,
     latent_init_scale: float,
+    precision: str = "bf16",
 ) -> dict[str, torch.nn.Module]:
-    """(13): phi, phi_loss, pi, pi_loss (with pairs P, P_loss), in module order, each
-    moved to `device` with BF16 parameters after seeded initialization/scaling."""
+    """Build and scale modules in the requested parameter storage precision."""
     D, target = len(perception.alpha), torch.device(device)
-    phi = build_phi(perception)
+    dtype = {"fp32": torch.float32, "bf16": torch.bfloat16}[precision]
+    phi = build_phi(perception, dtype=dtype)
     pi = Policy(policy, D, masks.names)
     _scale_linear(phi.head[-1], perception.alpha, latent_init_scale)
     _scale_linear(pi.dynamics.w2, perception.alpha, latent_init_scale)
@@ -78,17 +79,19 @@ def build_modules(
         modules["P"] = Preference(preference, D)
         modules["P_loss"] = PreferenceLoss()
     modules = {
-        name: _bf16_parameters(module, target) for name, module in modules.items()
+        name: _parameters(module, target, dtype) for name, module in modules.items()
     }
     if perception.fp8_mlp:
         enable_fp8_mlp(phi.backbone)
     return modules
 
 
-def _bf16_parameters(module: torch.nn.Module, device: torch.device) -> torch.nn.Module:
+def _parameters(
+    module: torch.nn.Module, device: torch.device, dtype: torch.dtype
+) -> torch.nn.Module:
     """Keep nontrainable buffers, including Qwen's FP32 RoPE constants, exact."""
     buffers = dict(module.named_buffers())
-    module.to(device=device, dtype=torch.bfloat16)
+    module.to(device=device, dtype=dtype)
     for name, buffer in buffers.items():
         parent, _, field = name.rpartition(".")
         setattr(module.get_submodule(parent), field, buffer.to(device=device))

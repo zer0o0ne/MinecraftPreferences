@@ -130,6 +130,7 @@ def write_repository(
         "diagnostics": "configs/diagnostics.yaml", "seed": 0,
         "epochs": 1, "retrain": False, "batch": 32, "micro_batch": 1, "diagnostic_window": 100,
         "gradient_diagnostics": True,
+        "precision": "bf16",
         "reference_steps": 500, "reference_pairs": 64, "calibration_bins": 10,
         "saturation_threshold": 0.01, "inc_classification_threshold": 0.5,
         "quantiles": [0.05, 0.5, 0.95], "action_copy_eps": 0.1,

@@ -80,9 +80,20 @@ def test_public_continuous_entrypoint_builds_index_and_completes_training(
     )
     constructed = []
 
-    def build(perception, masks, policy, preference, paired, device, latent_scale):
+    def build(
+        perception, masks, policy, preference, paired, device, latent_scale, precision
+    ):
         constructed.append(
-            (perception, masks, policy, preference, paired, device, latent_scale)
+            (
+                perception,
+                masks,
+                policy,
+                preference,
+                paired,
+                device,
+                latent_scale,
+                precision,
+            )
         )
         return fixture.modules
 
@@ -95,7 +106,7 @@ def test_public_continuous_entrypoint_builds_index_and_completes_training(
     assert not (tmp_path / "dispatch-index").exists()
     assert dispatch.main([str(selector)]) == 0
     assert len(constructed) == 1
-    assert constructed[0][-3:] == (True, "cpu", 1.0)
+    assert constructed[0][-4:] == (True, "cpu", 1.0, "fp32")
     indexed = json.loads((tmp_path / "dispatch-index/run.json").read_text())
     assert indexed["complete"] and indexed["pretrain_mode"] == "continuous"
     assert "training_config" not in indexed["fingerprint"]

@@ -107,6 +107,7 @@ def config(**changes):
         **(
             {
                 "device": "cpu",
+                "precision": "fp32",
                 "seed": 7,
                 "epochs": 2,
                 "tbptt_states": 1,
@@ -118,6 +119,7 @@ def config(**changes):
                 "checkpoint_steps": 1,
                 "keep_checkpoints": 2,
                 "gradient_diagnostics": False,
+                "publish_diagnostics": True,
                 "w_phi": 0.4,
                 "w_pi": 0.7,
                 "w_change": 1.0,

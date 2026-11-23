@@ -216,12 +216,12 @@ class Phi(torch.nn.Module):
         return out
 
 
-def build_phi(cfg: PerceptionConfig) -> Phi:
+def build_phi(cfg: PerceptionConfig, *, dtype: torch.dtype = torch.bfloat16) -> Phi:
     """Interface: B and tau_tok of `model` at `revision`; phi on the CPU."""
     backbone = Qwen3_5Model.from_pretrained(
         cfg.model,
         revision=cfg.revision,
-        dtype=torch.bfloat16,
+        dtype=dtype,
         attn_implementation="sdpa",
     )
     tokenizer = AutoTokenizer.from_pretrained(cfg.model, revision=cfg.revision)

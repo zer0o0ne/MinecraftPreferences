@@ -95,23 +95,23 @@ def test_bad_projection_shape_fails_before_training():
 
 @pytest.mark.gpu
 @pytest.mark.timeout(180)
-def test_native_cuda_compiled_mlp_checkpoint_diagnostics_and_weight_reload():
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+def test_native_cuda_compiled_mlp_checkpoint_diagnostics_and_weight_reload(dtype):
     if not torch.cuda.is_available():
         pytest.skip("CUDA is unavailable")
-    model = backbone(torch.bfloat16).to("cuda")
+    model = backbone(dtype).to("cuda")
     enable_fp8_mlp(model)
     mlp = model.language_model.layers[0].mlp
     optimizer = torch.optim.AdamW(mlp.parameters(), lr=0.01, fused=True)
     for states in (17, 31, 1):
-        x = torch.randn(
-            1, states, 32, dtype=torch.bfloat16, device="cuda", requires_grad=True
-        )
+        x = torch.randn(1, states, 32, dtype=dtype, device="cuda", requires_grad=True)
         optimizer.zero_grad(set_to_none=True)
         with (
             torch.compiler.set_stance("force_eager") if states == 31 else nullcontext()
         ):
-            y = checkpoint(mlp, x, use_reentrant=False)
-            loss = y.float().square().mean()
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                y = checkpoint(mlp, x, use_reentrant=False)
+                loss = y.float().square().mean()
             if states == 31:
                 gradients = torch.autograd.grad(
                     loss, tuple(mlp.parameters()), retain_graph=True
@@ -121,9 +121,10 @@ def test_native_cuda_compiled_mlp_checkpoint_diagnostics_and_weight_reload():
         assert torch.isfinite(y).all() and torch.isfinite(x.grad).all()
         optimizer.step()
     state = copy.deepcopy(mlp.state_dict())
-    restored = backbone(torch.bfloat16).to("cuda")
+    restored = backbone(dtype).to("cuda")
     enable_fp8_mlp(restored)
     restored.language_model.layers[0].mlp.load_state_dict(state)
-    torch.testing.assert_close(
-        restored.language_model.layers[0].mlp(x), mlp(x), rtol=0, atol=0
-    )
+    with torch.autocast("cuda", dtype=torch.bfloat16):
+        torch.testing.assert_close(
+            restored.language_model.layers[0].mlp(x), mlp(x), rtol=0, atol=0
+        )
