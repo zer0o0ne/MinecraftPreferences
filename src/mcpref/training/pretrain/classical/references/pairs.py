@@ -39,6 +39,7 @@ def observe_joint(
             diagnostics["current"],
             valid,
             diagnostics["zero_shift"],
+            diagnostics.get("change"),
         ),
         cfg.calibration_bins,
         cfg.action_copy_eps,

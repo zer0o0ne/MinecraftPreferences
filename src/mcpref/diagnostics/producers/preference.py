@@ -16,6 +16,7 @@ from mcpref.diagnostics.core.types import (
 )
 from mcpref.diagnostics.preference.baselines import preference_baselines
 from mcpref.diagnostics.preference.suites import GlobalFit, PreferenceRows
+from mcpref.diagnostics.pretrain.change import join_metrics
 from mcpref.models.preference.loss import bce
 
 
@@ -176,6 +177,7 @@ def join_pretrain_step(record: MetricRecord, sources: Sequence[str]) -> MetricRe
     losses = json.loads((REPO / sources[0]).read_bytes())
     entry = unique(losses, "step", step)
     record["joined"]["outputs"] = entry["outputs"]
+    join_metrics(record, entry["outputs"])
     if len(sources) == 1:
         record["joined"] |= {"window_preference": None, "reason": "window_open"}
         return record

@@ -1,5 +1,9 @@
 # RL diagnostics
 
+[Action-change diagnostics](action-change-diagnostics.md) additionally measure
+sampled MCTS repetitions conditional on cached change-head predictions, using
+the existing expansion readout without additional policy inference.
+
 Block 33 of `specs/00-overview.md`: producer-owned online diagnostics and plotting for pretraining and RL. The producer contracts and artifact schemas come from the referenced block specs; no separate stages or approval workflow are part of this block.
 
 ## Notation

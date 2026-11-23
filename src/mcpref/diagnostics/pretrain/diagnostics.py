@@ -28,6 +28,7 @@ from mcpref.diagnostics.preference.suites import (
     preference_suite,
     stratum_suite,
 )
+from mcpref.diagnostics.pretrain import change
 from mcpref.diagnostics.producers.preference import on_pretrain_step, on_reference
 
 __all__ = [
@@ -70,6 +71,7 @@ class PolicyObservations:
     uniform: float
     copy_current: float | None
     zero_shift: float
+    change_counts: torch.Tensor | None = None
 
 
 @dataclass(frozen=True)
@@ -105,6 +107,9 @@ def action_suite(
         "mean_confidence": confidence / count if count else None,
         "action_entropy": entropy / count if count else None,
     }
+    changes = change.suite(change.pool(row.change_counts for row in observations))
+    if changes:
+        result["change"] = changes
     if full:
         count_sums = sum(
             (observation.calibration_count for observation in observations),

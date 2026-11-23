@@ -82,6 +82,8 @@ class PolicyLoss(torch.nn.Module):
             "current": current.detach(),
             "zero_shift": (zero_shift.sum(dim=1) / (L - 1)).detach(),
         }
+        if len(shared) > 1:
+            observations["change"] = (shared[1][:, : L - 1].detach(), known)
         return terms, valid, observations
 
     def forward(self, out: tuple[Tensor, ...], Z: Tensor, clips: list[Clip]) -> Tensor:

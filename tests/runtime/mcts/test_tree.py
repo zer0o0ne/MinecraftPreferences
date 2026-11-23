@@ -23,7 +23,7 @@ def test_tree_real_initialises_public_state():
     assert [field.name for field in dataclasses.fields(LatentHistory)] == ["Y", "C"]
     assert [field.name for field in dataclasses.fields(Node)] == [
         "z", "x", "action", "prior", "shift", "parent", "children", "n", "mean", "value",
-        "policy",
+        "policy", "change_probability",
     ]  # fmt: skip
     with pytest.raises(dataclasses.FrozenInstanceError):
         real.Y = real.C

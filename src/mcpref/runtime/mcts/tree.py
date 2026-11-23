@@ -37,6 +37,7 @@ class Node:
     mean: float = 0.0
     value: float | None = None
     policy: list[float] | None = None
+    change_probability: float | None = None
 
     def __post_init__(self) -> None:
         self.z, self.x = self.z.double(), self.x.double()

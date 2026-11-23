@@ -19,7 +19,7 @@ def test_each_current_occurrence_uses_previous_membership_not_frequency(previous
     pi = SimpleNamespace(names=("a", "b"), change=lambda _: probability)
     incoming = {"known": True, "actions": previous}
     q = logits.new_tensor([2 / 3, 1 / 3])
-    loss = policy_change(pi, None, logits, q, incoming, True)
+    loss = policy_change(pi, probability, logits, q, incoming, True)
     losses = -logits.detach().log_softmax(-1)[0]
     expected = (2 * probability.detach()[0] * losses[0] + 0.8 * losses[1]) / 3
     torch.testing.assert_close(loss, expected)
@@ -47,6 +47,9 @@ def test_unknown_predecessor_or_zero_weight_skips_only_auxiliary(
         stream.previous = {"interval": incoming}
 
     def unexpected(_):
+        if kind == "disabled":
+            assert not torch.is_grad_enabled()
+            return torch.tensor([0.75])
         raise AssertionError("excluded auxiliary must not build its graph")
 
     monkeypatch.setattr(ctx.modules["pi"], "change", unexpected)

@@ -1,4 +1,6 @@
 # Policy
+
+Action-change head diagnostics are specified in [action-change-diagnostics.md](action-change-diagnostics.md).
 Status: approved (2026-10-22); clarified after the tests the same day: `index_run` covers (R) 1, 2, `positive` defined, approved; 2026-11-05: policy loss terms for diagnostics (`specs/pretrain-diagnostics.md`), approved; 2026-11-05: RL loss ownership references (`specs/ppo.md`), approved; 2026-11-06: starting-value reconciliation, approved; 2026-11-10: pretraining history $L_\pi \le L$, approved
 Stage: block 6 of `specs/00-overview.md` — $\pi$ and its loss $\ell^\pi$ (P5, plugged into the loop of `specs/pretrain.md`); $\pi$'s calls on latent histories for R1 (MCTS), R2, R4; `main` of the pretraining loop and its line in `scripts/pretrain.sh`
 

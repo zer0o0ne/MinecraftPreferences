@@ -27,7 +27,17 @@ def policy_rows(result, cfg):
         "shift_valid": torch.zeros(q.shape[:2], dtype=torch.bool),
     }
     return policy_observation(
-        (logits, q, current, valid, torch.zeros(q.shape[:2])),
+        (
+            logits,
+            q,
+            current,
+            valid,
+            torch.zeros(q.shape[:2]),
+            (
+                torch.cat([row["change_probability"] for row in rows])[None].cpu(),
+                torch.tensor([[row["previous_known"] for row in rows]]),
+            ),
+        ),
         cfg.calibration_bins,
         cfg.action_copy_eps,
     )[0]
@@ -113,6 +123,7 @@ class OwnSummary:
             "zero_shift": self.zero_shift / self.counts["shift"]
             if self.counts["shift"]
             else None,
+            "change_counts": raw["change_counts"],
         }
         return PolicyObservations(**fields)
 

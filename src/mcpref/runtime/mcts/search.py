@@ -57,6 +57,7 @@ def expand(
         0
     ].tolist()
     node.policy = probabilities
+    node.change_probability = pi.change(R[:, -1]).item()
     if node is tree.root:
         tree.root_policy = probabilities
     allowed = np.flatnonzero(mask) if node is tree.root else np.arange(len(mask))

@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
+from mcpref.diagnostics.pretrain import change
 from mcpref.diagnostics.pretrain.diagnostics import (
     PhiObservations,
     PolicyObservations,
@@ -92,11 +93,11 @@ def action_statistics(
 
 
 def policy_observation(
-    value: tuple[Tensor, Tensor, Tensor, dict[str, Tensor], Tensor],
+    value: tuple,
     calibration_bins: int,
     copy_eps: float,
 ) -> tuple[dict[str, Tensor], int]:
-    logits, q, current, valid, zero_shift = value
+    logits, q, current, valid, zero_shift, *head = value
     logits = logits[:, : q.shape[1]]
     q, current = q.detach(), current.detach()
     action_valid, shift_valid = valid["action_valid"], valid["shift_valid"]
@@ -130,12 +131,17 @@ def policy_observation(
         "copy_finite": copy_finite,
         "zero_shift": zero_shift.sum(),
     }
+    if head and head[0] is not None:
+        probability, known = head[0]
+        observation["change_counts"] = change.counts(
+            logits, q, current[..., :actions], probability, known
+        )
     return observation, q.shape[1]
 
 
 def raw_policy_observation(value, clips, masks) -> dict:
     """Keep detached full rows for block 33 without another clip read or forward."""
-    logits, q, current, valid, _ = value
+    logits, q, current, valid, _ = value[:5]
     logits = logits[:, : q.shape[1]]
     actions_count = logits.shape[-1]
     if masks is None:
@@ -214,12 +220,15 @@ def finish_policy(micro: list[MicroObservations]) -> list[PolicyObservations]:
                     policy["calibration_count"].to(torch.float64),
                     policy["calibration_confidence"],
                     policy["calibration_correct"],
+                    policy.get(
+                        "change_counts", scalars.new_zeros((len(change.METRICS), 2))
+                    ).flatten(),
                 ]
             )
         )
     rows = torch.stack(packed).cpu().tolist()
     result = []
-    for values in rows:
+    for item, values in zip(micro, rows):
         scalar = dict(zip(POLICY_SCALARS, values))
         offset = len(POLICY_SCALARS)
         q_sum = torch.tensor(
@@ -251,6 +260,13 @@ def finish_policy(micro: list[MicroObservations]) -> list[PolicyObservations]:
                 uniform=scalar["uniform"],
                 copy_current=scalar["copy_current"] if scalar["copy_finite"] else None,
                 zero_shift=scalar["zero_shift"],
+                change_counts=(
+                    torch.tensor(
+                        values[-2 * len(change.METRICS) :], dtype=torch.float64
+                    ).reshape(-1, 2)
+                    if "change_counts" in item.policy
+                    else None
+                ),
             )
         )
     return result
@@ -341,6 +357,7 @@ def step_policy(
             else None
         ),
         zero_shift=sum(item.policy.zero_shift for item in micro) / clips,
+        change_counts=change.pool(item.policy.change_counts for item in micro),
     )
 
 

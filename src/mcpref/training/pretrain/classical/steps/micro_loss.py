@@ -17,7 +17,7 @@ class MicroResult:
     sums: list[Tensor]
     components: dict
     preference: tuple[Tensor, Tensor, list[dict]] | None
-    policy: tuple[Tensor, Tensor, Tensor, dict[str, Tensor], Tensor] | None
+    policy: tuple | None
     phi: dict[str, Tensor] | None
     weighted: dict[str, Tensor | None]
     clip_indices: list[int]
@@ -53,6 +53,7 @@ def clip_loss(modules, Z, clips, states, factors, w_change, compiled, result) ->
         diagnostics["current"].detach(),
         {key: value.detach() for key, value in valid.items()},
         diagnostics["zero_shift"].detach(),
+        diagnostics.get("change"),
     )
     result.phi = {key: value.detach() for key, value in phi_diagnostics.items()}
     loss = k_factor * (w_phi * l_phi + w_pi * l_pi).sum()

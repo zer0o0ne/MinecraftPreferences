@@ -35,6 +35,30 @@ def _binary(value: bool, context: ProducerContext, cfg: DiagnosticsConfig):
     return rate([float(value)], list(context.cluster_ids), cfg)
 
 
+def change_metrics(record, context, cfg):
+    root = record.tree["root"]
+    probability, previous = root.get("change_probability"), root.get("action")
+    reason = (
+        "change_head_unavailable"
+        if probability is None
+        else "no_previous_action"
+        if previous is None
+        else None
+    )
+    available = reason is None
+    predicted = available and probability >= 0.5
+    metrics, populations = {}, {}
+    for name, include, value in (
+        ("mcts.change_prediction", available, predicted),
+        ("mcts.repeat_when_change_predicted", predicted, record.action == previous),
+    ):
+        clusters = list(context.cluster_ids) if include else []
+        metrics[name] = rate([float(value)] if include else [], clusters, cfg)
+        metrics[name]["reason"] = reason
+        populations[name] = clusters
+    return metrics, populations
+
+
 def on_step_record(
     record: StepRecord, *, cfg: DiagnosticsConfig, context: ProducerContext
 ):
@@ -156,6 +180,9 @@ def on_step_record(
         "mask.executed_violation": _binary(not mask[record.action], context, cfg),
     }
     populations = {name: list(context.cluster_ids) for name in metrics}
+    changes, change_populations = change_metrics(record, context, cfg)
+    metrics.update(changes)
+    populations.update(change_populations)
     joined = {"matched_reliability": [{"mass": matched_mass, "hit": any(matches)}]}
     return metric_record(
         "mcts", f"step:{record.index}", context, metrics, populations

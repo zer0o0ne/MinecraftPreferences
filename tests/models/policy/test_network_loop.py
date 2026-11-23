@@ -4,6 +4,8 @@ starting groups and masks, against the loop oracle of tests/pretrain run with $\
 draw in training mode included) and $\\ell^\\pi$ transcribed (policy_oracle.py) on the same initial
 weights."""
 
+import json
+
 import torch
 from torch import nn
 from training.pretrain.classical.loop_checks import assert_run
@@ -79,3 +81,19 @@ def test_policy_in_the_loop(tmp_path):
     )
     assert torch.equal(trained["change_head.weight"], start["change_head.weight"])
     assert loop.model()["pi_loss"] == {}
+    records = [
+        row
+        for path in loop.out.glob("checkpoints/*/losses.json")
+        for row in json.loads(path.read_text())
+    ]
+    assert any("change" in row["outputs"]["pi_action"] for row in records)
+    assert any(
+        row["outputs"]["pi_action"].get("change", {}).get("count", 0) for row in records
+    )
+    for row in records:
+        if "change" in row["outputs"]["pi_action"]:
+            change = row["outputs"]["pi_action"]["change"]
+            assert change["count"] == (
+                change["head_recall"]["denominator"]
+                + change["false_positive"]["denominator"]
+            )

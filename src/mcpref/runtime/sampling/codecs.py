@@ -85,6 +85,7 @@ def _encode_node(node: Node) -> dict:
         "mean": node.mean,
         "value": node.value,
         "policy": node.policy,
+        "change_probability": node.change_probability,
     }
 
 
@@ -100,6 +101,7 @@ def _decode_node(value: dict, device: torch.device, parent: Node | None) -> Node
         mean=value["mean"],
         value=value["value"],
         policy=value.get("policy"),
+        change_probability=value.get("change_probability"),
     )
     node.children = [_decode_node(child, device, node) for child in value["children"]]
     return node

@@ -1,4 +1,8 @@
 # MCTS
+
+[Action-change diagnostics](action-change-diagnostics.md) cache the change-head
+output beside each node's policy using the same expansion readout. This scalar
+is observational and does not enter search or action selection.
 Status: approved (2026-11-07); 2026-11-07: current-mask filtering of a reused root, approved
 Stage: block 8 of `specs/00-overview.md` — search, the decision, and the current tree for R1
 

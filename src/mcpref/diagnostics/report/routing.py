@@ -28,6 +28,8 @@ def canonical(metric: str) -> str:
         ("phi_stats.", "phi."),
     ):
         metric = metric.replace(old, new)
+    if metric.startswith("policy.change."):
+        metric = metric.removesuffix(".value")
     return metric
 
 
@@ -62,6 +64,17 @@ def group_number(entry: dict, metric: str) -> int:
 
 # Only quantities with matching units are assigned the same panel key.
 RULES = (
+    (
+        r"^policy.change.*(numerator|denominator|count)$",
+        "Action-change support",
+        "Rows / target mass",
+    ),
+    (r"^policy.change\.", "Action-change head agreement", "Fraction"),
+    (
+        r"^mcts.(repeat_when_change_predicted|change_prediction)$",
+        "Sampled repeats under cached change predictions",
+        "Fraction",
+    ),
     (r"^(lr(?:\.|$)|update.learning_rate$)", "Learning rates", "Learning rate"),
     (r"clip_coefficient", "Gradient clipping", "Multiplier"),
     (r"^(gradients\.).*steps", "Steps with active gradients", "Steps"),

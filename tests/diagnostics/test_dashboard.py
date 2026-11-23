@@ -6,6 +6,8 @@ from diagnostics.test_plot_sources import record
 from mcpref.diagnostics.plot import saved_points
 from mcpref.diagnostics.report.build import dashboards
 from mcpref.diagnostics.report.render import dashboard_figure
+from mcpref.diagnostics.report.routing import canonical
+from mcpref.diagnostics.saved import scalars
 from mcpref.diagnostics.series import collect, registries
 
 
@@ -22,6 +24,33 @@ def saved(values, *, source="run", title="Pretrain / joint / steps"):
 def build(rows):
     entries, points = saved_points(rows)
     return dashboards(entries, points)
+
+
+def test_action_change_rates_and_target_masses_have_separate_axes():
+    values = scalars(
+        {
+            "outputs": {
+                "pi_action": {
+                    "change": {
+                        "head_recall": {
+                            "value": 0.75,
+                            "numerator": 15.0,
+                            "denominator": 20.0,
+                        },
+                        "count": 30,
+                    }
+                }
+            }
+        }
+    )
+    _, panels = build([saved(values)])
+    policy = panels["03_policy.png"]
+    rates = next(panel for panel in policy if panel["unit"] == "Fraction")
+    support = next(panel for panel in policy if panel["unit"] == "Rows / target mass")
+    assert {canonical(curve["metric"]) for curve in rates["curves"]} == {
+        "policy.change.head_recall"
+    }
+    assert {curve["points"][0][1] for curve in support["curves"]} == {15.0, 20.0, 30}
 
 
 def test_twelve_stable_names_and_no_empty_axes():

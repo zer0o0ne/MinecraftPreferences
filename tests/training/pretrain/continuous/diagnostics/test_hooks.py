@@ -76,6 +76,14 @@ def assert_complete(tmp_path, name):
         row = result[f"continuous:joint:step:{i}"]
         assert row["context"]["steps"] == [i]
         assert row["joined"]["reason"] is None
+        changes = row["joined"]["outputs"]["pi_action"].get("change")
+        if changes is not None:
+            for key, value in changes.items():
+                assert row["metrics"][f"policy.change.{key}"] == value
+            assert changes["count"] == pytest.approx(
+                changes["head_recall"]["denominator"]
+                + changes["false_positive"]["denominator"]
+            )
     assert_episode_populations(tmp_path, name, result)
     return result
 
@@ -96,6 +104,15 @@ def test_diagnostic_hooks_leave_model_and_rng_unchanged(
         equal_weights(weights(plain.root), weights(monitored.root))
         assert torch.equal(torch.get_rng_state(), expected_rng)
         assert_complete(tmp_path, "monitored")
+        saved_steps = [
+            row
+            for path in monitored.root.glob("checkpoints/*/losses.json")
+            for row in json.loads(path.read_text())
+        ]
+        assert any(
+            row["outputs"]["pi_action"].get("change", {}).get("count", 0)
+            for row in saved_steps
+        )
         files = list(monitored.root.glob("checkpoints/*/gradient_flow/*/metrics.json"))
         assert bool(files) == gradients
     finally:

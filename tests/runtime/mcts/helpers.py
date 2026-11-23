@@ -114,6 +114,9 @@ class FakePolicy:
             return self.shift_fn(R, a)
         return torch.as_tensor(self.shift_values, dtype=R.dtype, device=R.device)[a]
 
+    def change(self, R):
+        return R.new_full(R.shape[:-1], 0.5)
+
 
 class FakePreference:
     def __init__(self, logits=(0.0, 0.0), *, logits_fn=None, history=1000):

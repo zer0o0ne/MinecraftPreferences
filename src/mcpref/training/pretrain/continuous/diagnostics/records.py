@@ -11,6 +11,7 @@ from mcpref.diagnostics.preference.suites import (
     pool_preferences,
     preference_suite,
 )
+from mcpref.diagnostics.pretrain.change import join_metrics
 from mcpref.diagnostics.pretrain.observation import preference_observation
 from mcpref.diagnostics.producers.preference import (
     on_pretrain_step,
@@ -127,6 +128,7 @@ def stage_step(diagnostics, context, fit, result, rows, sources, channel):
 def join_step(record, sources):
     step = record["context"]["steps"][0]
     entry = unique(json.loads((REPO / sources[0]).read_bytes()), "step", step)
+    join_metrics(record, entry["outputs"])
     record["joined"].update(
         {
             "outputs": entry["outputs"],

@@ -1,4 +1,8 @@
 # Env sampling
+
+[Action-change diagnostics](action-change-diagnostics.md) extend serialized MCTS
+nodes with the cached scalar `change_probability`. Legacy nodes decode it as
+unavailable. Metrics compare the actual sampled action with its factual predecessor.
 Status: approved (2026-11-07); 2026-11-07: mixed recurrent/K-V cache and fresh-process Env continuation, approved
 Stage: block 9 of `specs/00-overview.md` — R1: the environment loop and trajectory record
 

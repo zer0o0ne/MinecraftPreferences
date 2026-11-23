@@ -39,14 +39,13 @@ def eligible(observation) -> bool:
     return bool(observation.interval and observation.interval["valid"])
 
 
-def policy_change(pi, readout, logits, q, incoming, enabled):
+def policy_change(pi, probability, logits, q, incoming, enabled):
     if not enabled or incoming is None or not incoming["known"]:
         return None
     actions = set(incoming["actions"])
     repeated = torch.tensor(
         [[name in actions for name in pi.names]], device=logits.device
     )
-    probability = pi.change(readout)
     known = torch.ones_like(probability, dtype=torch.bool)
     return change_cross_entropy(logits, q[None], probability, repeated, known).sum()
 
@@ -60,7 +59,12 @@ def policy_ce(pi, stream, observation, z, incoming, change_enabled):
     readout = pi.readout(Y, C)[:, -1]
     logits = pi.logits(readout)
     ce = F.cross_entropy(logits, q[None], reduction="sum", label_smoothing=0.0)
-    change = policy_change(pi, readout, logits, q, incoming, change_enabled)
+    known = incoming is not None and incoming["known"]
+    probability = logits.new_zeros((1,))
+    if known:
+        with torch.set_grad_enabled(torch.is_grad_enabled() and change_enabled):
+            probability = pi.change(readout)
+    change = policy_change(pi, probability, logits, q, incoming, change_enabled)
     valid = interval["n"] == len(kept) == 1
     action = pi.index[interval["actions"][0]] if interval["n"] == 1 else 0
     pending = {
@@ -84,6 +88,8 @@ def policy_ce(pi, stream, observation, z, incoming, change_enabled):
         "action_valid": bool(kept),
         "shift_valid": valid,
         "source": observation.source,
+        "change_probability": probability.detach(),
+        "previous_known": known,
     }
     return ce, change, pending, row
 

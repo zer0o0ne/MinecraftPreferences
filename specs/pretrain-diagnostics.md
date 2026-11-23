@@ -1,4 +1,7 @@
 # Pretrain diagnostics
+
+[Action-change diagnostics](action-change-diagnostics.md) add pooled head/GT
+agreement to every step and window, using existing readouts in both pretrain modes.
 Status: approved (2026-11-07); 2026-11-05: complete diagnostic signatures and shared `global-fit.json` initialization/resume lifecycle, approved; 2026-11-05: required keyword-only `PretrainConfig` in `step_gradients`, approved; 2026-11-06: required ordered `Groups` in `reduce_work`, approved; 2026-11-07: legacy/new fixed-reference pair layouts and block 33 outbox handoff, approved for drafting
 Stage: revision of block 7 of `specs/00-overview.md` — diagnostics of the existing pretraining loop; no change to its training mathematics
 

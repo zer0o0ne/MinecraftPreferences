@@ -7,6 +7,8 @@ import pytest
 import torch
 from torch.testing import assert_close
 
+from mcpref.diagnostics.pretrain.change import suite
+from mcpref.diagnostics.pretrain.observation import policy_observation
 from mcpref.models.policy.loss import PolicyLoss
 from mcpref.models.policy.network import Policy
 from mcpref.models.policy.targets import next_actions, targets, weights
@@ -54,6 +56,39 @@ def test_known_idle_uses_no_action_on_its_successor(masks):
     current = weights(clip, index)
     assert current.argmax(-1).tolist() == [len(index), len(index), index["attack"]]
     np.testing.assert_array_equal(current.sum(-1), np.ones(3))
+
+
+def test_change_diagnostics_use_factual_predecessors_despite_full_dropout(masks):
+    clip = make_clip([[], ["attack", "use"], ["attack"]], [0.0] * 4, [0] * 4)
+    cfg = cfg_of(history=4, action_dropout=1.0)
+    net = Policy(cfg, 3, masks.names).double().train()
+    with torch.no_grad():
+        net.change_head.weight.zero_()
+    latent = torch.zeros(1, 4, 3, dtype=torch.float64)
+    out = net(latent, [clip])
+    logits = torch.zeros_like(out[0])
+    logits[..., masks.names.index("attack")] = 1
+    out = (logits, *out[1:])
+    loss = PolicyLoss(cfg, masks, lambda delta: delta.square().sum(-1).sqrt())
+    _, valid, observed = loss.terms(out, latent, [clip])
+    assert observed["change"][1].tolist() == [[False, True, True]]
+    values, _ = policy_observation(
+        (
+            logits,
+            observed["q"],
+            observed["current"],
+            valid,
+            observed["zero_shift"],
+            observed["change"],
+        ),
+        2,
+        0.1,
+    )
+    result = suite(values["change_counts"])
+    assert result["count"] == 2
+    assert result["repeat_when_predicted"]["value"] == 0.5
+    for key in ("head_recall", "action_recall", "joint_recall", "false_positive"):
+        assert result[key]["value"] == 1
 
 
 def test_shift_validity_depends_only_on_own_single_allowed_action(masks):
