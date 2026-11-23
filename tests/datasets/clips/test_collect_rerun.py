@@ -108,7 +108,8 @@ def test_early_abort_keeps_run_json_for_the_check(site):
 def other_ffmpeg(site) -> str:
     dst = site.tmp / "bin" / "ffmpeg"
     dst.parent.mkdir()
-    shutil.copy2(site.ffmpeg, dst)
+    shutil.copy2(site.ffmpeg, dst, follow_symlinks=False)
+    shutil.copy2(site.ffmpeg.with_name("ffmpeg.args"), dst.with_name("ffmpeg.args"))
     return str(dst)
 
 

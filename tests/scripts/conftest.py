@@ -180,7 +180,9 @@ class Spark:
 
     def write(self, rel: str, body: str) -> None:
         path = self.tmp / rel
-        path.write_text("#!/bin/bash\n" + self.subst(body))
+        # Bash executes text fakes through its ENOEXEC fallback. Fresh shebang
+        # executables can block during their first launch on macOS.
+        path.write_text(self.subst(body))
         path.chmod(0o755)
 
     def write_fakes(self) -> None:
@@ -229,7 +231,7 @@ class Spark:
         self.log.write_text("")
         with self.log.open("a") as out:
             proc = subprocess.run(
-                argv or [str(self.script)],
+                ["/bin/bash", *(argv or [str(self.script)])],
                 cwd=cwd or self.tmp / "cwd",
                 env=self.env,
                 stdout=out,

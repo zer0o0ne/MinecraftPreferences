@@ -2,8 +2,6 @@
 
 import json
 import os
-import shlex
-import sys
 from pathlib import Path
 
 import pytest
@@ -11,6 +9,7 @@ import yaml
 from progress_bars import assert_aborted, tqdm_defaults
 
 from datasets.vpt.fake_azure import FakeAzure
+from datasets.vpt.video.fake_program import program
 from datasets.vpt.vpt_checks import EPISODES, read_shards
 from datasets.vpt.vpt_world import (
     FIELDS,
@@ -25,7 +24,6 @@ from mcpref.datasets.vpt.gui_frames import main
 FAKE_FFMPEG = Path(__file__).parent / "video" / "fake_ffmpeg.py"
 PROXY_VARS = ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY",
               "all_proxy", "NO_PROXY", "no_proxy")  # fmt: skip
-WRAPPER = '#!/bin/sh\nexec {python} -I -S {fake} {ctl} {log} "$0" "$@"\n'
 
 
 class Site(FakeAzure):
@@ -45,16 +43,7 @@ class Site(FakeAzure):
             tmp / "ffmpeg.log",
             tmp / "ffmpeg",
         )
-        quoted = {
-            "python": sys.executable,
-            "fake": FAKE_FFMPEG,
-            "ctl": self.ctl,
-            "log": self.log,
-        }
-        self.ffmpeg.write_text(
-            WRAPPER.format(**{k: shlex.quote(str(v)) for k, v in quoted.items()})
-        )
-        self.ffmpeg.chmod(0o755)
+        program(self.ffmpeg, FAKE_FFMPEG, self.ctl, self.log)
         self.fields = FIELDS | {"index_urls": self.world.index_urls, "ffmpeg": str(self.ffmpeg),
                                 "out_dir": os.path.relpath(self.out, repo)}  # fmt: skip
 

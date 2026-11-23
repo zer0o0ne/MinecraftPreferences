@@ -8,6 +8,7 @@ import os
 import shutil
 
 import pytest
+from fd_observation import fd_path
 
 from datasets.clips.collect_gamma import Classifier
 from datasets.clips.collect_out import assert_outputs
@@ -76,7 +77,7 @@ def fail_fsync(monkeypatch, when) -> list:
     real, raised = os.fsync, []
 
     def fsync(fd):
-        path = os.readlink(f"/proc/self/fd/{fd}")
+        path = str(fd_path(fd))
         if not raised and when(path):
             raised.append(OSError(28, "No space left on device", path))
             raise raised[-1]

@@ -7,5 +7,5 @@ import pytest
 
 @pytest.fixture
 def base(tmp_path) -> Path:
-    """A fresh directory, its path free of symlinks (as `/proc/self/fd` reports it)."""
+    """A fresh directory with the canonical path reported by descriptor inspection."""
     return tmp_path.resolve()

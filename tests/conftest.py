@@ -113,7 +113,7 @@ class FakeHTTP:
         self.port = self.server.server_address[1]
 
     def listen(self) -> None:
-        """Accept connections; until then the bound port refuses them."""
+        """Accept connections; before this, connecting may fail or time out by OS."""
         self.server.server_activate()
         self.thread = threading.Thread(
             target=self.server.serve_forever, args=(0.01,), daemon=True
@@ -162,7 +162,7 @@ def masks(repo):
 
 @pytest.fixture
 def refusing_proxy(http, monkeypatch) -> None:
-    """Proxy variables name a port that refuses connections; NO_PROXY is unset."""
+    """Proxy variables name an unavailable endpoint; NO_PROXY is unset."""
     port = http(lambda req: None, listen=False).port
     for var in ("HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
         monkeypatch.setenv(var, f"http://127.0.0.1:{port}")

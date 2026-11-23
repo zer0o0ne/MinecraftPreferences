@@ -219,10 +219,23 @@ def test_failure_raises_and_cancels_requests_in_flight(http, fields, failure, at
         assert str(failure) in str(info.value) and "reason-xyz" in str(info.value)
 
 
-def test_unreachable_server_raises_with_the_transport_error(http, fields):
+def test_connect_error_is_retried_then_raised_with_the_transport_error(
+    monkeypatch, fields
+):
+    """A bound, non-listening TCP socket times out on macOS; inject the transport error."""
+    requests = []
+
+    async def connect_error(self, request):
+        requests.append(request)
+        raise httpx.ConnectError("test connection refused", request=request)
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", connect_error)
+    cfg = VLMConfig(**fields["client"] | {"max_resends": 1})
     with pytest.raises(RuntimeError) as info:
-        ask(fields, http(echo, listen=False), [["p"]], max_resends=1)
+        ask_many([["p"]], [0], cfg)
     assert carries(info.value, httpx.ConnectError), repr(info.value)
+    assert len(requests) == 2
+    assert all(str(r.url) == f"{cfg.base_url}/v1/chat/completions" for r in requests)
 
 
 def test_proxy_variables_are_ignored(http, fields, refusing_proxy):

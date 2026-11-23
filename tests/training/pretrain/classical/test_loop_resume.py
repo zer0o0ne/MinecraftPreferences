@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from fd_observation import fd_path
 from progress_bars import Bar, screen, states
 
 from training.pretrain.classical.data.index_run import Interrupted, interrupting
@@ -155,7 +156,7 @@ def test_rerun_deletes_what_a_crash_left(tmp_path):
             return real_forward(self, clips, states)
 
         def fsync(fd):
-            synced.append((os.readlink(f"/proc/self/fd/{fd}"), pts[0].exists()))
+            synced.append((str(fd_path(fd)), pts[0].exists()))
             real_fsync(fd)
 
         mp.setattr(Phi, "forward", forward)

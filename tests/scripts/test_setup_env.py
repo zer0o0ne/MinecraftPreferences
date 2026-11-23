@@ -77,6 +77,14 @@ def read_config(path: Path) -> dict:
     return dict(line.split(": ") for line in lines)
 
 
+def test_shell_wrappers_are_executable_bash_scripts(repo):
+    wrappers = sorted((repo / "scripts").glob("*.sh"))
+    assert wrappers
+    for script in wrappers:
+        assert script.read_text().startswith("#!/usr/bin/env bash\n"), script
+        assert os.access(script, os.X_OK), script
+
+
 def test_steps_in_order_with_spec_arguments(spark):
     result = spark.run()
     assert result.returncode == 0, result.stderr
@@ -146,7 +154,9 @@ def test_missing_config_key(spark, key):
 @pytest.mark.parametrize("arch", ["x86_64", "arm64", "aarch64_be"])
 def test_arch_other_than_aarch64_fails(spark, arch):
     spark.arch = arch
-    assert_failed(spark.run(), spark.expected([], "arch"), "arch")
+    assert_failed(
+        spark.run(), spark.expected([], "arch"), "arch", "architecture is not aarch64"
+    )
 
 
 # driver_min = 575.64.05; string order misjudges 575.100.01, 1000.0.0, 575.9.99, 99.99.99
@@ -346,11 +356,14 @@ def test_java_checked_after_an_install(spark):
     assert_failed(spark.run(), events, "engine-deps", JAVA_MESSAGE)
 
 
-@pytest.mark.skipif(
-    shutil.which("java", path="/usr/bin:/bin") is not None,
-    reason="a java in /usr/bin or /bin would be found on the fake Spark's PATH",
-)
 def test_java_missing_fails(spark):
+    basebin = spark.tmp / "basebin"
+    basebin.mkdir()
+    for name in ("awk", "cat", "dirname", "grep", "sed", "sort"):
+        target = shutil.which(name, path="/usr/bin:/bin")
+        assert target is not None
+        (basebin / name).symlink_to(target)
+    spark.env["PATH"] = f"{spark.tmp / 'sysbin'}:{basebin}"
     spark.java = None
     events = spark.expected(spark.uv_check(UV), "engine-deps")[:-1]  # no java to record
     assert_failed(spark.run(), events, "engine-deps", JAVA_MESSAGE)

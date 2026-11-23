@@ -110,7 +110,8 @@ def test_rerun_with_other_field_continues_the_plan(site, capfd, field):
     value = OTHER[field]
     if field == "ffmpeg":
         value = str(site.tmp / "other-ffmpeg")
-        shutil.copy(site.ffmpeg, value)
+        shutil.copy(site.ffmpeg, value, follow_symlinks=False)
+        shutil.copy(site.ffmpeg.with_name("ffmpeg.args"), value + ".args")
     assert main(["run", site.config(**{field: value})]) == 0
     k = site.fields["plan_shard_draws"] if field != "plan_shard_draws" else value
     assert site.plan() == site.shards(before=((1, 2),), plan_shard_draws=k)

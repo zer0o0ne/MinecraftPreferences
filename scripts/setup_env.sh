@@ -17,7 +17,7 @@ driver_min=$(cfg driver_min)
 ffmpeg_deb_version=$(cfg ffmpeg_deb_version)
 
 step arch
-[[ $(uname -m) == aarch64 ]]
+[[ $(uname -m) == aarch64 ]] || fail 'architecture is not aarch64'
 
 step driver
 driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader)

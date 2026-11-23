@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 
 import pytest
+from fd_observation import fd_path
 
 from mcpref.infrastructure.runs.files import (
     finished_run,
@@ -152,7 +153,7 @@ def test_write_json_syncs_before_and_after_the_rename(tmp_path, monkeypatch):
     path, log, real = base / "run.json", [], os.fsync
 
     def fsync(fd):
-        log.append((Path(os.readlink(f"/proc/self/fd/{fd}")), path.exists()))
+        log.append((fd_path(fd), path.exists()))
         real(fd)
 
     monkeypatch.setattr(os, "fsync", fsync)

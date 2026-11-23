@@ -7,6 +7,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from fd_observation import fd_path, is_read_only
+
 TREE = {
     "a.bin": b"a",
     "empty.bin": b"",
@@ -30,21 +32,6 @@ class Sync:
 def ancestors(p: Path) -> set[Path]:
     """`p` and every directory above it up to `/`."""
     return {p, *p.parents}
-
-
-def fd_path(fd: int) -> Path | None:
-    """The path an open fd of this process refers to; None if `fd` is not open."""
-    try:
-        return Path(os.readlink(f"/proc/self/fd/{fd}"))
-    except FileNotFoundError:
-        return None
-
-
-def is_read_only(fd: int) -> bool:
-    """Whether `fd` was opened with access mode `O_RDONLY`."""
-    info = Path(f"/proc/self/fdinfo/{fd}").read_text()
-    flags = int(info.split("flags:")[1].split()[0], 8)
-    return flags & os.O_ACCMODE == os.O_RDONLY
 
 
 def record_syncs(monkeypatch, after: Callable[[], bool] = lambda: False) -> list[Sync]:

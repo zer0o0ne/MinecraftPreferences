@@ -8,6 +8,7 @@ import os
 import time
 import weakref
 
+import psutil
 import pytest
 from progress_bars import Bar, screen
 
@@ -139,9 +140,13 @@ def test_decode_retried_after_retry_delay(make_site, failure):
 def gone(pid: int) -> bool:
     """Whether the process `pid` has ended (within 2 s)."""
     end = time.monotonic() + 2.0
-    while os.path.exists(f"/proc/{pid}") and time.monotonic() < end:
+    while psutil.pid_exists(pid) and time.monotonic() < end:
         time.sleep(0.02)
-    return not os.path.exists(f"/proc/{pid}")
+    return not psutil.pid_exists(pid)
+
+
+def test_gone_does_not_report_a_running_process_as_terminated():
+    assert not gone(os.getpid())
 
 
 @pytest.mark.parametrize("plan", [["slow"], ["ok", "slow"]], ids=["pass_1", "pass_2"])

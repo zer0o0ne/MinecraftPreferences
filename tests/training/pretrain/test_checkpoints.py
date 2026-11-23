@@ -3,9 +3,9 @@
 directory synced; nothing else touched."""
 
 import os
-from pathlib import Path
 
 import pytest
+from fd_observation import fd_path
 
 from mcpref.training.checkpoints import prune
 
@@ -33,7 +33,7 @@ def test_prune(tmp_path, monkeypatch, n, last, k, without, deleted):
     synced, real = [], os.fsync
 
     def fsync(fd):
-        path = Path(os.readlink(f"/proc/self/fd/{fd}"))
+        path = fd_path(fd)
         synced.append((path, (path / "checkpoint.pt").exists()))
         real(fd)
 

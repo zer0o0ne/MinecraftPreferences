@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 import re
-import shlex
 import sys
 import threading
 from pathlib import Path
@@ -29,10 +28,10 @@ from datasets.clips.collect_world import (
     font,
 )
 from datasets.vpt.fake_azure import FakeAzure
+from datasets.vpt.video.fake_program import program
 from datasets.vpt.vpt_world import SUBSETS, World
 from mcpref.datasets.clips.collect import collect, load_config
 
-WRAPPER = '#!/bin/sh\nexec {python} -I -S {fake} {ctl} {log} "$0" "$@"\n'
 FAKE = Path(__file__).with_name("fake_decoder.py")
 FIELDS = {  # PerceptionDataConfig fields but index_urls, ffmpeg, the config paths, out_dir
     "x_ms_version": "2019-12-12", "min_version": "6.12", "required_options": REQUIRED,
@@ -74,9 +73,7 @@ class Site(FakeAzure, OutDir):
         self.indices, self.gates = {}, {}
         self.behaviours, self.noise, self.sleep = {}, {}, 6.0
         self.ctl, self.log, self.ffmpeg = tmp / "ctl.json", tmp / "ffmpeg.log", tmp / "ffmpeg"  # fmt: skip
-        quoted = {"python": sys.executable, "fake": FAKE, "ctl": self.ctl, "log": self.log}  # fmt: skip
-        self.ffmpeg.write_text(WRAPPER.format(**{k: shlex.quote(str(v)) for k, v in quoted.items()}))  # fmt: skip
-        self.ffmpeg.chmod(0o755)
+        program(self.ffmpeg, FAKE, self.ctl, self.log)
         self.paths = {n: tmp / "cfg" / f"{n}.yaml" for n in NAMES}
         self.fields = FIELDS | {"index_urls": urls, "ffmpeg": str(self.ffmpeg),
                                 "out_dir": self.rel(self.out)}  # fmt: skip
