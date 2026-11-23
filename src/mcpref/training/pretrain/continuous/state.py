@@ -26,6 +26,8 @@ def detached(value, device=None):
 @dataclass
 class Stream:
     recurrent: object = None
+    anchor: object = None
+    replay: list[dict] = field(default_factory=list)
     previous: dict | None = None
     recent: dict[str, torch.Tensor] = field(default_factory=dict)
     policy: list[dict] = field(default_factory=list)

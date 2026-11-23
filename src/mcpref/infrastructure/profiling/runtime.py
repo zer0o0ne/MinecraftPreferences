@@ -69,6 +69,7 @@ class TrainingProfile(AbstractContextManager):
                     "batch",
                     "micro_batch",
                     "tbptt_states",
+                    "batch_size",
                     "preference_micro_batch",
                 )
                 if hasattr(cfg, name)

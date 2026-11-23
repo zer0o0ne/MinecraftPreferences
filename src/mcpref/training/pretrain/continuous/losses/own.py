@@ -6,6 +6,7 @@ from torch.nn import functional as F
 from mcpref.models.perception.loss import _terms, changed
 from mcpref.models.policy.change import change_cross_entropy
 from mcpref.models.policy.targets import frequencies
+from mcpref.training.pretrain.continuous.replay import capture_rng, replay_rng
 
 
 def phi_interval(module, previous: dict, z, observation):
@@ -56,6 +57,7 @@ def policy_ce(pi, stream, observation, z, incoming, change_enabled):
     q = z.new_tensor(frequencies(kept, pi.index, len(pi.names)))
     Y = torch.stack([row["z"] for row in stream.policy])[None]
     C = torch.stack([row["c"] for row in stream.policy])[None]
+    rng = capture_rng(z.device)
     readout = pi.readout(Y, C)[:, -1]
     logits = pi.logits(readout)
     ce = F.cross_entropy(logits, q[None], reduction="sum", label_smoothing=0.0)
@@ -74,6 +76,7 @@ def policy_ce(pi, stream, observation, z, incoming, change_enabled):
         "Y": Y,
         "C": C,
         "readout": readout,
+        "rng": rng,
         "action": action,
         "valid": valid,
         "indices": [row["id"] for row in stream.policy],
@@ -97,7 +100,8 @@ def policy_ce(pi, stream, observation, z, incoming, change_enabled):
 def policy_shift(pi, loss, pending, z):
     readout = pending["readout"]
     if readout is None:
-        readout = pi.readout(pending["Y"], pending["C"])[:, -1]
+        with replay_rng(pending["rng"], z.device):
+            readout = pi.readout(pending["Y"], pending["C"])[:, -1]
     a = torch.tensor([pending["action"]], dtype=torch.int64, device=z.device)
     prediction = pi.shift(readout, a)
     factual = (z - pending["z"]).detach()[None]

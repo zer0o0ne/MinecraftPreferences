@@ -25,6 +25,7 @@ from mcpref.training.pretrain.continuous.diagnostics import (
     reference_store,
     selection,
 )
+from mcpref.training.pretrain.continuous.schedule import epoch_updates
 
 
 def setup(tmp_path, monkeypatch, *, preferences=True):
@@ -114,6 +115,7 @@ def training(tmp_path, world, data, name, *, gradients=False):
     cfg = config(
         epochs=1,
         tbptt_states=3,
+        batch_size=3,
         checkpoint_steps=2,
         diagnostic_window=1,
         diagnostics=cfg_path.name,
@@ -147,7 +149,7 @@ def training(tmp_path, world, data, name, *, gradients=False):
         cfg.groups.pop("P")
         for key in ("P", "P_loss"):
             modules.pop(key)
-    total = data.run["populations"]["train"]["M"] * cfg.epochs
+    total = epoch_updates(data, cfg) * cfg.epochs
     result = context(tmp_path / name, cfg, modules, data, total)
     result.root.mkdir(exist_ok=True)
     return result

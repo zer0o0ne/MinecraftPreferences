@@ -61,7 +61,7 @@ class Gradients:
                 "counts": dict(result.counts),
                 "evidence": {
                     "kind": "real_pretrain_step",
-                    "gradient_path": "truncated_current_window_and_detached_earlier_endpoints",
+                    "gradient_path": "sliding_replay_and_detached_earlier_endpoints",
                 },
                 **reduced,
                 "update_alignment": alignment,

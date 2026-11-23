@@ -10,6 +10,7 @@ from mcpref.training.pretrain.config import POSITIVE_INTS, TrainingConfig, parse
 @dataclass(frozen=True)
 class ContinuousConfig(TrainingConfig):
     tbptt_states: int
+    batch_size: int
     preference_micro_batch: int
     archive_shard_size: int
     archive_cache_size: int
@@ -21,6 +22,7 @@ def load_config(path: Path) -> ContinuousConfig:
     positive = POSITIVE_INTS
     positive += (
         "tbptt_states",
+        "batch_size",
         "preference_micro_batch",
         "archive_shard_size",
         "archive_cache_size",

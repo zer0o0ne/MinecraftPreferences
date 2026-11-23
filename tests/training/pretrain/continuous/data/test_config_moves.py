@@ -1,4 +1,4 @@
-"""Relocating configs preserves old index identity without accepting new settings."""
+"""Config relocation and optimizer changes preserve the data index identity."""
 
 import dataclasses
 import json
@@ -40,14 +40,33 @@ def test_existing_index_after_config_relocation(tmp_path, monkeypatch, changed):
         write_json(new_train, settings | {"optimizer_setting": "changed"})
     data = Index(world.out)
     try:
-        if changed:
-            with pytest.raises(ValueError, match="inputs changed"):
-                data.validate()
-            with pytest.raises(ValueError, match="inputs changed"):
-                index.run(relocated, new_index)
-        else:
-            data.validate()
-            assert index.run(relocated, new_index) == expected
+        data.validate()
+        assert index.run(relocated, new_index) == expected
         assert (world.out / "run.json").read_bytes() == original
     finally:
         data.close()
+
+
+def test_legacy_v2_index_survives_new_k_and_batch_without_rewriting(
+    tmp_path, monkeypatch
+):
+    world = make_world(tmp_path, monkeypatch)
+    run = index.run(world.cfg, world.path)
+    run["mathematics"]["tbptt_states"] = 2
+    run["fingerprint"].update(tbptt_states=2, training_config="legacy-config-hash")
+    run["populations"]["train"]["M"] = 7
+    write_json(world.out / "run.json", run)
+    original = {
+        path: path.read_bytes() for path in world.out.rglob("*") if path.is_file()
+    }
+    path = tmp_path / "train.yaml"
+    write_json(
+        path, json.loads(path.read_text()) | {"tbptt_states": 4, "batch_size": 3}
+    )
+    data = Index(world.out)
+    try:
+        data.validate()
+        assert index.run(world.cfg, world.path) == run
+    finally:
+        data.close()
+    assert all(path.read_bytes() == contents for path, contents in original.items())

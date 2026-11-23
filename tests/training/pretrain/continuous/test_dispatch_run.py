@@ -9,7 +9,6 @@ import yaml
 from training.pretrain.continuous.diagnostics.hooks_world import setup, training
 from training.pretrain.continuous.diagnostics.test_hooks import assert_complete
 
-from mcpref.config import config_sha256
 from mcpref.runtime.sampling.checkpoints import load_weights
 from mcpref.training.pretrain import modes
 from mcpref.training.pretrain import run as dispatch
@@ -99,7 +98,7 @@ def test_public_continuous_entrypoint_builds_index_and_completes_training(
     assert constructed[0][-3:] == (True, "cpu", 1.0)
     indexed = json.loads((tmp_path / "dispatch-index/run.json").read_text())
     assert indexed["complete"] and indexed["pretrain_mode"] == "continuous"
-    assert indexed["fingerprint"]["training_config"] == config_sha256(train_path)
+    assert "training_config" not in indexed["fingerprint"]
     run = json.loads((fixture.root / "run.json").read_text())
     assert run["complete"] and run["attention"] == "observation"
     saved = torch.load(fixture.root / "model.pt", weights_only=True)

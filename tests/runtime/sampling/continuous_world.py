@@ -36,6 +36,7 @@ def setup(site, monkeypatch):
             }
             | {
                 "tbptt_states": 2,
+                "batch_size": 3,
                 "preference_micro_batch": 2,
                 "archive_shard_size": 4,
                 "archive_cache_size": 4,

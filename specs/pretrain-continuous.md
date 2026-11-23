@@ -35,9 +35,12 @@ an existing file at an old path takes precedence. Config reads outside the
 repository are not redirected. Pretrain index and sampling fingerprints use a
 scoped compatibility hash: for the relocated pretrain configs and selector,
 reverse only the known path substitutions before hashing the same bytes and
-inheritance graph. The general raw-byte config hash is unchanged. Other content
-changes must still reject resume. Complete existing indexes retain their metadata
-bytes, preserving downstream training identities.
+inheritance graph. The general raw-byte config hash is unchanged. Training resume
+still checks all training/model/diagnostic config content. Index compatibility
+checks only data-defining inputs: dataset, labels, index settings, preference
+history/config and action-mask semantics. Changing K, B or optimizer settings
+does not require rebuilding the index. Complete existing indexes retain their
+metadata bytes, preserving downstream training identities.
 
 ## Stream and gradients
 
@@ -53,15 +56,26 @@ time. Relative position metadata uses the first retained observation of the
 fragment as its fixed origin. No growing token-ID/position history is retained.
 Inference and training implement the same observation/memory semantics.
 
-Within a fragment, consecutive windows of at most `tbptt_states = K` observations
-form optimizer steps. The last window may be shorter. After each window's
-backward/update, detach every live recurrent state and retained latent history;
-keep their numerical values. Never retain an autograd graph for an entire world
-or re-encode a historical endpoint to substitute current-weight latents.
-The current window's latents retain their graph until backward; a history may
-therefore contain an older detached prefix and a differentiable suffix.
-Stale state and stale preference histories after updates are accepted
-approximations, not gradients of the classical fixed-parameter objective.
+For every new observation t, `tbptt_states = K` defines a sliding gradient
+window `[max(fragment_start, t-K+1), t]`, including the current observation.
+Replay this window with current weights from a detached memory anchor immediately
+before its first observation. Replace the live suffix's latents/states with the
+replayed values. When the window advances, its next anchor is the detached state
+after the first replayed observation, not the original historical state at that
+position. Earlier memory is never recomputed. Preserve the fragment origin.
+Historical stochastic draws are replayed without advancing the global RNG again.
+Only newly available losses/events at t are scored; replay never repeats labels,
+archive publications, counters or ordinary losses. Release each event's graph
+after its backward. Histories before the sliding cutoff and archived earlier
+preference endpoints remain detached.
+
+Independently, `batch_size = B` counts new observations, including idle or invalid
+ones. Accumulate their gradients, then clip and update once. B may be smaller or
+larger than K. Batches cross fragment boundaries (reset only stream memory there),
+and the final batch of an epoch may be shorter. An optimizer update never clears
+the replay inputs or anchor: the next event rebuilds the full available K-window
+with updated weights. The anchor and archived histories may contain older-weight
+values; this is an explicit approximation, not full-history current-weight BPTT.
 
 The training state interface must be functional: checkpoint recomputation may
 not mutate state already consumed by autograd. Stock inference `DynamicCache`
@@ -96,12 +110,13 @@ input is the existing one-hot no-action token, not an all-zero distribution.
 Raw action metadata may be read ahead for targets; future frames/latents must
 not be inputs to phi or the policy readout. Score action CE in j's own window,
 using raw target metadata; this keeps its phi gradient even for K=1. Score the
-shift term when z[j+1] arrives. Within one window it reuses j's readout/dropout.
-Across a K boundary, recompute the policy readout/shift from the saved detached
-history ending at j, with the updated policy weights and a new saved-RNG dropout
-draw. Do not add z[j+1] to that input history. This delayed shift trains pi but
-has no phi gradient across the boundary; it is an explicit TBPTT approximation.
-Pending shift snapshots include the exact latent/action history and indices.
+shift term when z[j+1] arrives, recomputing j's policy readout from its refreshed
+history with the current event's sliding cutoff. Reuse j's saved dropout draw,
+including across optimizer updates, without advancing the global RNG again.
+Do not add z[j+1] to that input history. The detached factual target does not
+differentiate through z[j+1], so shift reaches at most K-1 phi observations;
+at K=1 it trains pi only. Pending snapshots include the latent/action history,
+indices and RNG needed to reconstruct the readout.
 
 The initial observation and the first observation after unknown/disconnected
 action metadata use the no-action input. A known idle interval preserves the
@@ -126,7 +141,7 @@ it does not replace ordinary CE or shift. First/unknown/disconnected predecessor
 exclude only this term. A known idle predecessor has an empty membership set,
 so every current action is a change. The membership mask is independent of
 action-input dropout. Score this term in j's own window, retaining the same
-within-window phi gradients as CE, including K=1. `w_change=0` omits its graph
+sliding-window phi gradients as CE, including K=1. `w_change=0` omits its graph
 and leaves otherwise unused change-head parameters without gradients.
 
 Clips exist only as preference endpoints. At completion of a mapped clip, gather
@@ -136,7 +151,8 @@ edge whose other endpoint has already completed, call P on those histories and
 score the existing preference loss, including both-order weighting and original
 A/B orientation. The older endpoint's **entire history is detached**, even if
 it was encoded in the current K-window. The current endpoint keeps only its
-available within-window gradient. Store its detached history for later events.
+available sliding-window gradient. Store its detached history for later events;
+never rewrite this archived endpoint when its live observations are replayed.
 
 Process each original retained edge exactly once per epoch, at completion of its
 second endpoint. Simultaneous endpoint completions have a deterministic order
@@ -162,26 +178,27 @@ observation-ID suffixes coincide, even if their full annotated histories differ.
 Fingerprint `preference.history` and report this filtering separately.
 
 Let `N_phi`, `N_pi`, `N_P` be the sizes of these three complete training
-populations, and M the number of K-windows per epoch. For update window B,
+populations. Let U = ceil(N_observations / batch_size) be the number of optimizer
+batches per epoch, without rounding separately per fragment. For update batch A,
 
 \[
- L_B=M\left[
- \frac{w_\phi}{N_\phi}\sum_{j\in I_\phi(B)}\ell^\phi_j+
- \frac{w_\pi}{N_\pi}\left[\sum_{j\in C(B)}\mathrm{CE}_j+
- \sum_{j\in S(B)}w_\Delta\chi_j d^2_j\right]+
- \frac{w_{change}}{N_\pi}\sum_{j\in C(B)}\ell^{change}_j+
- \frac{w_P}{N_P}\sum_{r\in R(B)}\ell^P_r\right].
+ L_A=U\left[
+ \frac{w_\phi}{N_\phi}\sum_{j\in I_\phi(A)}\ell^\phi_j+
+ \frac{w_\pi}{N_\pi}\left[\sum_{j\in C(A)}\mathrm{CE}_j+
+ \sum_{j\in S(A)}w_\Delta\chi_j d^2_j\right]+
+ \frac{w_{change}}{N_\pi}\sum_{j\in C(A)}\ell^{change}_j+
+ \frac{w_P}{N_P}\sum_{r\in R(A)}\ell^P_r\right].
 \]
 
-C(B) and S(B) are respectively the CE and completed-shift events of that window;
+C(A) and S(A) are respectively the CE and completed-shift events of that batch;
 each eligible policy position contributes once to each across the epoch, with
 the same N_pi denominator. Count these two event streams separately.
-Omit an empty population and its denominator. An entirely empty loss window
+Omit an empty population and its denominator. An entirely empty loss batch
 advances the stream/schedule with all gradients `None`; it performs no parameter
-decay/update. For fixed realized losses, the arithmetic mean over windows equals
+decay/update. For fixed realized losses, the arithmetic mean over batches equals
 the weighted population means, with the auxiliary term using the same N_pi
 denominator and its independent nonnegative `w_change`. Do not divide by a clip's degree, event-local pair
-count, fragment length or current window size. There is no extra own loss when
+count, fragment length, B or actual tail-batch size. There is no extra own loss when
 a preference endpoint completes. Pair micro-batching may bound P's working
 memory but uses these same denominators and sums gradients before the update.
 
@@ -193,9 +210,9 @@ an independently shuffled/split part of the same recurrent history.
 
 ## Interfaces and artifacts
 
-- Continuous config: complete dataset/index paths, `tbptt_states`, bounded
+- Continuous config: complete dataset/index paths, `tbptt_states`, `batch_size`, bounded
   preference micro-batch/archive/cache limits, output path and the existing
-  shared optimization/model/diagnostic settings. K is configurable and positive;
+  shared optimization/model/diagnostic settings. K and B are positive integers;
   its initial performance setting is verified on the Spark before a full run.
 - Perception exposes a differentiable observation step returning `(z, state)`
   and an inference adapter with the same semantics. `state` includes GDN
@@ -203,7 +220,8 @@ an independently shuffled/split part of the same recurrent history.
   full-attention K/V. The classical interface remains supported.
 - A checkpoint atomically records weights, optimizer/schedule, torch/CUDA and
   ordering RNG, epoch/fragment/source/shard/grid cursor, recurrent state, recent
-  latent/action history, pending own targets, preference archive snapshot and
+  latent/action history, replay inputs and their RNG, detached replay anchor,
+  pending own targets with policy RNG, preference archive snapshot and
   consumed-edge position. Checkpoints are taken only after complete updates and
   detach. Archive publication and checkpoint references must recover together;
   a restart neither repeats nor skips a labeled edge or ordinary target.
@@ -233,7 +251,21 @@ an independently shuffled/split part of the same recurrent history.
   a fresh heads-only optimizer/schedule and the same retained labels. The phase
   has its own fully resumable stream/archive/checkpoint state.
 
-Continuous indexes use `mcpref-continuous-index-v2`: `N_pi` counts every valid current interval. Version 1 indexes must be rebuilt in a new index output directory from the existing raw dataset. Training run headers and checkpoints carry `policy_alignment: "preceding-action-v1"`; old or missing alignment tags reject resume. A new output directory is required for the revised objective; existing saved weights are not retroactively retrained.
+Continuous indexes use `mcpref-continuous-index-v2`: `N_pi` counts every valid
+current interval. Version 1 indexes must be rebuilt in a new index output
+directory from the existing raw dataset. Existing v2 indexes remain readable
+without rewriting: ignore their legacy `tbptt_states` and `training_config`
+fingerprint fields and any precomputed `M`. Compute U from the observation
+population and current B at training time; new indexes omit these obsolete
+fields. All other compatibility checks remain active.
+
+Training run headers and checkpoints carry
+`policy_alignment: "preceding-action-v1"`; old or missing alignment tags reject
+resume. Continuous run headers, checkpoints and model exports also carry
+`gradient_semantics: "sliding-replay-v1"`. Old or missing gradient semantics
+reject training resume, including completed model shortcuts and retraining.
+Use a new output directory for the revised gradient contract; saved older
+weights remain usable for inference and are not retroactively retrained.
 
 ## Acceptance
 
@@ -251,12 +283,16 @@ Continuous indexes use `mcpref-continuous-index-v2`: `N_pi` counts every valid c
   observations; a fragment reset removes it. Attention cannot read a token from
   an earlier observation. State/token storage does not grow with fragment age.
 - A tiny deterministic recurrent model matches an independent unroll for both
-  values and gradients inside K; gradients do not cross a detach boundary,
-  values do. K=1, partial windows and non-reentrant recomputation pass backward.
+  values and gradients inside K, including the refreshed advancing anchor;
+  gradients do not cross the sliding cutoff, values do. K=1, partial windows,
+  B<K, B=K, B>K and non-reentrant recomputation pass backward across updates.
+  B counts new observations across fragments, the epoch tail updates once, and
+  replay does not advance global RNG or duplicate events. Checkpoint resume
+  restores replay inputs, anchor, dropout draws and accumulated update schedule.
   At K=1, CE trains phi, the delayed shift trains pi without a phi gradient,
   and each eligible CE/shift event is counted exactly once.
   The corresponding real Qwen CUDA/FLA transition runs on the Spark.
-- Own transitions crossing episode, shard and K-window boundaries are counted
+- Own transitions crossing episode, shard and optimizer-batch boundaries are counted
   once; invalid/idle intervals and fragment ends have the stated masks. Changing
   preference degree does not change own-loss population weights.
 - Per-occurrence change weighting preserves current duplicate counts and ignores

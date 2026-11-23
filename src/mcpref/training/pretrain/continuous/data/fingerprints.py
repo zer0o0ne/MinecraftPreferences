@@ -16,6 +16,13 @@ from mcpref.infrastructure.shards.store import complete_shards, shard_path
 FORMAT = "mcpref-continuous-index-v2"
 
 
+def identity(value):
+    """Legacy optimizer/K fingerprints do not describe indexed data."""
+    return {
+        k: v for k, v in value.items() if k not in ("tbptt_states", "training_config")
+    }
+
+
 def additional_runs(cfg, root):
     if cfg.pair_clips_dir is None:
         return None
@@ -74,7 +81,6 @@ def sources(cfg, path, maths, masks):
     return {
         **maths,
         "index_config": pretrain_config_sha256(path),
-        "training_config": pretrain_config_sha256(REPO / cfg.training_config),
         "preference_config": config_sha256(REPO / train["preference"]),
         "action_mask_sha256": hashlib.sha256(
             json.dumps(mask_value, sort_keys=True).encode()

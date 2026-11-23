@@ -1,4 +1,4 @@
-"""Bounded K-observation unroll and its globally normalized losses."""
+"""Sliding per-observation backward and independent optimizer accumulation."""
 
 from mcpref.models.perception.continuous import observation_step
 from mcpref.training.optim import update
@@ -11,12 +11,15 @@ from mcpref.training.pretrain.continuous.losses.own import (
     policy_shift,
 )
 from mcpref.training.pretrain.continuous.losses.preference import endpoints
-from mcpref.training.pretrain.continuous.state import detached
+from mcpref.training.pretrain.continuous.replay import observation as replay_observation
+from mcpref.training.pretrain.continuous.state import Stream, detached
 
 
 def factors(cfg, population: dict) -> dict:
     return {
-        key: population["M"] * weight / population[name] if population[name] else 0.0
+        key: population["updates"] * weight / population[name]
+        if population[name]
+        else 0.0
         for key, name, weight in (
             ("phi", "N_phi", cfg.w_phi),
             ("pi", "N_pi", cfg.w_pi),
@@ -94,17 +97,17 @@ def own_losses(context, stream, observation, z, result):
 
 
 def window(context, stream, archive, observations, population, hooks=None):
-    result, live = WindowResult(), {}
+    result = WindowResult()
     weights = factors(context.cfg, population)
     preference_history = context.modules["P"].history if "P" in context.modules else 1
     for observation in observations:
-        z, stream.recurrent = observation_step(
-            context.modules["phi"],
-            observation.frame,
-            observation.line,
-            stream.recurrent,
-        )
+        if observation.index == 0:
+            if stream.pending is not None:
+                raise RuntimeError("Unfinished policy target at a fragment boundary")
+            stream = Stream()
+        z = replay_observation(context, stream, observation, observation_step)
         own = own_losses(context, stream, observation, z, result)
+        live = {}
         for key, value in own.items():
             component = "pi" if key == "pi_change" else key
             live[component] = live.get(component, 0) + weights[key] * value
@@ -113,6 +116,9 @@ def window(context, stream, archive, observations, population, hooks=None):
             endpoints(
                 context, hooks, archive, stream, observation, result, weights["P"]
             )
+        backward(context, hooks, live, {"own": result}, retain=False)
+        for key, value in live.items():
+            result.weighted[key] = result.weighted.get(key, 0) + value.detach()
         stream.previous = {
             "id": observation.id,
             "z": z,
@@ -120,8 +126,7 @@ def window(context, stream, archive, observations, population, hooks=None):
             "meta": observation.meta,
             "interval": observation.interval,
         }
-    backward(context, hooks, live, {"own": result}, retain=False)
-    result.weighted.update({key: value.detach() for key, value in live.items()})
+        stream = stream.detach()
     notify(hooks, "before_update", context, result)
     result.lr = update(
         context.cfg, context.optimizer, context.groups, context.step, context.total

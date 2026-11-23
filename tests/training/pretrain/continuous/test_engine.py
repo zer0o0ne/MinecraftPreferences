@@ -40,7 +40,7 @@ def test_k_one_ce_trains_phi_delayed_shift_does_not(tmp_path, monkeypatch):
     ctx = context(tmp_path, cfg)
     original = copy.deepcopy(ctx.modules)
     rows = observations("x", [1, 2], actions=[["b"]])
-    pop = {"N_phi": 1, "N_pi": 1, "N_P": 0, "M": 2}
+    pop = {"N_phi": 1, "N_pi": 1, "N_P": 0, "updates": 2}
     archive, capture = Archive(tmp_path / "archive" / "shards", 1, 1), Capture()
     stream, result = steps.window(ctx, Stream(), archive, rows[:1], pop, capture)
     z = original["phi"].weight[None, None]
@@ -80,7 +80,12 @@ def test_preference_older_endpoint_detached_and_original_orientation(
     )
     archive = Archive(tmp_path / "archive" / "shards", 1, 1)
     _, result = steps.window(
-        ctx, Stream(), archive, rows, {"N_phi": 0, "N_pi": 0, "N_P": 1, "M": 1}, capture
+        ctx,
+        Stream(),
+        archive,
+        rows,
+        {"N_phi": 0, "N_pi": 0, "N_P": 1, "updates": 1},
+        capture,
     )
     w = original["phi"].weight
     old, new = w.detach()[None, None], (3.5 * w)[None, None]
@@ -109,7 +114,7 @@ def test_empty_window_does_not_decay_or_initialize_optimizer(tmp_path, monkeypat
         Stream(),
         archive,
         observations("x", [1]),
-        {"N_phi": 0, "N_pi": 0, "N_P": 0, "M": 1},
+        {"N_phi": 0, "N_pi": 0, "N_P": 0, "updates": 1},
     )
     assert not ctx.optimizer.state
     assert result.record(1)["loss"] == 0 and result.lr
@@ -130,7 +135,7 @@ def test_idle_history_kept_and_unknown_history_cut(tmp_path, monkeypatch):
             Stream(),
             Archive(tmp_path / prefix / "shards", 1, 1),
             rows[:2],
-            {"N_phi": 2, "N_pi": 2, "N_P": 0, "M": 2},
+            {"N_phi": 2, "N_pi": 2, "N_P": 0, "updates": 2},
         )
         assert stream.pending["indices"] == expected
         torch.testing.assert_close(

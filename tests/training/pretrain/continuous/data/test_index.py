@@ -24,7 +24,6 @@ def test_populations_original_edges_aliases_and_suffix_collisions(
             "N_phi": 7,
             "N_pi": 7,
             "N_P": 4,
-            "M": 5,
             "observations": 13,
             "fragments": 2,
         },
@@ -32,7 +31,6 @@ def test_populations_original_edges_aliases_and_suffix_collisions(
             "N_phi": 1,
             "N_pi": 1,
             "N_P": 0,
-            "M": 1,
             "observations": 2,
             "fragments": 1,
         },
@@ -64,15 +62,12 @@ def test_populations_original_edges_aliases_and_suffix_collisions(
         data.close()
 
 
-@pytest.mark.parametrize("change", ["history", "K", "mask"])
+@pytest.mark.parametrize("change", ["history", "mask"])
 def test_mathematical_inputs_reject_reusing_an_index(tmp_path, monkeypatch, change):
     world = make_world(tmp_path, monkeypatch)
     index.run(world.cfg, world.path)
     if change == "history":
         write_json(tmp_path / "preference.yaml", {"history": 1})
-    elif change == "K":
-        train = json.loads((tmp_path / "train.yaml").read_text())
-        write_json(tmp_path / "train.yaml", train | {"tbptt_states": 4})
     else:
         monkeypatch.setattr(
             index,
@@ -98,9 +93,9 @@ def test_interrupted_index_reuses_complete_descriptor_shards(tmp_path, monkeypat
     monkeypatch.setattr(index, "save", save)
     population = index.metadata.population
 
-    def only_remaining(root, fragment, masks, K):
+    def only_remaining(root, fragment, masks):
         assert fragment["id"] != "f0"
-        return population(root, fragment, masks, K)
+        return population(root, fragment, masks)
 
     monkeypatch.setattr(index.metadata, "population", only_remaining)
     run = index.run(world.cfg, world.path)

@@ -9,6 +9,7 @@ from training.pretrain.continuous.test_resume import Stop, compare
 from mcpref.training.pretrain.continuous import loop, steps
 from mcpref.training.pretrain.continuous.data import index
 from mcpref.training.pretrain.continuous.data.reader import Index
+from mcpref.training.pretrain.continuous.schedule import epoch_updates
 
 
 def model(world):
@@ -35,7 +36,7 @@ def test_shared_artifacts_train_and_resume_with_exact_populations(
     index.run(world.cfg, world.path)
     data = Index(world.out)
     cfg = config(tbptt_states=K, checkpoint_steps=2)
-    total = data.run["populations"]["train"]["M"] * cfg.epochs
+    total = epoch_updates(data, cfg) * cfg.epochs
     monkeypatch.setattr(steps, "observation_step", observation_step)
     monkeypatch.setenv("MCPREF_PROFILE", "")
     try:

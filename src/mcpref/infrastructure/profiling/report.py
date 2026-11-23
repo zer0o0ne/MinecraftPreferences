@@ -58,6 +58,7 @@ def publish(trace, directory: Path, metadata: dict, cuda: bool, top_ops: int) ->
                 "batch",
                 "micro_batch",
                 "tbptt_states",
+                "batch_size",
                 "preference_micro_batch",
                 "items",
             )

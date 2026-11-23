@@ -31,6 +31,7 @@ from mcpref.training.pretrain.continuous.archive import Archive
 from mcpref.training.pretrain.continuous.data import index as index_builder
 from mcpref.training.pretrain.continuous.data.reader import Index as DiskIndex
 from mcpref.training.pretrain.continuous.diagnostics import gradients, selection
+from mcpref.training.pretrain.continuous.schedule import epoch_updates
 from mcpref.training.pretrain.continuous.state import Stream
 
 
@@ -47,7 +48,7 @@ def test_components_and_update_dots_match_autograd_without_changing_training(
         lambda c: {step: ["test"] for step in range(1, c.total + 1)},
     )
     cfg, data = config(tbptt_states=K, epochs=1, gradient_diagnostics=True), world(K)
-    total = data.run["populations"]["train"]["M"]
+    total = epoch_updates(data, cfg)
     plain = context(tmp_path / "plain", cfg, modules(dropout=0.3), data, total)
     plain.root.mkdir()
     torch.manual_seed(39)
@@ -85,7 +86,7 @@ def test_reported_preference_gradient_detaches_old_endpoint_and_tbptt_history(
     monkeypatch.setattr(gradients, "gradient_steps", lambda _: {target_step: ["test"]})
     cfg = config(tbptt_states=K, gradient_diagnostics=True)
     edge = {"id": "edge", "a": "old", "b": "new", "labels": {"inc": 0, "p": 0.8}}
-    pop = {"N_phi": 0, "N_pi": 0, "N_P": 1, "M": target_step}
+    pop = {"N_phi": 0, "N_pi": 0, "N_P": 1, "updates": target_step}
     data = Index({}, [edge], pop)
     ctx = context(tmp_path, cfg, index=data, total=target_step)
     rows = observations(
@@ -134,7 +135,7 @@ def test_selection_matches_actual_preference_event_steps(tmp_path, monkeypatch, 
     cfg = config(
         tbptt_states=K, epochs=3, gradient_diagnostics=True, action_mask="mask.yaml"
     )
-    total = data.run["populations"]["train"]["M"] * cfg.epochs
+    total = epoch_updates(data, cfg) * cfg.epochs
     ctx = context(tmp_path / "run", cfg, model(fixture), data, total)
     ctx.root.mkdir()
     seen = []

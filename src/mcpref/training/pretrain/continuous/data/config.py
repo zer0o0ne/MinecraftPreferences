@@ -33,7 +33,6 @@ def mathematics(cfg: IndexConfig) -> dict:
     train = read_yaml(REPO / cfg.training_config)
     preference = read_yaml(REPO / train["preference"])
     return {
-        "tbptt_states": positive_int("tbptt_states", train["tbptt_states"]),
         "preference_history": positive_int("preference.history", preference["history"]),
         "action_mask": train["action_mask"],
     }

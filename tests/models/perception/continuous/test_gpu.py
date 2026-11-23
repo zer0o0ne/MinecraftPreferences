@@ -15,6 +15,7 @@ from models.perception.continuous.test_functional import (
     text_model,
     unroll,
 )
+from models.perception.continuous.test_qwen_replay import assert_sliding
 
 from mcpref.models.perception.continuous.functional import text_step
 from mcpref.models.perception.continuous.state import ContinuousState, detach_state
@@ -30,6 +31,12 @@ def assert_fla():
         "implementation"
     ]
     assert chosen is fla.chunk_gated_delta_rule
+
+
+def test_cuda_sliding_replay_crosses_optimizer_updates():
+    assert_fla()
+    assert_sliding("cuda", torch.bfloat16)
+    torch.cuda.synchronize()
 
 
 def test_cuda_fla_values_and_checkpointed_k_window_gradients():

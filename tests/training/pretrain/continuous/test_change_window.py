@@ -30,7 +30,7 @@ def test_k_one_auxiliary_trains_current_phi_and_heads_independently_of_w_pi(
     if frozen:
         ctx.modules["phi"].requires_grad_(False)
     rows = observations("x", [1, 2, 3], actions=[["a"], ["b", "b"]])
-    population = {"N_phi": 2, "N_pi": 2, "N_P": 0, "M": 3}
+    population = {"N_phi": 2, "N_pi": 2, "N_P": 0, "updates": 3}
     archive = Archive(tmp_path / "archive/shards", 1, 1)
     stream, _ = steps.window(ctx, Stream(), archive, rows[:1], population, capture)
     assert capture.rows[0]["pi"][-1] is None
@@ -82,7 +82,7 @@ def test_zero_change_weight_leaves_auxiliary_parameters_without_optimizer_state(
         Stream(),
         Archive(tmp_path / "archive/shards", 1, 1),
         rows,
-        {"N_phi": 2, "N_pi": 2, "N_P": 0, "M": 1},
+        {"N_phi": 2, "N_pi": 2, "N_P": 0, "updates": 1},
     )
     for name, parameter in change.named_parameters():
         assert parameter.grad is None and parameter not in ctx.optimizer.state

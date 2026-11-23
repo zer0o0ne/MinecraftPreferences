@@ -17,6 +17,7 @@ from training.pretrain.continuous.engine_world import (
 )
 
 from mcpref.training.pretrain.continuous import checkpoints, loop, steps
+from mcpref.training.pretrain.continuous.schedule import epoch_updates
 
 
 def world(k):
@@ -72,7 +73,7 @@ def compare(root, other):
     second = torch.load(other / "model.pt", weights_only=True)
     assert first.keys() == second.keys()
     for name in first:
-        if name in ("pretrain_mode", "attention", "memory"):
+        if not isinstance(first[name], dict):
             assert first[name] == second[name]
         else:
             for parameter in first[name]:
@@ -100,7 +101,7 @@ def test_resume_matches_uninterrupted(tmp_path, monkeypatch, k, stop, when):
     monkeypatch.setattr(loop, "StreamReader", Reader)
     monkeypatch.setattr(steps, "observation_step", observation_step)
     cfg, index = config(tbptt_states=k), world(k)
-    total = index.run["populations"]["train"]["M"] * cfg.epochs
+    total = epoch_updates(index, cfg) * cfg.epochs
     expected = context(tmp_path / "full", cfg, modules(dropout=0.3), index, total)
     expected.root.mkdir()
     torch.manual_seed(39)
@@ -120,7 +121,11 @@ def test_retrain_replays_fragments_with_frozen_phi(tmp_path, monkeypatch):
     monkeypatch.setenv("MCPREF_PROFILE", "")
     monkeypatch.setattr(loop, "StreamReader", Reader)
     monkeypatch.setattr(steps, "observation_step", observation_step)
-    cfg, index, model = config(epochs=1, tbptt_states=2), world(2), modules()
+    cfg, index, model = (
+        config(epochs=1, tbptt_states=2, batch_size=2),
+        world(2),
+        modules(),
+    )
     loop.phase(cfg, model, index, tmp_path / "joint", "joint", None)
     before = {
         key: value.detach().clone() for key, value in model["phi"].state_dict().items()
@@ -147,7 +152,7 @@ def test_gc_preserves_model_optimizer_rng_and_coverage(tmp_path, monkeypatch):
     monkeypatch.setattr(loop, "StreamReader", Reader)
     monkeypatch.setattr(steps, "observation_step", observation_step)
     cfg, index = config(tbptt_states=1, archive_keep_shards=1), world(1)
-    total = index.run["populations"]["train"]["M"] * cfg.epochs
+    total = epoch_updates(index, cfg) * cfg.epochs
     for name in ("collected", "uncollected"):
         ctx = context(tmp_path / name, cfg, modules(dropout=0.3), index, total)
         ctx.root.mkdir()

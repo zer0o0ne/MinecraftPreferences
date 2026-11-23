@@ -15,7 +15,11 @@ from mcpref.gui.mask import load_masks
 from mcpref.models.perception.cursor import draw_cursor
 from mcpref.models.perception.meta import meta_text
 from mcpref.training.pretrain.continuous.data.config import IndexConfig, mathematics
-from mcpref.training.pretrain.continuous.data.fingerprints import FORMAT, sources
+from mcpref.training.pretrain.continuous.data.fingerprints import (
+    FORMAT,
+    identity,
+    sources,
+)
 from mcpref.training.pretrain.continuous.data.metadata import rows
 
 
@@ -38,7 +42,7 @@ class Index:
         maths = mathematics(cfg)
         masks = load_masks(mask_config(REPO / maths["action_mask"]))
         fingerprint, _ = sources(cfg, config_path, maths, masks)
-        if fingerprint != self.run["fingerprint"]:
+        if identity(fingerprint) != identity(self.run["fingerprint"]):
             raise ValueError("Continuous index inputs changed")
 
     def fragments(self, part):

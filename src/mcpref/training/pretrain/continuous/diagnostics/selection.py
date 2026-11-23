@@ -1,4 +1,4 @@
-"""Locate the actual first, middle and last preference-bearing TBPTT updates."""
+"""Locate preference-bearing updates in the shuffled observation schedule."""
 
 import numpy as np
 from tqdm import tqdm
@@ -35,21 +35,26 @@ def gradient_steps(context):
             continue
         for row in rows(root, fragment, masks):
             for key in needed.get(row["id"], ()):
-                ends[key] = (fragment["id"], row["index"] // cfg.tbptt_states)
+                ends[key] = (fragment["id"], row["index"])
     generator = np.random.Generator(np.random.PCG64(cfg.seed))
-    counts = {fragment["id"]: fragment["M"] for fragment in fragments}
+    counts = {fragment["id"]: fragment["observations"] for fragment in fragments}
     candidates, offset = set(), 0
     for _ in range(cfg.epochs):
-        starts = {}
+        starts, count = {}, 0
         for key in generator.permutation(list(counts)):
-            starts[key] = offset
-            offset += counts[key]
+            starts[key] = count
+            count += counts[key]
         for a, b in index.db.execute(
             "SELECT a,b FROM edges WHERE part='train' ORDER BY id"
         ):
             candidates.add(
-                max(starts[ends[key][0]] + ends[key][1] + 1 for key in (a, b))
+                offset
+                + max(
+                    (starts[ends[key][0]] + ends[key][1]) // cfg.batch_size + 1
+                    for key in (a, b)
+                )
             )
+        offset += (count + cfg.batch_size - 1) // cfg.batch_size
     return select_roles(candidates, context.total)
 
 

@@ -89,8 +89,8 @@ def rows(root, fragment, masks):
         raise ValueError("Continuous fragment observation count differs")
 
 
-def population(root, fragment, masks, K):
+def population(root, fragment, masks):
     valid = 0
     for item in rows(root, fragment, masks):
         valid += bool(item["incoming"] and item["incoming"]["valid"])
-    return {"N_phi": valid, "N_pi": valid, "M": (fragment["observations"] + K - 1) // K}
+    return {"N_phi": valid, "N_pi": valid}

@@ -49,7 +49,7 @@ def assert_episode_populations(tmp_path, name, records):
         assert record["context"]["cluster_ids"] == expected
         assert record["populations"]["P"] == expected
     assert_policy(records["continuous:joint:step:2"], "source-1", 1)
-    assert_policy(records["continuous:joint:step:5"], "source-0", 2)
+    assert_policy(records["continuous:joint:step:4"], "source-0", 2)
 
 
 def assert_complete(tmp_path, name):
@@ -147,7 +147,7 @@ def test_diagnostic_hooks_without_preference_population(tmp_path, monkeypatch):
             assert record["populations"]["P"] == []
             assert record["metrics"]["P"]["reason"] == "empty_pair_population"
         assert_policy(records["continuous:joint:step:2"], "source-1", 1)
-        assert_policy(records["continuous:joint:step:5"], "source-0", 2)
+        assert_policy(records["continuous:joint:step:4"], "source-0", 2)
         assert not list((root / "outbox").rglob("*.json"))
     finally:
         data.close()

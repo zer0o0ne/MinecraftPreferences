@@ -15,12 +15,22 @@ from mcpref.training.checkpoints import cpu_states, prune, restore_rng
 from mcpref.training.pretrain.continuous.archive_gc import collect
 from mcpref.training.pretrain.continuous.events import notify
 
+GRADIENT_SEMANTICS = "sliding-replay-v1"
+
+
+def check_semantics(value):
+    if value.get("gradient_semantics") != GRADIENT_SEMANTICS:
+        raise ValueError(
+            "Continuous gradient semantics differ; start a new training run"
+        )
+
 
 def save(context, position, stream, archive, results, hooks) -> None:
     archive_state = archive.snapshot()
     device = torch.device(context.cfg.device)
     state = {
         "pretrain_mode": "continuous",
+        "gradient_semantics": GRADIENT_SEMANTICS,
         "policy_alignment": ALIGNMENT,
         "modules": cpu_states(context.modules),
         "optimizer": context.optimizer.state_dict(),
@@ -70,6 +80,7 @@ def restore(context):
         raise ValueError(
             "Checkpoint policy alignment differs; start a new training run"
         )
+    check_semantics(state)
     for name, module in context.modules.items():
         module.load_state_dict(state["modules"][name])
     context.optimizer.load_state_dict(state["optimizer"])
@@ -84,6 +95,7 @@ def write_model(context) -> None:
     torch.save(
         {
             "pretrain_mode": "continuous",
+            "gradient_semantics": GRADIENT_SEMANTICS,
             "attention": "observation",
             "memory": "fragment",
             **cpu_states(context.modules),
@@ -91,3 +103,10 @@ def write_model(context) -> None:
         staged,
     )
     publish(staged, path)
+
+
+def load_model(path, modules):
+    state = torch.load(path, map_location="cpu", weights_only=True)
+    check_semantics(state)
+    for name, module in modules.items():
+        module.load_state_dict(state[name])

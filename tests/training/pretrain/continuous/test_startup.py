@@ -15,6 +15,8 @@ from training.pretrain.continuous.engine_world import (
 )
 from training.pretrain.continuous.test_resume import world
 
+from mcpref.infrastructure.shards.store import write_shard
+from mcpref.models.policy.targets import ALIGNMENT
 from mcpref.training.pretrain.continuous import loop, steps
 
 
@@ -54,7 +56,7 @@ def files(tmp_path, monkeypatch, **changes):
 
 @pytest.mark.parametrize(
     "field,value,message",
-    [("tbptt_states", 1, "K differs"), ("preference_history", 3, "history differs")],
+    [("preference_history", 3, "history differs")],
 )
 def test_incompatible_index_rejected_before_training(
     tmp_path, monkeypatch, field, value, message
@@ -107,3 +109,31 @@ def test_absent_preference_population_omits_only_its_known_groups(
     raw["groups"]["unknown"] = {"lr": 0.01, "weight_decay": 0.0}
     with pytest.raises(RuntimeError, match="unknown"):
         loop.phase(cls(**raw), model, data, tmp_path / "invalid", "joint", None)
+
+
+@pytest.mark.parametrize("artifact", ["run", "model", "checkpoint"])
+@pytest.mark.parametrize("semantics", [None, "disjoint-windows-v1"])
+def test_legacy_training_artifacts_reject_resume(
+    tmp_path, monkeypatch, artifact, semantics
+):
+    cfg, path, data = files(tmp_path, monkeypatch)
+    root = tmp_path / "run"
+    root.mkdir()
+    value = {"pretrain_mode": "continuous", "policy_alignment": ALIGNMENT}
+    if semantics is not None:
+        value["gradient_semantics"] = semantics
+    if artifact == "run":
+        (root / "run.json").write_text(json.dumps(value))
+    elif artifact == "model":
+        torch.save(value, root / "model.pt")
+    else:
+        with write_shard(root / "checkpoints", 0) as staged:
+            torch.save(value, staged / "checkpoint.pt")
+    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    with pytest.raises(ValueError, match="gradient semantics differ"):
+        if artifact == "run":
+            loop.pretrain(cfg, path, modules(), data)
+        else:
+            monkeypatch.setattr(loop, "StreamReader", Reader)
+            loop.phase(cfg, modules(), data, root, "joint", None)
+    assert all(p.read_bytes() == content for p, content in before.items())

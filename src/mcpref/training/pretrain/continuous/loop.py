@@ -1,9 +1,9 @@
 """Fragment scheduling, exact continuation and the optional frozen-phi phase."""
 
+import json
 import shutil
 import sys
 from dataclasses import replace
-from itertools import islice
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +12,6 @@ from tqdm import tqdm
 
 from mcpref.config import REPO, config_sha256, read_yaml
 from mcpref.infrastructure.profiling.runtime import TrainingProfile
-from mcpref.infrastructure.profiling.scopes import phase as profile_phase
 from mcpref.infrastructure.runs.files import check_fingerprints, sha256, write_json
 from mcpref.infrastructure.shards.store import part_path, publish
 from mcpref.models.policy.targets import ALIGNMENT
@@ -20,12 +19,24 @@ from mcpref.training.groups import check_groups
 from mcpref.training.optim import adamw
 from mcpref.training.pretrain.checkpoints import check_alignment
 from mcpref.training.pretrain.continuous.archive import Archive
-from mcpref.training.pretrain.continuous.checkpoints import restore, save, write_model
+from mcpref.training.pretrain.continuous.checkpoints import (
+    GRADIENT_SEMANTICS,
+    check_semantics,
+    load_model,
+    restore,
+    save,
+    write_model,
+)
 from mcpref.training.pretrain.continuous.data.reader import Index, StreamReader
 from mcpref.training.pretrain.continuous.events import Context, notify
+from mcpref.training.pretrain.continuous.schedule import (
+    batch,
+    epoch_updates,
+    observations,
+)
 from mcpref.training.pretrain.continuous.state import Stream
 from mcpref.training.pretrain.continuous.steps import window
-from mcpref.training.pretrain.phases import head_groups, load_joint_model
+from mcpref.training.pretrain.phases import head_groups
 
 
 def initial_position() -> dict:
@@ -35,6 +46,7 @@ def initial_position() -> dict:
         "order": [],
         "fragment_index": 0,
         "observation_index": 0,
+        "epoch_observations": 0,
         "schedule_rng": None,
         "epoch_counts": dict.fromkeys(("phi", "ce", "shift", "P"), 0),
     }
@@ -64,8 +76,13 @@ def finish_epoch(position, population, archive):
 
 
 def train(context, hooks=None):
-    cfg, population = context.cfg, context.index.run["populations"]["train"]
+    cfg = context.cfg
+    population = context.index.run["populations"]["train"] | {
+        "updates": epoch_updates(context.index, cfg)
+    }
     fragments = {item["id"]: item for item in context.index.fragments("train")}
+    count = sum(item["observations"] for item in fragments.values())
+    context.total = population["updates"] * cfg.epochs
     reader = StreamReader(
         context.index, context.modules["phi"].cfg, context.modules["phi"].sprite
     )
@@ -103,52 +120,40 @@ def train(context, hooks=None):
                         str(key) for key in generator.permutation(list(fragments))
                     ]
                     position["schedule_rng"] = generator.bit_generator.state
-                while position["fragment_index"] < len(position["order"]):
-                    descriptor = fragments[
-                        position["order"][position["fragment_index"]]
-                    ]
-                    context.fragment = descriptor
-                    source = reader.observations(
-                        descriptor, position["observation_index"]
+                source = observations(context, reader, fragments, position)
+                while position["epoch_observations"] < count:
+                    size = min(cfg.batch_size, count - position["epoch_observations"])
+                    with profile.step(context.step + 1, size):
+                        context.step += 1
+                        stream, result = window(
+                            context,
+                            stream,
+                            archive,
+                            batch(source, size),
+                            population,
+                            hooks,
+                        )
+                        position["step"] = context.step
+                        position["epoch_observations"] += size
+                        for key, value in result.counts.items():
+                            position["epoch_counts"][key] += value
+                        results.append((context.step, result))
+                        if (
+                            context.step % cfg.checkpoint_steps == 0
+                            or context.step == context.total
+                        ):
+                            save(context, position, stream, archive, results, hooks)
+                            results = []
+                    bar.update()
+                if stream.pending is not None:
+                    raise RuntimeError(
+                        "Unfinished policy target at a fragment boundary"
                     )
-                    while position["observation_index"] < descriptor["observations"]:
-                        size = min(
-                            cfg.tbptt_states,
-                            descriptor["observations"] - position["observation_index"],
-                        )
-                        with profile.step(context.step + 1, size):
-                            with profile_phase("data.stream_read"):
-                                batch = list(islice(source, size))
-                            if len(batch) != size:
-                                raise RuntimeError(
-                                    "Continuous fragment ended before its indexed cursor"
-                                )
-                            context.step += 1
-                            stream, result = window(
-                                context, stream, archive, batch, population, hooks
-                            )
-                            position["step"] = context.step
-                            position["observation_index"] += len(batch)
-                            for key, value in result.counts.items():
-                                position["epoch_counts"][key] += value
-                            results.append((context.step, result))
-                            if (
-                                context.step % cfg.checkpoint_steps == 0
-                                or context.step == context.total
-                            ):
-                                save(context, position, stream, archive, results, hooks)
-                                results = []
-                        bar.update()
-                    if stream.pending is not None:
-                        raise RuntimeError(
-                            "Unfinished policy target at a fragment boundary"
-                        )
-                    stream = Stream()
-                    position["observation_index"] = 0
-                    position["fragment_index"] += 1
                 finish_epoch(position, population, archive)
+                stream = Stream()
                 position["epoch"] += 1
                 position["order"], position["fragment_index"] = [], 0
+                position["observation_index"] = position["epoch_observations"] = 0
                 position["epoch_counts"] = dict.fromkeys(position["epoch_counts"], 0)
                 if position["epoch"] <= cfg.epochs:
                     archive.close()
@@ -187,13 +192,13 @@ def phase(cfg, modules, index, root, name, hooks):
         root,
         groups,
         adamw(cfg, groups),
-        index.run["populations"]["train"]["M"] * cfg.epochs,
+        epoch_updates(index, cfg) * cfg.epochs,
         name,
     )
     if not (root / "model.pt").exists():
         train(context, hooks)
     else:
-        load_joint_model(root / "model.pt", modules)
+        load_model(root / "model.pt", modules)
         print(f"continuous {name}: already done", file=sys.stderr)
 
 
@@ -203,8 +208,6 @@ def pretrain(cfg, path: Path, modules: dict, index=None, hooks=None):
     try:
         index.validate()
         expected = index.run["mathematics"]
-        if cfg.tbptt_states != expected["tbptt_states"]:
-            raise ValueError("Continuous training K differs from its index")
         history = read_yaml(REPO / cfg.preference)["history"]
         if history != expected["preference_history"]:
             raise ValueError("Continuous preference history differs from its index")
@@ -212,12 +215,13 @@ def pretrain(cfg, path: Path, modules: dict, index=None, hooks=None):
             REPO / expected["action_mask"]
         ):
             raise ValueError("Continuous action masks differ from its index")
-        population = index.run["populations"]["train"]
-        if not population["M"]:
+        if not epoch_updates(index, cfg):
             raise RuntimeError("Continuous index has no training observations")
         root = REPO / cfg.out_dir
         run_path = root / "run.json"
         check_alignment(run_path)
+        if run_path.exists():
+            check_semantics(json.loads(run_path.read_text()))
         fingerprints = {
             "config": config_sha256(path),
             "index": sha256(REPO / cfg.index_dir / "run.json"),
@@ -235,6 +239,7 @@ def pretrain(cfg, path: Path, modules: dict, index=None, hooks=None):
         check_fingerprints(root / "run.json", fingerprints, cfg.out_dir)
         header = {
             "pretrain_mode": "continuous",
+            "gradient_semantics": GRADIENT_SEMANTICS,
             "policy_alignment": ALIGNMENT,
             "attention": "observation",
             "memory": "fragment",
@@ -243,7 +248,7 @@ def pretrain(cfg, path: Path, modules: dict, index=None, hooks=None):
         write_json(root / "run.json", header)
         joint = root / "joint-model.pt"
         if joint.exists():
-            load_joint_model(joint, modules)
+            load_model(joint, modules)
         else:
             phase(cfg, modules, index, root, "joint", hooks)
         if cfg.retrain:

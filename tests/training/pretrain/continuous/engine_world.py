@@ -110,6 +110,7 @@ def config(**changes):
                 "seed": 7,
                 "epochs": 2,
                 "tbptt_states": 1,
+                "batch_size": 1,
                 "preference_micro_batch": 2,
                 "archive_shard_size": 1,
                 "archive_cache_size": 1,

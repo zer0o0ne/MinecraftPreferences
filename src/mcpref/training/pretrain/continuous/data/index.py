@@ -24,7 +24,11 @@ from mcpref.training.pretrain.continuous.data.config import (
     load_config,
     mathematics,
 )
-from mcpref.training.pretrain.continuous.data.fingerprints import FORMAT, sources
+from mcpref.training.pretrain.continuous.data.fingerprints import (
+    FORMAT,
+    identity,
+    sources,
+)
 
 
 def stored(out):
@@ -48,7 +52,7 @@ def save(out, k, items):
         write_json(staged / "state.json", {"sha256": digest(staged / "fragments.json")})
 
 
-def descriptors(cfg, maths, masks):
+def descriptors(cfg, masks):
     root, out = REPO / cfg.dataset, REPO / cfg.out_dir
     split = json.loads((root / "split.json").read_text())
     existing, batch, k = iter(stored(out)), [], 0
@@ -80,9 +84,7 @@ def descriptors(cfg, maths, masks):
                     raise ValueError("Continuous source descriptor differs on resume")
                 item = previous
             else:
-                item = base | metadata.population(
-                    root, fragment, masks, maths["tbptt_states"]
-                )
+                item = base | metadata.population(root, fragment, masks)
             batch.append(item)
             if len(batch) == cfg.items_per_shard:
                 save(out, k, batch)
@@ -98,9 +100,7 @@ def database(cfg, maths, run):
     staged = out / "catalogue.sqlite.part"
     db = graph.create(staged)
     totals = {
-        part: dict.fromkeys(
-            ("N_phi", "N_pi", "N_P", "M", "observations", "fragments"), 0
-        )
+        part: dict.fromkeys(("N_phi", "N_pi", "N_P", "observations", "fragments"), 0)
         for part in ("train", "validation")
     }
     try:
@@ -110,7 +110,7 @@ def database(cfg, maths, run):
                 (item["id"], item["part"], json.dumps(item)),
             )
             total = totals[item["part"]]
-            for key in ("N_phi", "N_pi", "M", "observations"):
+            for key in ("N_phi", "N_pi", "observations"):
                 total[key] += item[key]
             total["fragments"] += bool(item["observations"])
         db.commit()
@@ -135,7 +135,9 @@ def run(cfg: IndexConfig, path: Path):
     run_path = out / "run.json"
     if run_path.exists():
         previous = json.loads(run_path.read_text())
-        if previous.get("format") != FORMAT or previous["fingerprint"] != fingerprint:
+        if previous.get("format") != FORMAT or identity(
+            previous["fingerprint"]
+        ) != identity(fingerprint):
             raise ValueError(
                 "Continuous index inputs changed; use a new output directory"
             )
@@ -157,7 +159,7 @@ def run(cfg: IndexConfig, path: Path):
         "height": dataset_run["height"],
     }
     write_json(run_path, header)
-    descriptors(cfg, maths, masks)
+    descriptors(cfg, masks)
     totals, collapsed = database(cfg, maths, dataset_run)
     header |= {
         "complete": True,

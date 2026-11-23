@@ -1,10 +1,13 @@
 """Chronological suffix resume, target lookahead and exact population event oracles."""
 
+from types import SimpleNamespace
+
 import pytest
 from training.pretrain.continuous.data.world import make_world
 
 from mcpref.training.pretrain.continuous.data import index
 from mcpref.training.pretrain.continuous.data.reader import Index, StreamReader
+from mcpref.training.pretrain.continuous.schedule import epoch_updates
 
 
 def test_reader_keeps_grid_gaps_idle_history_origin_and_boundary_targets(
@@ -73,12 +76,16 @@ def test_lookahead_does_not_request_future_frames_and_resume_does_not_read_old_f
         data.close()
 
 
-@pytest.mark.parametrize("K,windows", [(1, 13), (2, 7), (3, 5), (20, 2)])
-def test_window_count_uses_surviving_observations_and_partial_fragment_windows(
-    tmp_path, monkeypatch, K, windows
+@pytest.mark.parametrize("B,updates", [(1, 13), (2, 7), (3, 5), (20, 1)])
+def test_update_count_crosses_fragments_and_ignores_gradient_horizon(
+    tmp_path, monkeypatch, B, updates
 ):
-    world = make_world(tmp_path, monkeypatch, K=K)
+    world = make_world(tmp_path, monkeypatch, K=4)
     run = index.run(world.cfg, world.path)
-    assert run["populations"]["train"]["M"] == windows
+    data = Index(world.out)
+    try:
+        assert epoch_updates(data, SimpleNamespace(batch_size=B)) == updates
+    finally:
+        data.close()
     assert run["populations"]["train"]["N_phi"] == 7
     assert run["populations"]["train"]["N_pi"] == 7
