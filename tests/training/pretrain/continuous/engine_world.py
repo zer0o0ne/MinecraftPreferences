@@ -120,6 +120,7 @@ def config(**changes):
                 "keep_checkpoints": 2,
                 "gradient_diagnostics": False,
                 "publish_diagnostics": True,
+                "activation_checkpointing": True,
                 "w_phi": 0.4,
                 "w_pi": 0.7,
                 "w_change": 1.0,

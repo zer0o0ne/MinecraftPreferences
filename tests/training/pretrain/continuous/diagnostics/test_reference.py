@@ -4,6 +4,7 @@ import json
 import sqlite3
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 from mcpref.training.pretrain.continuous.diagnostics import reference_replay
@@ -12,6 +13,38 @@ from mcpref.training.pretrain.continuous.diagnostics.reference import (
     evaluate_reference,
     select_reference,
 )
+
+
+@pytest.mark.parametrize("raised", [False, True])
+def test_autocast_cache_does_not_cross_reference_or_training_updates(raised):
+    cfg = SimpleNamespace(device="cpu")
+    module = torch.nn.Linear(3, 2).train()
+    inputs = torch.tensor([[1.0, 2.0, 3.0]])
+    rng = torch.get_rng_state()
+    for value in (1.0, 2.0):
+        with torch.no_grad():
+            module.weight.fill_(value)
+        with torch.no_grad(), torch.autocast("cpu", dtype=torch.bfloat16):
+            expected = module(inputs)
+        try:
+            with reference_replay.evaluation_state(cfg, {"phi": module}):
+                assert not module.training
+                assert not torch.is_autocast_enabled("cpu")
+                for _ in range(2):
+                    with torch.autocast("cpu", dtype=torch.bfloat16):
+                        actual = module(inputs)
+                    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+                torch.rand(2)
+                if raised:
+                    raise RuntimeError("reference failed")
+        except RuntimeError as exc:
+            assert raised and str(exc) == "reference failed"
+        assert module.training
+        assert torch.equal(torch.get_rng_state(), rng)
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            module(inputs).sum().backward()
+        torch.testing.assert_close(module.weight.grad, inputs.expand(2, -1))
+        module.zero_grad(set_to_none=True)
 
 
 class Phi(torch.nn.Module):

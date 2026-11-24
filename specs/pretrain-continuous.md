@@ -65,9 +65,21 @@ after the first replayed observation, not the original historical state at that
 position. Earlier memory is never recomputed. Preserve the fragment origin.
 Historical stochastic draws are replayed without advancing the global RNG again.
 Only newly available losses/events at t are scored; replay never repeats labels,
-archive publications, counters or ordinary losses. Release each event's graph
-after its backward. Histories before the sliding cutoff and archived earlier
-preference endpoints remain detached.
+archive publications, counters or ordinary losses. Histories before the sliding
+cutoff and archived earlier preference endpoints remain detached.
+
+With fixed weights and saved stochastic draws, overlapping observations have
+identical values. The implementation may reuse at most K local observation graphs
+with detached state inputs. For each event, propagate its state cotangent through
+exactly its K-window; accumulate output cotangents and apply each observation's
+parameter/encoder VJP once before retiring it. Flush all remaining VJPs before
+clipping or updating, then discard these ephemeral graphs. This uses linearity of
+the VJP and preserves the loss and gradient horizon; floating-point summation order
+may differ from independent full replay. No cached graph crosses a weight update.
+Token-embedding cotangents may be concatenated across the optimizer batch and
+applied by one vocabulary-embedding VJP, avoiding a dense vocabulary gradient
+allocation for every observation. Flush these contributions at fragment resets
+and before clipping/updating, preserving unused/frozen parameters.
 
 Independently, `batch_size = B` counts new observations, including idle or invalid
 ones. Accumulate their gradients, then clip and update once. B may be smaller or
@@ -81,8 +93,15 @@ The training state interface must be functional: checkpoint recomputation may
 not mutate state already consumed by autograd. Stock inference `DynamicCache`
 is not an accepted training implementation: the pinned Transformers path drops
 cache with gradient checkpointing and mutates recurrent buffers in-place.
-Non-reentrant activation checkpointing must preserve both the recurrent values
-and the K-window gradient. CPU and Spark GPU backward tests are required.
+The boolean `activation_checkpointing` controls non-reentrant activation
+checkpointing of phi. Initially false, it keeps the bounded K-observation
+activations to avoid repeated forward recomputation; true trades speed for memory.
+Older materialized configs that omit it retain checkpointing.
+Both settings must preserve recurrent values and the K-window gradient. CPU and
+Spark GPU backward tests are required.
+Reference evaluation may retain the backbone autocast's parameter casts across
+its chronological prefixes. The cache must close before returning to training or
+restoring buffers, so it cannot survive a weight update or change head precision.
 
 ## Losses and event order
 
@@ -247,7 +266,10 @@ an independently shuffled/split part of the same recurrent history.
   Observations with preference endpoints, and all observations when gradient
   diagnostics are enabled, run their complete sliding forward/backward in eager
   compiler stance so retained graphs survive repeated backward. FP8 arithmetic
-  remains active; ordinary observations with diagnostics disabled may compile.
+  remains active. Reused observation graphs also run in eager compiler stance:
+  their state VJPs retain graphs until the final parameter VJP. Component-gradient
+  diagnostics use independent replay so every component retains direct paths to
+  the model parameters.
   The required boolean `publish_diagnostics`, initially false, independently
   controls the shared diagnostic publisher. When false, no DiagnosticRun is
   loaded, registered, recovered, staged or accepted; no global catalogue/index

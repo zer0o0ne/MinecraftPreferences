@@ -34,7 +34,9 @@ def evaluation_state(cfg, modules):
     try:
         for module in modules.values():
             module.eval()
-        with torch.no_grad():
+        # Retain the inner backbone autocast's weight cache across the prefix.
+        # Close it before returning to training or restoring mutable buffers.
+        with torch.no_grad(), torch.autocast(device.type, enabled=False):
             yield
     finally:
         with torch.no_grad():

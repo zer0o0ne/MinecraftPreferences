@@ -79,6 +79,7 @@ def test_repository_modes_share_model_and_optimizer_settings(repo):
     assert "batch" not in bb and "tbptt_states" not in aa
     assert a.precision == b.precision == "fp32"
     assert b.publish_diagnostics is False
+    assert b.activation_checkpointing is False
 
 
 def test_materialized_continuous_leaf_still_rejects_classical_consumers(tmp_path):
@@ -105,18 +106,31 @@ def test_archive_retention_requires_a_positive_integer(repo, tmp_path, value):
         continuous(path)
 
 
+@pytest.mark.parametrize("name", ["publish_diagnostics", "activation_checkpointing"])
 @pytest.mark.parametrize("value", [True, False, "false", 0, None])
-def test_continuous_publication_requires_a_yaml_boolean(repo, tmp_path, value):
+def test_continuous_options_require_yaml_booleans(repo, tmp_path, name, value):
     settings = asdict(
         continuous(repo / "configs/training/pretrain/continuous/config.yaml")
     )
     settings["betas"] = list(settings["betas"])
     settings["quantiles"] = list(settings["quantiles"])
-    settings["publish_diagnostics"] = value
+    settings[name] = value
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(settings))
     if type(value) is bool:
-        assert continuous(path).publish_diagnostics is value
+        assert getattr(continuous(path), name) is value
     else:
-        with pytest.raises(ValueError, match="publish_diagnostics"):
+        with pytest.raises(ValueError, match=name):
             continuous(path)
+
+
+def test_older_materialized_configs_keep_activation_checkpointing(repo, tmp_path):
+    settings = asdict(
+        continuous(repo / "configs/training/pretrain/continuous/config.yaml")
+    )
+    settings.pop("activation_checkpointing")
+    settings["betas"] = list(settings["betas"])
+    settings["quantiles"] = list(settings["quantiles"])
+    path = tmp_path / "old-run.yaml"
+    path.write_text(yaml.safe_dump(settings))
+    assert continuous(path).activation_checkpointing is True

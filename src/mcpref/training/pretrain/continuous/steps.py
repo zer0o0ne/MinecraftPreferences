@@ -7,6 +7,7 @@ import torch
 from mcpref.models.perception.continuous import observation_step
 from mcpref.training.optim import update
 from mcpref.training.pretrain.continuous.events import WindowResult, backward, notify
+from mcpref.training.pretrain.continuous.graphs import reusable
 from mcpref.training.pretrain.continuous.losses.own import (
     action_input,
     eligible,
@@ -102,20 +103,31 @@ def own_losses(context, stream, observation, z, result):
 
 def window(context, stream, archive, observations, population, hooks=None):
     result = WindowResult()
+    graphs = reusable(context)
     weights = factors(context.cfg, population)
     preference_history = context.modules["P"].history if "P" in context.modules else 1
     for observation in observations:
-        if observation.index == 0:
-            if stream.pending is not None:
-                raise RuntimeError("Unfinished policy target at a fragment boundary")
-            stream = Stream()
         # Compiled backward donates buffers needed by P/own and diagnostic passes.
         with (
             torch.compiler.set_stance("force_eager")
-            if observation.endpoints or context.cfg.gradient_diagnostics
+            if graphs is not None
+            or observation.endpoints
+            or context.cfg.gradient_diagnostics
             else nullcontext()
         ):
-            z = replay_observation(context, stream, observation, observation_step)
+            if observation.index == 0:
+                if stream.pending is not None:
+                    raise RuntimeError(
+                        "Unfinished policy target at a fragment boundary"
+                    )
+                if graphs is not None:
+                    graphs.flush()
+                stream = Stream()
+            z = (
+                replay_observation(context, stream, observation, observation_step)
+                if graphs is None
+                else graphs.observation(stream, observation)
+            )
             own = own_losses(context, stream, observation, z, result)
             live = {}
             for key, value in own.items():
@@ -127,6 +139,8 @@ def window(context, stream, archive, observations, population, hooks=None):
                     context, hooks, archive, stream, observation, result, weights["P"]
                 )
             backward(context, hooks, live, {"own": result}, retain=False)
+            if graphs is not None:
+                graphs.backward(stream)
             for key, value in live.items():
                 result.weighted[key] = result.weighted.get(key, 0) + value.detach()
             stream.previous = {
@@ -137,6 +151,9 @@ def window(context, stream, archive, observations, population, hooks=None):
                 "interval": observation.interval,
             }
             stream = stream.detach()
+    if graphs is not None:
+        with torch.compiler.set_stance("force_eager"):
+            graphs.flush()
     notify(hooks, "before_update", context, result)
     result.lr = update(
         context.cfg, context.optimizer, context.groups, context.step, context.total

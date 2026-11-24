@@ -10,6 +10,7 @@ from mcpref.training.pretrain.config import POSITIVE_INTS, TrainingConfig, parse
 @dataclass(frozen=True)
 class ContinuousConfig(TrainingConfig):
     publish_diagnostics: bool
+    activation_checkpointing: bool
     tbptt_states: int
     batch_size: int
     preference_micro_batch: int
@@ -19,7 +20,11 @@ class ContinuousConfig(TrainingConfig):
 
 
 def load_config(path: Path) -> ContinuousConfig:
-    raw = config_mapping(read_yaml(path), path, ContinuousConfig)
+    raw = read_yaml(path)
+    if isinstance(raw, dict):
+        # Older materialized run configs keep their original checkpoint behavior.
+        raw = {"activation_checkpointing": True, **raw}
+    raw = config_mapping(raw, path, ContinuousConfig)
     positive = POSITIVE_INTS
     positive += (
         "tbptt_states",
@@ -30,7 +35,6 @@ def load_config(path: Path) -> ContinuousConfig:
         "archive_keep_shards",
     )
     values = parse_values(raw, positive)
-    values["publish_diagnostics"] = boolean(
-        "publish_diagnostics", raw["publish_diagnostics"]
-    )
+    for name in ("publish_diagnostics", "activation_checkpointing"):
+        values[name] = boolean(name, raw[name])
     return ContinuousConfig(**values)
