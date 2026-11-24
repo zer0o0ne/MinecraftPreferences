@@ -73,13 +73,19 @@ def test_repository_modes_share_model_and_optimizer_settings(repo):
     a = classical(repo / "configs/training/pretrain/classical/config.yaml")
     b = continuous(repo / "configs/training/pretrain/continuous/config.yaml")
     aa, bb = asdict(a), asdict(b)
-    common = set(aa) & set(bb) - {"index_dir", "out_dir", "diagnostics"}
+    common = set(aa) & set(bb) - {
+        "index_dir",
+        "out_dir",
+        "diagnostics",
+        "reference_steps",
+    }
     assert {k: aa[k] for k in common} == {k: bb[k] for k in common}
     assert a.index_dir != b.index_dir and a.out_dir != b.out_dir
     assert "batch" not in bb and "tbptt_states" not in aa
     assert a.precision == b.precision == "fp32"
     assert b.publish_diagnostics is False
     assert b.activation_checkpointing is False
+    assert a.reference_steps == 500 and b.reference_steps == 5000
 
 
 def test_materialized_continuous_leaf_still_rejects_classical_consumers(tmp_path):

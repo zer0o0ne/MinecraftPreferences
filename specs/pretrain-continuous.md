@@ -258,8 +258,10 @@ an independently shuffled/split part of the same recurrent history.
   target and pair counts replacing classical clip denominators. Reference
   evaluation uses frozen weights, a fresh archive/state, and complete prefixes
   of selected fragments in chronological order. It never encodes a reference
-  clip independently or contaminates training RNG/state. Gradient diagnostics
-  must include the same truncated and detached paths as the actual update.
+  clip independently or contaminates training RNG/state. The continuous config
+  sets `reference_steps: 5000`; the initial reference at step zero remains.
+  Gradient diagnostics must include the same truncated and detached paths as the
+  actual update.
   `gradient_diagnostics: false` skips gradient-flow selection/collection and all
   gradient/update statistics; their record fields are null, without changing
   weights, optimizer, RNG or loss/reference records.
