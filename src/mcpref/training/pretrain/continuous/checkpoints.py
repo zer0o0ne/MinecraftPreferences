@@ -14,6 +14,7 @@ from mcpref.models.policy.targets import ALIGNMENT
 from mcpref.training.checkpoints import cpu_states, prune, restore_rng
 from mcpref.training.pretrain.continuous.archive_gc import collect
 from mcpref.training.pretrain.continuous.events import notify
+from mcpref.training.pretrain.continuous.integrity import load_payload
 
 GRADIENT_SEMANTICS = "sliding-replay-v1"
 
@@ -69,9 +70,8 @@ def restore(context):
     if not count:
         return None
     # Own local checkpoints contain the explicitly versioned stream dataclasses.
-    state = torch.load(
+    state = load_payload(
         shard_path(directory, count - 1) / "checkpoint.pt",
-        map_location="cpu",
         weights_only=False,
     )
     if state.get("pretrain_mode") != "continuous":
@@ -106,7 +106,7 @@ def write_model(context) -> None:
 
 
 def load_model(path, modules):
-    state = torch.load(path, map_location="cpu", weights_only=True)
+    state = load_payload(path, weights_only=True)
     check_semantics(state)
     for name, module in modules.items():
         module.load_state_dict(state[name])

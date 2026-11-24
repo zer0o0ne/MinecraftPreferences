@@ -13,6 +13,7 @@ from tqdm import tqdm
 from mcpref.config import REPO, config_sha256, read_yaml
 from mcpref.infrastructure.profiling.runtime import TrainingProfile
 from mcpref.infrastructure.runs.files import check_fingerprints, sha256, write_json
+from mcpref.infrastructure.runs.lock import exclusive_run
 from mcpref.infrastructure.shards.store import part_path, publish
 from mcpref.models.policy.targets import ALIGNMENT
 from mcpref.training.groups import check_groups
@@ -29,6 +30,7 @@ from mcpref.training.pretrain.continuous.checkpoints import (
 )
 from mcpref.training.pretrain.continuous.data.reader import Index, StreamReader
 from mcpref.training.pretrain.continuous.events import Context, notify
+from mcpref.training.pretrain.continuous.numerics import reproducible
 from mcpref.training.pretrain.continuous.schedule import (
     batch,
     epoch_updates,
@@ -203,6 +205,11 @@ def phase(cfg, modules, index, root, name, hooks):
 
 
 def pretrain(cfg, path: Path, modules: dict, index=None, hooks=None):
+    with exclusive_run(REPO / cfg.out_dir), reproducible(cfg.device):
+        return _pretrain(cfg, path, modules, index, hooks)
+
+
+def _pretrain(cfg, path: Path, modules: dict, index=None, hooks=None):
     owned = index is None
     index = Index(REPO / cfg.index_dir) if owned else index
     try:

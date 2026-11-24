@@ -1,5 +1,6 @@
 """Ordinary and reference diagnostics committed with continuous updates."""
 
+import sys
 from dataclasses import replace
 
 from mcpref.config import REPO
@@ -14,11 +15,36 @@ from mcpref.training.pretrain.continuous.diagnostics.records import (
     window_metrics,
 )
 from mcpref.training.pretrain.continuous.diagnostics.reference_store import References
+from mcpref.training.pretrain.continuous.state import detached
 from mcpref.training.pretrain.update import gradient_stats, update_stats
+
+
+def report_start(context):
+    cfg = context.cfg
+    population = context.index.run["populations"]["train"]
+    count = population["observations"]
+    updates = (count + cfg.batch_size - 1) // cfg.batch_size
+    print(
+        f"Continuous {context.phase}: {count} training observations/epoch, "
+        f"{population['fragments']} fragments, {updates} updates/epoch; "
+        f"{context.step}/{context.total} total updates completed.",
+        file=sys.stderr,
+    )
+    print(
+        f"Continuous settings: B={cfg.batch_size}, K={cfg.tbptt_states}, "
+        f"precision={cfg.precision}, activation_checkpointing={cfg.activation_checkpointing}; "
+        f"checkpoint_steps={cfg.checkpoint_steps}, diagnostic_window={cfg.diagnostic_window}, "
+        f"reference_steps={cfg.reference_steps}; "
+        f"gradient_diagnostics={cfg.gradient_diagnostics}, "
+        f"publish_diagnostics={cfg.publish_diagnostics}. "
+        "Reference evaluation is independent of both diagnostic flags.",
+        file=sys.stderr,
+    )
 
 
 class Diagnostics:
     def start(self, context):
+        report_start(context)
         self.pending = []
         self.diagnostics = (
             DiagnosticRun.load(REPO / context.cfg.diagnostics)
@@ -61,6 +87,7 @@ class Diagnostics:
                 context.cfg, context.optimizer, context.groups, result.lr
             )
             self.gradients.finish_step(context, result)
+        result = detached(result, "cpu")
         record, rows = decorate(context, result, self.reference.fit)
         self.pending.append((context.step, result, record, rows))
 

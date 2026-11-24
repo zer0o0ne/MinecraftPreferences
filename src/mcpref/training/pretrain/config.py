@@ -114,7 +114,13 @@ def parse_values(raw: dict, positive_ints=POSITIVE_INTS) -> dict:
         raise ValueError(f"lr_floor {lr_floor} is not in [0, 1]")
     read |= {"lr_floor": lr_floor} | diagnostic_values(raw)
     if read["checkpoint_steps"] % read["diagnostic_window"]:
-        raise ValueError("checkpoint_steps % diagnostic_window must be 0")
+        raise ValueError(
+            "checkpoint_steps % diagnostic_window must be 0: "
+            f"checkpoint_steps={read['checkpoint_steps']}, "
+            f"diagnostic_window={read['diagnostic_window']}. "
+            "diagnostic_window aggregates training metrics; "
+            "reference_steps controls the expensive reference evaluation."
+        )
     if read["reference_steps"] % read["checkpoint_steps"]:
         raise ValueError("reference_steps % checkpoint_steps must be 0")
     return raw | read | {"groups": groups(raw["groups"])}

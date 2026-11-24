@@ -76,6 +76,11 @@ parameter/encoder VJP once before retiring it. Flush all remaining VJPs before
 clipping or updating, then discard these ephemeral graphs. This uses linearity of
 the VJP and preserves the loss and gradient horizon; floating-point summation order
 may differ from independent full replay. No cached graph crosses a weight update.
+CUDA training uses deterministic backward, including repeated attention VJPs;
+uncontrolled attention reduction order must not perturb the recurrent cotangents
+between otherwise identical replays. Configure cuBLAS before constructing CUDA
+modules and retain the setting through backward. Disabling allocator filling
+avoids that diagnostic overhead without disabling deterministic kernels.
 Token-embedding cotangents may be concatenated across the optimizer batch and
 applied by one vocabulary-embedding VJP, avoiding a dense vocabulary gradient
 allocation for every observation. Flush these contributions at fragment resets
@@ -226,9 +231,17 @@ chronology inside each fragment. Reuse classical optimizer groups, precision,
 clipping and learning-rate schedule on the resulting step count. References to
 world-level splitting mean continuous-data's conservative world groups, never
 an independently shuffled/split part of the same recurrent history.
+Reject a non-finite weighted loss or gradient norm before changing weights or
+Adam state. The process stops and the last complete checkpoint remains resumable;
+invalid updates are never silently skipped or committed.
 
 ## Interfaces and artifacts
 
+- A process holds an exclusive lock for its training output directory before
+  index/training mutations. Index construction separately locks its own output.
+  A competing writer fails clearly; process exit releases the lock. Persistent
+  sibling lock files are not stale ownership markers and must not be deleted
+  while a run can still be active.
 - Continuous config: complete dataset/index paths, `tbptt_states`, `batch_size`, bounded
   preference micro-batch/archive/cache limits, output path and the existing
   shared optimization/model/diagnostic settings. K and B are positive integers;
@@ -250,6 +263,9 @@ an independently shuffled/split part of the same recurrent history.
   an archive rejects a missing payload referenced by its live histories, while
   accepting collected payloads that its snapshot no longer needs. Config
   fingerprint checks remain unchanged, including for the new retention field.
+  Before accepting checkpoint, model, archived history or initial-reference
+  tensors, verify the existing Torch ZIP record CRCs. Reject corrupt or truncated
+  payloads without changing the persisted format.
 - Model/run metadata declares `pretrain_mode: continuous` and the perception
   attention/state semantics. Existing consumers must use the compatible stream
   adapter or reject that artifact, never silently reset every classical history
@@ -260,6 +276,10 @@ an independently shuffled/split part of the same recurrent history.
   of selected fragments in chronological order. It never encodes a reference
   clip independently or contaminates training RNG/state. The continuous config
   sets `reference_steps: 5000`; the initial reference at step zero remains.
+  Checkpoints and inexpensive training-metric windows are configured every 1000
+  updates. Diagnostic pending records own detached CPU snapshots instead of
+  retaining training tensor storage until the checkpoint. Startup output states
+  the actual schedules and whether initial reference replay is required.
   Gradient diagnostics must include the same truncated and detached paths as the
   actual update.
   `gradient_diagnostics: false` skips gradient-flow selection/collection and all

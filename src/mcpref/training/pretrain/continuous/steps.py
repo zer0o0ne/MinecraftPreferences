@@ -154,6 +154,13 @@ def window(context, stream, archive, observations, population, hooks=None):
     if graphs is not None:
         with torch.compiler.set_stance("force_eager"):
             graphs.flush()
+    if (
+        result.weighted
+        and not torch.isfinite(torch.stack(list(result.weighted.values()))).all()
+    ):
+        raise FloatingPointError(
+            f"Non-finite continuous loss before optimizer step {context.step}"
+        )
     notify(hooks, "before_update", context, result)
     result.lr = update(
         context.cfg, context.optimizer, context.groups, context.step, context.total

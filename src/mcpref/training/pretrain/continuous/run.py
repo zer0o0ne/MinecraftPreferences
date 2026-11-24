@@ -8,6 +8,7 @@ from mcpref.config import REPO
 from mcpref.gui.mask import load_config as mask_config
 from mcpref.gui.mask import load_masks
 from mcpref.infrastructure.cli.failure import FAILURES, failed
+from mcpref.infrastructure.runs.lock import exclusive_run
 from mcpref.models.factory import build_modules
 from mcpref.models.perception.config import load_config as perception_config
 from mcpref.models.policy.config import load_config as policy_config
@@ -16,10 +17,16 @@ from mcpref.training.pretrain.continuous.config import load_config
 from mcpref.training.pretrain.continuous.data.reader import Index
 from mcpref.training.pretrain.continuous.diagnostics.hooks import Diagnostics
 from mcpref.training.pretrain.continuous.loop import pretrain
+from mcpref.training.pretrain.continuous.numerics import reproducible
 
 
 def run(path: Path) -> None:
     cfg = load_config(path)
+    with exclusive_run(REPO / cfg.out_dir), reproducible(cfg.device):
+        _run(cfg, path)
+
+
+def _run(cfg, path: Path) -> None:
     index = Index(REPO / cfg.index_dir)
     try:
         modules = build_modules(

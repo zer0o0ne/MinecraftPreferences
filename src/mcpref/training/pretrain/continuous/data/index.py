@@ -12,6 +12,7 @@ from mcpref.datasets.continuous.config import digest
 from mcpref.gui.mask import load_config as mask_config
 from mcpref.gui.mask import load_masks
 from mcpref.infrastructure.runs.files import json_bytes, write_json
+from mcpref.infrastructure.runs.lock import exclusive_run
 from mcpref.infrastructure.shards.store import (
     complete_shards,
     publish,
@@ -125,6 +126,11 @@ def database(cfg, maths, run):
 
 
 def run(cfg: IndexConfig, path: Path):
+    with exclusive_run(REPO / cfg.out_dir):
+        return _run(cfg, path)
+
+
+def _run(cfg: IndexConfig, path: Path):
     maths = mathematics(cfg)
     masks = load_masks(mask_config(REPO / maths["action_mask"]))
     fingerprint, dataset_run = sources(cfg, path, maths, masks)

@@ -61,7 +61,7 @@ def update(
     params = [p for g in optimizer.param_groups for p in g["params"]]
     with phase("optimizer.clip_grad"):
         torch.nn.utils.clip_grad_norm_(
-            params, max_norm=cfg.grad_clip, norm_type=2.0, error_if_nonfinite=False
+            params, max_norm=cfg.grad_clip, norm_type=2.0, error_if_nonfinite=True
         )
     f, lr = lr_factor(t, total, cfg.warmup_steps, cfg.lr_floor), {}
     for g, q in zip(optimizer.param_groups, groups):

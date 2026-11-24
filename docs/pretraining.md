@@ -32,6 +32,12 @@ continuous:
 Then run the same `bash scripts/pretrain.sh`. It validates the selected paths,
 builds/resumes that mode's index and starts/resumes that mode's training.
 
+Continuous training allows one process per output directory. A second invocation
+fails before index building or model loading while the first holds the run lock;
+the index builder also protects its own output directory. Locks release on process
+exit, including crashes. The sibling `<out_dir>.lock` files remain in place and
+must not be deleted while a process is running.
+
 - `base.yaml` contains shared model, objective and diagnostic settings and
   inherits `configs/training/optimizer.yaml`.
 - `classical/config.yaml` uses clip batches and writes `data/pretrain_classical`.
@@ -46,7 +52,17 @@ builds/resumes that mode's index and starts/resumes that mode's training.
   Archive shard/cache limits bound the historical-latent working set.
 - `precision: fp32` in `base.yaml` stores weights, gradients and Adam moments in
   FP32; `bf16` selects BF16 storage. Backbone forward still uses BF16 autocast.
+  The continuous leaf currently selects `bf16` for speed.
+  BF16 storage has no FP32 master weights: small AdamW updates can round to zero,
+  including the dual and normalization parameters, even with nonzero gradients.
+  FP32 storage preserves these small updates while retaining backbone BF16 compute.
   Changing precision requires a fresh training output directory.
+- Continuous CUDA training enables deterministic backward before model construction,
+  including the repeated attention VJPs in the sliding window. The launcher sets
+  `CUBLAS_WORKSPACE_CONFIG=:4096:8` when absent; `:16:8` is also accepted. It disables
+  cuDNN benchmarking and unnecessary filling of uninitialized allocations. Torch
+  flags are restored when the call exits. Direct Python callers constructing CUDA
+  modules themselves should enter `continuous.numerics.reproducible` first.
 - `gradient_diagnostics: false` skips gradient/update measurements and gradient-flow
   artifacts. Continuous `publish_diagnostics: false` also disables the shared
   catalogue publisher and its repeated historical scans. Local losses and fixed
@@ -67,6 +83,29 @@ directory when changing it. The
 continuous index's `training_config` must point to the selected continuous leaf.
 `checkpoint_steps` must be divisible by `diagnostic_window`, and
 `reference_steps` by `checkpoint_steps`.
+The continuous leaf sets these to 1000, 1000 and 5000 respectively; classical
+settings remain separate.
+
+Before continuous diagnostics start, stderr reports the indexed training
+observations/fragments, optimizer update count, B/K, storage precision, activation
+checkpointing and all checkpoint/diagnostic/reference cadences. These counts do
+not estimate runtime. `diagnostic_window` aggregates ordinary update records;
+it does not set the length of a reference prefix.
+
+With training preference pairs, a missing initial reference baseline requires a
+forward replay from each selected fragment's start through its last selected
+endpoint, before the first optimizer update. The report gives the actual selected
+pair count and number of unique prefix fragments; `reference_pairs` does not bound
+the number of replayed observations. A complete saved baseline is reused. Each
+scheduled reference performs fresh prefix replay with the current weights, even
+when both `gradient_diagnostics` and `publish_diagnostics` are false. An interrupted
+reference pass without a complete published shard restarts those prefixes;
+there is no checkpoint inside the pass.
+
+Changing cadence, diagnostic flags, B/K or precision changes the training config
+fingerprint and cannot resume an existing training output unchanged. It does not
+require rebuilding a compatible continuous data index. Choose the settings before
+the long run; use a separate training output directory for a changed configuration.
 
 Continuous model artifacts declare observation-local attention and fragment
 memory. Gameplay supports them: set `pretrain` in

@@ -15,6 +15,7 @@ from mcpref.infrastructure.shards.store import (
     write_shard,
 )
 from mcpref.training.pretrain.continuous.archive_metadata import Keys, Live, Metadata
+from mcpref.training.pretrain.continuous.integrity import load_payload
 
 
 class Archive:
@@ -57,7 +58,7 @@ class Archive:
             value = self.cache.get(key)
             if value is None:
                 path = shard_path(self.root, self.live[key]["shard"]) / "histories.pt"
-                shard = torch.load(path, map_location="cpu", weights_only=True)
+                shard = load_payload(path, weights_only=True)
                 value = self._cache(key, shard[key])
             else:
                 self.cache.move_to_end(key)

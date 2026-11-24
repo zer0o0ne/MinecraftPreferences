@@ -1,6 +1,7 @@
 """Atomic continuous reference artifacts and producer-owned outboxes."""
 
 import json
+import sys
 from dataclasses import asdict
 
 import torch
@@ -23,6 +24,8 @@ from mcpref.training.pretrain.continuous.diagnostics.reference import (
     evaluate_reference,
     select_reference,
 )
+from mcpref.training.pretrain.continuous.diagnostics.reference_replay import prefix_plan
+from mcpref.training.pretrain.continuous.integrity import load_payload
 
 
 class References:
@@ -35,6 +38,10 @@ class References:
     def start(self):
         context = self.context
         if not context.index.run["populations"]["train"]["N_P"]:
+            print(
+                "Continuous reference: disabled (no training preference pairs).",
+                file=sys.stderr,
+            )
             return
         count = complete_shards(self.directory)
         self.count = count
@@ -44,6 +51,7 @@ class References:
                     "Initial continuous reference is missing after training started"
                 )
             self.selection, self.fit = select_reference(context.cfg, context.index)
+            self.report("initial baseline missing; full prefix replay required", 0)
             initial, metrics, pairs, observations = evaluate_initial(
                 context.cfg, context.modules, context.index, self.selection, self.fit
             )
@@ -56,12 +64,26 @@ class References:
             self.fit = GlobalFit(
                 **raw | {"strata": tuple(Stratum(**s) for s in raw["strata"])}
             )
-            self.initial = torch.load(
-                root / "initial.pt", map_location="cpu", weights_only=False
-            )
+            self.initial = load_payload(root / "initial.pt", weights_only=False)
+            self.report("complete initial baseline reused; no initial replay", 0)
         self.due()
 
+    def report(self, status, step):
+        fragments = len(prefix_plan(self.context.index, self.selection))
+        print(
+            f"Continuous reference step {step}: {status}; "
+            f"{len(self.selection['items'])} selected pairs, {fragments} unique prefix fragments.",
+            file=sys.stderr,
+        )
+        if "replay required" in status:
+            print(
+                "Reference prefixes run from fragment starts through their last selected endpoint. "
+                "An interrupted unpublished pass restarts these prefixes.",
+                file=sys.stderr,
+            )
+
     def publish(self, ordinal, metrics, pairs, observations, initial=None):
+        payload = (json.dumps(metrics, indent=2, allow_nan=False) + "\n").encode()
         context = self.context
         root = self.directory / name(ordinal)
         sources = [
@@ -107,7 +129,7 @@ class References:
                 )
                 i += 1
         with write_shard(self.directory, ordinal) as staged:
-            (staged / "metrics.json").write_bytes(json_bytes(metrics))
+            (staged / "metrics.json").write_bytes(payload)
             write_pairs(staged, pairs)
             if initial is not None:
                 (staged / "selection.json").write_bytes(json_bytes(self.selection))
@@ -129,6 +151,7 @@ class References:
             return
         if count != expected - 1 or context.step % context.cfg.reference_steps:
             raise RuntimeError("Continuous references do not match the restored step")
+        self.report("scheduled evaluation; full prefix replay required", context.step)
         metrics, pairs, observations = evaluate_reference(
             context.cfg,
             context.modules,

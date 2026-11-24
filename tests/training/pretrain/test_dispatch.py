@@ -18,7 +18,7 @@ def test_dispatch_order_and_paths(tmp_path, monkeypatch, mode):
     index_cfg = SimpleNamespace(
         out_dir="data/index", training_config=selection(mode)[mode]["config"]
     )
-    train_cfg = SimpleNamespace(index_dir="data/index")
+    train_cfg = SimpleNamespace(index_dir="data/index", out_dir="data/run")
     prefix = f"mcpref.training.pretrain.{mode}"
     modules = {
         f"{prefix}.data.index": SimpleNamespace(

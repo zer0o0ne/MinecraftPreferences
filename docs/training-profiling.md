@@ -2,7 +2,8 @@
 
 Capture a bounded window of complete optimizer iterations in pretrain and RL,
 including frozen-phi retraining. `configs/training/profile.yaml` is loaded by
-default and currently has `enabled: true`. Set `enabled: false` to disable it.
+default and currently has `enabled: false`. Set `enabled: true` for a bounded
+performance investigation; leave it disabled for long training.
 This separate file does not change the training config, its fingerprint, the
 objective, checkpoint contents, or the resume position.
 
@@ -24,7 +25,7 @@ are outside the measured iteration.
 `configs/training/profile.yaml` contains:
 
 ```yaml
-enabled: true
+enabled: false
 skip_steps: 2
 steps: 1
 top_ops: 30

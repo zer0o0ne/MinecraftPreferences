@@ -10,7 +10,7 @@ shared. Config accepts optional `continuous: {gradient_history, replay_stride}`
 with positive integers; it is required when the referenced pretrain mode is
 continuous. Existing classical configs without it remain valid.
 
-Execution profiling is controlled by `configs/training/profile.yaml` (`enabled: true`
+Execution profiling is controlled by `configs/training/profile.yaml` (`enabled: false`
 currently), with a `MCPREF_PROFILE` override, without changing training fingerprints
 or checkpoint state; see [Training profiling](../docs/training-profiling.md).
 
