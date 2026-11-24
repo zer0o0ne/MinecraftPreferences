@@ -5,7 +5,7 @@ remove:
   - micro_batch
 index_dir: data/train_index_continuous
 out_dir: data/pretrain_continuous
-precision: bf16
+precision: fp32
 diagnostics: configs/diagnostics-continuous.yaml
 publish_diagnostics: false
 checkpoint_steps: 1000

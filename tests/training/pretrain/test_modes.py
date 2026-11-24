@@ -85,7 +85,7 @@ def test_repository_modes_share_model_and_optimizer_settings(repo):
     assert {k: aa[k] for k in common} == {k: bb[k] for k in common}
     assert a.index_dir != b.index_dir and a.out_dir != b.out_dir
     assert "batch" not in bb and "tbptt_states" not in aa
-    assert a.precision == "fp32" and b.precision == "bf16"
+    assert a.precision == b.precision == "fp32"
     assert b.publish_diagnostics is False
     assert b.activation_checkpointing is False
     assert a.reference_steps == 500 and b.reference_steps == 5000

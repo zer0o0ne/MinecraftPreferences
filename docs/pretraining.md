@@ -52,7 +52,7 @@ must not be deleted while a process is running.
   Archive shard/cache limits bound the historical-latent working set.
 - `precision: fp32` in `base.yaml` stores weights, gradients and Adam moments in
   FP32; `bf16` selects BF16 storage. Backbone forward still uses BF16 autocast.
-  The continuous leaf currently selects `bf16` for speed.
+  The continuous leaf selects `fp32` to retain small optimizer updates.
   BF16 storage has no FP32 master weights: small AdamW updates can round to zero,
   including the dual and normalization parameters, even with nonzero gradients.
   FP32 storage preserves these small updates while retaining backbone BF16 compute.
