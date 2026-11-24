@@ -7,10 +7,10 @@ gradient_diagnostics: false
 checkpoint_steps: 100
 keep_checkpoints: 2
 groups:
-  phi_vision: {lr: 1.0e-5, weight_decay: 0.01}
-  phi_vision_no_decay: {lr: 1.0e-5, weight_decay: 0.0}
-  phi_llm: {lr: 1.0e-5, weight_decay: 0.01}
-  phi_llm_no_decay: {lr: 1.0e-5, weight_decay: 0.0}
+  phi_vision: {lr: 3.0e-6, weight_decay: 0.01}
+  phi_vision_no_decay: {lr: 3.0e-6, weight_decay: 0.0}
+  phi_llm: {lr: 3.0e-6, weight_decay: 0.01}
+  phi_llm_no_decay: {lr: 3.0e-6, weight_decay: 0.0}
   phi_head: {lr: 1.0e-5, weight_decay: 0.01}
   phi_head_no_decay: {lr: 1.0e-5, weight_decay: 0.0}
   phi_dual: {lr: 1.0e-5, weight_decay: 0.0}

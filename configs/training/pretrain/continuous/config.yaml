@@ -14,7 +14,7 @@ reference_steps: 5000
 # Keep the bounded K-observation activations to avoid repeated recomputation.
 activation_checkpointing: false
 tbptt_states: 4
-batch_size: 16
+batch_size: 32
 preference_micro_batch: 32
 archive_shard_size: 256
 archive_cache_size: 256
