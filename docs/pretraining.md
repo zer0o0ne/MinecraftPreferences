@@ -13,7 +13,9 @@ The first command builds/resumes the shared `data/pretraining` observation store
 continuous fragments, mapped original preferences and filtered classical clip
 views. Both trainers require a completed dataset. Repeating a command resumes
 from its last complete artifact; changed input fingerprints require a separate
-output directory.
+output directory. The current continuous configuration also requires completed
+additional annotations in `data/pair_labels_shared`; finish the "New preference
+annotations" steps below before starting pretraining.
 
 ## Selecting the trainer
 
@@ -47,7 +49,7 @@ must not be deleted while a process is running.
   per update (currently 16). Each observation replays its own sliding window of
   `tbptt_states` observations (currently 4), including across optimizer updates,
   from the saved detached memory immediately before that window. Older GDN memory
-  persists through the fragment. Output is `data/pretrain_continuous`.
+  persists through the fragment. Output is `data/pretrain_continuous_labeled`.
   `preference_micro_batch` bounds the number of preference pairs per call.
   Archive shard/cache limits bound the historical-latent working set.
 - `precision: fp32` in `base.yaml` stores weights, gradients and Adam moments in
@@ -158,13 +160,18 @@ Answer spellings are defined by `answers` in the labeling config. The base confi
 
 New clips are selected from the completed shared dataset. The command creates
 the pool, VLM responses, corrected labels and `data/train_index_shared_labeled`.
-The default pretraining selection uses the migrated original annotations. To
-include the new annotations in classical training, select
+Continuous training currently includes both the migrated original annotations
+and the new annotations. To include the new annotations in classical training, select
 `configs/training/pretrain/classical/index/shared-labeled.yaml` as `classical.index` and
 set the classical leaf's `index_dir` to `data/train_index_shared_labeled`.
-For continuous training, set `pair_clips_dir: data/pair_clips_shared` and
-`pair_labels_dir: data/pair_labels_shared` in its index config. Use new output
-directories when changing a completed index or training run's inputs.
+The continuous index config already selects `pair_clips_dir: data/pair_clips_shared`
+and `pair_labels_dir: data/pair_labels_shared`, writes
+`data/train_index_continuous_labeled`, and the trainer writes
+`data/pretrain_continuous_labeled`. After labeling and acyclic correction finish,
+stop the VLM with `bash scripts/stop_vlm.sh`, then run `bash scripts/pretrain.sh`.
+The pretraining entry point builds the index; it does not run VLM labeling or
+acyclic correction. Use new output directories when changing a completed index
+or training run's inputs.
 
 For bounded profiling and disabling it per invocation, see
 [training profiling](training-profiling.md).

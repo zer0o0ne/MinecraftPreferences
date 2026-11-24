@@ -3,8 +3,8 @@ extends:
 remove:
   - batch
   - micro_batch
-index_dir: data/train_index_continuous
-out_dir: data/pretrain_continuous
+index_dir: data/train_index_continuous_labeled
+out_dir: data/pretrain_continuous_labeled
 precision: fp32
 diagnostics: configs/diagnostics-continuous.yaml
 publish_diagnostics: false

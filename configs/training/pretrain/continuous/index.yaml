@@ -1,7 +1,7 @@
 extends:
   - configs/training/shards.yaml
 dataset: data/pretraining
-out_dir: data/train_index_continuous
+out_dir: data/train_index_continuous_labeled
 training_config: configs/training/pretrain/continuous/config.yaml
-pair_clips_dir: null
-pair_labels_dir: null
+pair_clips_dir: data/pair_clips_shared
+pair_labels_dir: data/pair_labels_shared
