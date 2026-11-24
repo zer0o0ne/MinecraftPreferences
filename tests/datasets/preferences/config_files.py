@@ -112,6 +112,12 @@ ACYCLIC = {
     "diagnostics": "w/acyclic-diagnostics.yaml",
     "weights": {"BETTER": 0.8, "WORSE": 0.2, "SAME": 0.5, "INCOMPARABLE": None},
     "refusal_share": 0.5,
+    "order_categories": {
+        "BETTER": "better",
+        "WORSE": "worse",
+        "SAME": "neutral",
+        "INCOMPARABLE": None,
+    },
 }
 
 

@@ -54,6 +54,22 @@ def test_label_uses_corrected_comparable_population_and_contract_check():
     assert record["metrics"]["incomparable"] == 1
 
 
+def test_vote_refusal_status_uses_configured_null_weight():
+    record = on_vote_shard(
+        [vote("e0", ["REFUSE", "INCOMPARABLE", "invalid", None])],
+        weights={"REFUSE": None, "INCOMPARABLE": 1.0},
+        cfg=config(),
+        context=context("pair_votes/shards/000000/answers.json", "vlm-labels"),
+    )
+    assert record["metrics"]["status"] == {
+        "dropped": 0,
+        "invalid": 2,
+        "no_answer": 2,
+        "INCOMPARABLE": 2,
+    }
+    assert record["metrics"]["target.vote_gt_0_8"]["order0"]["n"] == 1
+
+
 def test_graph_hand_populations_and_dropped_outside_denominator():
     comparisons = [
         comparison("e0"),

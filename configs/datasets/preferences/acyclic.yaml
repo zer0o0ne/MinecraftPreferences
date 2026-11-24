@@ -13,3 +13,12 @@ weights:
   MUCH_WORSE: 0.0
   INCOMPARABLE: null
 refusal_share: 0.5
+# Raw answer meanings, independent of token spelling and calibrated weights.
+order_categories:
+  MUCH_BETTER: better
+  BETTER: better
+  SLIGHTLY_BETTER: slightly_better
+  SLIGHTLY_WORSE: slightly_worse
+  WORSE: worse
+  MUCH_WORSE: worse
+  INCOMPARABLE: null

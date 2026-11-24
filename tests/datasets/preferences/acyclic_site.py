@@ -17,6 +17,7 @@ from training.pretrain.classical.data.index_run import repo_root
 from datasets.graphs.feedback_oracle import eades
 from datasets.preferences import acyclic_oracle as oracle
 from datasets.preferences.acyclic_world import (
+    CATEGORIES,
     DYADIC,
     HAND,
     POOL,
@@ -32,6 +33,7 @@ CONFIG = {  # AcyclicConfig in field order
     "votes_dir": "w/votes", "out_dir": "w/labels",
     "diagnostics": "w/configs/diagnostics.yaml",
     "weights": DYADIC, "refusal_share": 0.5,
+    "order_categories": CATEGORIES,
 }  # fmt: skip
 
 

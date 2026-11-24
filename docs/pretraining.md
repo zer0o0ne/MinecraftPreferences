@@ -154,6 +154,8 @@ bash scripts/serve_vlm.sh
 bash scripts/collect_preferences_pretrain_data.sh
 ```
 
+Answer spellings are defined by `answers` in the labeling config. The base configs retain the short tokens for legacy votes; the shared configs use explicit `A_IS_..._THAN_B` tokens. Its acyclic config must define the same tokens in `weights` and `order_categories`; the latter carries raw direction and slight/strong meaning independently of numeric weights. For example, `A_IS_BETTER_THAN_B: better` and `A_IS_SLIGHTLY_BETTER_THAN_B: slightly_better`. Renaming an answer requires updating both mappings; an incomplete mapping fails before labeling. Correction publishes `configured-order-conflict-v2` and refuses to resume older rule versions. Saved VLM answers can be corrected into a new output without calling the VLM again.
+
 New clips are selected from the completed shared dataset. The command creates
 the pool, VLM responses, corrected labels and `data/train_index_shared_labeled`.
 The default pretraining selection uses the migrated original annotations. To

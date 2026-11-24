@@ -122,7 +122,7 @@ def test_unchanged_inputs_pass(tmp_path):
     assert site.tree() == site.expected_tree()
 
 
-@pytest.mark.parametrize("rule", [None, "legacy-rule"])
+@pytest.mark.parametrize("rule", [None, "legacy-rule", "two-order-conflict-v1"])
 def test_old_verdict_rule_cannot_resume(tmp_path, rule):
     site = make_site(tmp_path)
     assert site.run().code == 0

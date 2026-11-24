@@ -174,8 +174,12 @@ def main(argv: Sequence[str]) -> int:
     args = parser.parse_args(argv)
     try:
         cfg = load_config(args.config)
-        diagnostics = DiagnosticRun.load(REPO / cfg.diagnostics)
         weights = load_acyclic_config(REPO / cfg.acyclic).weights
+        if list(weights) != [answer["token"] for answer in cfg.answers]:
+            raise RuntimeError(
+                f"weights of {cfg.acyclic} differ from configured answers"
+            )
+        diagnostics = DiagnosticRun.load(REPO / cfg.diagnostics)
         run = checks(cfg)
         K = complete_shards(REPO / cfg.pool_dir / "shards")
         label(

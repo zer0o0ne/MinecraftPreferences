@@ -2,6 +2,7 @@ extends:
   - configs/datasets/preferences/acyclic.yaml
 remove:
   - weights
+  - order_categories
 votes_dir: data/pair_votes_shared
 out_dir: data/pair_labels_shared
 diagnostics: configs/diagnostics-shared.yaml
@@ -12,4 +13,12 @@ weights:
   A_IS_SLIGHTLY_WORSE_THAN_B: 0.4
   A_IS_WORSE_THAN_B: 0.2
   A_IS_MUCH_WORSE_THAN_B: 0.0
+  INCOMPARABLE: null
+order_categories:
+  A_IS_MUCH_BETTER_THAN_B: better
+  A_IS_BETTER_THAN_B: better
+  A_IS_SLIGHTLY_BETTER_THAN_B: slightly_better
+  A_IS_SLIGHTLY_WORSE_THAN_B: slightly_worse
+  A_IS_WORSE_THAN_B: worse
+  A_IS_MUCH_WORSE_THAN_B: worse
   INCOMPARABLE: null

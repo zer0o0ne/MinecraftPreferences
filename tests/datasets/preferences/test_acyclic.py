@@ -154,6 +154,9 @@ def test_run_json_keeps_the_config_as_written(tmp_path):
         "diagnostics: w/configs/diagnostics.yaml\n"
         "weights: {MUCH_BETTER: 1, BETTER: 0.75, SLIGHTLY_BETTER: 0.625, SLIGHTLY_WORSE:"
         " 0.375, WORSE: 0.25, MUCH_WORSE: 0, INCOMPARABLE: null}\n"
+        "order_categories: {MUCH_BETTER: better, BETTER: better, "
+        "SLIGHTLY_BETTER: slightly_better, SLIGHTLY_WORSE: slightly_worse, "
+        "WORSE: worse, MUCH_WORSE: worse, INCOMPARABLE: null}\n"
     )
     assert site.run().code == 0
     run = json.loads((site.out / "run.json").read_bytes())
@@ -163,6 +166,7 @@ def test_run_json_keeps_the_config_as_written(tmp_path):
         "votes_dir",
         "diagnostics",
         "weights",
+        "order_categories",
     ]
     assert site.tree() == site.expected_tree()
 

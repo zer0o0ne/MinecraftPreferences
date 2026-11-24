@@ -70,6 +70,22 @@ def test_config_error(make_site, change):
     assert not site.out.exists()
 
 
+@pytest.mark.parametrize("change", ["rename", "remove", "reorder"])
+def test_answer_mapping_mismatch_fails_before_vlm_or_output(make_site, change):
+    site = make_site()
+    answers = [dict(answer) for answer in site.config["answers"]]
+    if change == "rename":
+        answers[0]["token"] = "RENAMED"
+    elif change == "remove":
+        answers.pop()
+    else:
+        answers.reverse()
+    site.config = {**site.config, "answers": answers}
+    site.path.write_text(yaml.safe_dump(site.config))
+    checked(site, f"weights of {site.config['acyclic']} differ from configured answers")
+    assert not (site.repo / "w/diagnostics").exists()
+
+
 def test_missing_config_file(make_site, tmp_path):
     """An unreadable config file (OSError): exit 1."""
     site = make_site(write=False)

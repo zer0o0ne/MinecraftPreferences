@@ -105,7 +105,7 @@ def run_json(config: bytes, answers: list[bytes], pool: str, counts=None) -> byt
         "config": yaml.safe_load(config),
         "sha256": {"config": sha(config), "votes": sha(b"".join(answers))},
         "pair_clips": pool,
-        "verdict_rule": "two-order-conflict-v1",
+        "verdict_rule": "configured-order-conflict-v2",
     }
     if counts is not None:
         pairs = counts["comparable"] + counts["removed"] + counts["incomparable"]

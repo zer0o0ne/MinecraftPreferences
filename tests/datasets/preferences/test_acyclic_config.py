@@ -7,12 +7,13 @@ import dataclasses
 import pytest
 import yaml
 
-from datasets.preferences.acyclic_world import START
+from datasets.preferences.acyclic_world import CATEGORIES, START
 from mcpref.datasets.preferences.acyclic import AcyclicConfig, load_config
 
 BASE = {"votes_dir": "data/pair_votes", "out_dir": "data/pair_labels",
         "diagnostics": "configs/diagnostics.yaml",
-        "weights": START, "refusal_share": 0.5}  # fmt: skip
+        "weights": START, "refusal_share": 0.5,
+        "order_categories": CATEGORIES}  # fmt: skip
 
 
 def load(tmp_path, text: str) -> AcyclicConfig:
@@ -37,7 +38,8 @@ def test_starting_values_from_test_owned_config(tmp_path):
     """The explicit starting mapping parses to the starting values of Interface."""
     c = load(tmp_path, text())
     assert dataclasses.astuple(c) == (
-        "data/pair_votes", "data/pair_labels", "configs/diagnostics.yaml", START, 0.5
+        "data/pair_votes", "data/pair_labels", "configs/diagnostics.yaml", START, 0.5,
+        CATEGORIES,
     )  # fmt: skip
     assert list(c.weights) == list(START)
 
@@ -55,6 +57,7 @@ def test_values_kept_as_written(tmp_path):
         'votes_dir: "data/./votes"\nout_dir: "x"\n'
         'diagnostics: "configs/diagnostics.yaml"\n'
         "weights:\n  Z: 1\n  A: 0.30\n  R: null\n  M: 0\nrefusal_share: 0\n"
+        "order_categories: {Z: better, A: slightly_worse, R: null, M: worse}\n"
     )
     c = load(tmp_path, raw)
     assert (c.votes_dir, c.out_dir) == ("data/./votes", "x")
@@ -81,7 +84,12 @@ def test_refusal_share_accepted(tmp_path, raw):
 )
 def test_weights_accepted(tmp_path, raw):
     """Non-empty, values in [0, 1] or null, exactly one null (the order free)."""
-    assert load(tmp_path, with_raw("weights", raw)).weights == yaml.safe_load(raw)
+    weights = yaml.safe_load(raw)
+    categories = {t: None if w is None else "neutral" for t, w in weights.items()}
+    assert (
+        load(tmp_path, text(weights=weights, order_categories=categories)).weights
+        == weights
+    )
 
 
 @pytest.mark.parametrize("key", list(BASE))
@@ -131,3 +139,20 @@ def test_huge_integer_is_a_value_error(tmp_path, key, raw):
     a ValueError at load (no OverflowError)."""
     with pytest.raises(ValueError):
         load(tmp_path, with_raw(key, raw))
+
+
+@pytest.mark.parametrize(
+    "categories",
+    [
+        [],
+        "better",
+        {},
+        {k: v for k, v in CATEGORIES.items() if k != "BETTER"},
+        {**CATEGORIES, "NEW": "better"},
+        *({**CATEGORIES, "BETTER": v} for v in [None, "unknown", True, 1, [], {}]),
+        {**CATEGORIES, "INCOMPARABLE": "neutral"},
+    ],
+)
+def test_categories_must_cover_weights_and_match_refusal(tmp_path, categories):
+    with pytest.raises(ValueError, match="order_categories"):
+        load(tmp_path, text(order_categories=categories))

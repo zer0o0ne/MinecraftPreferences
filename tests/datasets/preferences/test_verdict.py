@@ -8,7 +8,18 @@ from fractions import Fraction
 import pytest
 
 from datasets.preferences import acyclic_oracle as oracle
-from datasets.preferences.acyclic_world import INC, MB, MW, SB, START, SW, B, W, ref
+from datasets.preferences.acyclic_world import (
+    CATEGORIES,
+    INC,
+    MB,
+    MW,
+    SB,
+    START,
+    SW,
+    B,
+    W,
+    ref,
+)
 from mcpref.datasets.preferences.acyclic import AcyclicConfig, load_config
 from mcpref.datasets.preferences.verdict import verdict
 
@@ -17,7 +28,13 @@ INVALID, NONE = "invalid", "no_answer"
 
 
 def cfg(weights: dict = START, tau=0.5) -> AcyclicConfig:
-    return AcyclicConfig("w/votes", "w/labels", "w/diagnostics.yaml", weights, tau)
+    categories = {
+        t: None if w is None else CATEGORIES.get(t, "neutral")
+        for t, w in weights.items()
+    }
+    return AcyclicConfig(
+        "w/votes", "w/labels", "w/diagnostics.yaml", weights, tau, categories
+    )
 
 
 # (labels in request order, tau, expected); START weights 1, .8, .6, .4, .2, 0, null
@@ -81,6 +98,7 @@ def test_config_loaded_from_yaml(tmp_path):
         'votes_dir: "v"\nout_dir: "o"\ndiagnostics: "d.yaml"\n'
         "weights:\n  X: 1.0e-1\n  Y: 0.9\n  ONE: 1\n  ZERO: 0\n  R: null\n"
         "refusal_share: 3.0e-1\n"
+        "order_categories: {X: worse, Y: better, ONE: better, ZERO: worse, R: null}\n"
     )
     c = load_config(path)
     # (.1 + (1 - .9)) / 2 = 1/10 -> reversed, w = 9/10; ZERO in order 1: 1 - 0
@@ -100,6 +118,7 @@ def test_exact_value_is_the_shortest_repr_of_the_float_read(tmp_path):
         'votes_dir: "v"\nout_dir: "o"\ndiagnostics: "d.yaml"\n'
         "weights:\n  UP: 0.69999999999999999\n  DOWN: 0.3\n  R: null\n"
         "refusal_share: 0.29999999999999999\n"
+        "order_categories: {UP: better, DOWN: worse, R: null}\n"
     )
     c = load_config(path)
     assert (c.weights["UP"], c.refusal_share) == (0.7, 0.3)

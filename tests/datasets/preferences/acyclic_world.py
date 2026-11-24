@@ -12,6 +12,10 @@ from pathlib import Path
 TOKENS = ("MUCH_BETTER", "BETTER", "SLIGHTLY_BETTER", "SLIGHTLY_WORSE", "WORSE",
           "MUCH_WORSE", "INCOMPARABLE")  # fmt: skip
 MB, B, SB, SW, W, MW, INC = TOKENS
+CATEGORIES = {
+    MB: "better", B: "better", SB: "slightly_better", SW: "slightly_worse",
+    W: "worse", MW: "worse", INC: None,
+}  # fmt: skip
 START = {  # the starting weights (Interface)
     MB: 1.0, B: 0.8, SB: 0.6, SW: 0.4, W: 0.2, MW: 0.0, INC: None,
 }  # fmt: skip

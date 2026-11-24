@@ -51,7 +51,9 @@ def on_vote_shard(
             statuses["dropped"] += 1
         for request in vote["requests"]:
             label = request["label"]
-            if label in statuses:
+            if label in weights and weights[label] is None:
+                statuses["INCOMPARABLE"] += 1
+            elif label in ("invalid", "no_answer"):
                 statuses[label] += 1
             weight = weights.get(label)
             if weight is None:

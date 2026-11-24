@@ -29,7 +29,7 @@ from mcpref.infrastructure.shards.store import complete_shards, shard_path, writ
 
 PROG = "mcpref.datasets.preferences.acyclic"
 COUNTS = ("comparable", "removed", "incomparable", "dropped")
-VERDICT_RULE = "two-order-conflict-v1"
+VERDICT_RULE = "configured-order-conflict-v2"
 
 
 @dataclass(frozen=True)
@@ -39,6 +39,7 @@ class AcyclicConfig:
     diagnostics: str
     weights: dict[str, int | float | None]
     refusal_share: int | float
+    order_categories: dict[str, str | None]
 
 
 def check_weights(weights: object) -> None:
@@ -53,11 +54,25 @@ def check_weights(weights: object) -> None:
         raise ValueError(f"weights {weights!r} hold not exactly one null")
 
 
+def check_categories(weights: dict, categories: object) -> None:
+    if type(categories) is not dict or categories.keys() != weights.keys():
+        raise ValueError("order_categories must have exactly the keys of weights")
+    for token, category in categories.items():
+        allowed = (
+            (None,)
+            if weights[token] is None
+            else ("better", "slightly_better", "worse", "slightly_worse", "neutral")
+        )
+        if category not in allowed:
+            raise ValueError(f"order_categories.{token} must be one of {allowed}")
+
+
 def load_config(path: Path) -> AcyclicConfig:
     raw = config_mapping(read_yaml(path), path, AcyclicConfig)
     for k in ("votes_dir", "out_dir", "diagnostics"):
         relative(k, raw[k])
     check_weights(raw["weights"])
+    check_categories(raw["weights"], raw["order_categories"])
     tau = raw["refusal_share"]
     if not 0 <= number("refusal_share", tau) < 1:
         raise ValueError(f"refusal_share {tau!r} is not in [0, 1)")

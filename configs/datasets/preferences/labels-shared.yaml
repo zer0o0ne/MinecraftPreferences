@@ -4,3 +4,18 @@ pool_dir: data/pair_clips_shared
 out_dir: data/pair_votes_shared
 diagnostics: configs/diagnostics-shared.yaml
 acyclic: configs/datasets/preferences/acyclic-shared.yaml
+answers:
+  - token: "A_IS_MUCH_BETTER_THAN_B"
+    description: "A is much better than B"
+  - token: "A_IS_BETTER_THAN_B"
+    description: "A is better than B"
+  - token: "A_IS_SLIGHTLY_BETTER_THAN_B"
+    description: "A is slightly better than B"
+  - token: "A_IS_SLIGHTLY_WORSE_THAN_B"
+    description: "A is slightly worse than B"
+  - token: "A_IS_WORSE_THAN_B"
+    description: "A is worse than B"
+  - token: "A_IS_MUCH_WORSE_THAN_B"
+    description: "A is much worse than B"
+  - token: "INCOMPARABLE"
+    description: "A and B cannot be compared"

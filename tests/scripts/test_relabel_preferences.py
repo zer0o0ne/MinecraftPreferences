@@ -103,7 +103,7 @@ def test_rebuild_restores_graph_edge_and_preserves_sources(site):
         "incomparable": 1,
         "dropped": 0,
     }
-    assert head["verdict_rule"] == "two-order-conflict-v1"
+    assert head["verdict_rule"] == "configured-order-conflict-v2"
     diag = json.loads((out / "diagnostics/run.json").read_text())
     assert diag["complete"]
     assert set(diag["channels"]) == {"label", "graph"}
