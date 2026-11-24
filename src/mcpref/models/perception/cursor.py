@@ -47,17 +47,18 @@ def draw_cursor(
     frame: np.ndarray, line: Mapping, sprite: Sprite, mouse_height: int
 ) -> np.ndarray:
     """(1) on a copy of `frame`: the sprite composited at the scaled mouse position,
-    clipped at the right and bottom edges."""
+    clipped to the frame boundaries."""
     S_rgb, a = sprite
     out = frame.copy()
     H, W = out.shape[:2]
     f = H / mouse_height
     x, y = int(line["mouse"]["x"] * f), int(line["mouse"]["y"] * f)
-    h_c = max(0, min(H - y, S_rgb.shape[0]))
-    w_c = max(0, min(W - x, S_rgb.shape[1]))
-    if h_c == 0 or w_c == 0:
+    left, top = max(0, x), max(0, y)
+    right, bottom = min(W, x + S_rgb.shape[1]), min(H, y + S_rgb.shape[0])
+    if right <= left or bottom <= top:
         return out
-    R = out[y : y + h_c, x : x + w_c]
-    a_c = a[:h_c, :w_c]
-    R[...] = (R * (1 - a_c) + S_rgb[:h_c, :w_c] * a_c).astype(np.uint8)
+    crop = (slice(top - y, bottom - y), slice(left - x, right - x))
+    R = out[top:bottom, left:right]
+    a_c = a[crop]
+    R[...] = (R * (1 - a_c) + S_rgb[crop] * a_c).astype(np.uint8)
     return out
